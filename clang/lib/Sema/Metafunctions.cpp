@@ -70,6 +70,10 @@ static bool name_of(APValue &Result, Sema &S, EvalFn Evaluator,
                     QualType ResultTy, SourceRange Range,
                     ArrayRef<Expr *> Args);
 
+static bool qualified_name_of(APValue &Result, Sema &S, EvalFn Evaluator,
+                    QualType ResultTy, SourceRange Range,
+                    ArrayRef<Expr *> Args);
+
 static bool display_name_of(APValue &Result, Sema &S, EvalFn Evaluator,
                             QualType ResultTy, SourceRange Range,
                             ArrayRef<Expr *> Args);
@@ -326,6 +330,7 @@ static constexpr Metafunction Metafunctions[] = {
 
   // exposed metafunctions
   { Metafunction::MFRK_cstring, 1, 1, name_of },
+  { Metafunction::MFRK_cstring, 1, 1, qualified_name_of },
   { Metafunction::MFRK_cstring, 1, 1, display_name_of },
   { Metafunction::MFRK_sourceLoc, 1, 1, source_location_of },
   { Metafunction::MFRK_metaInfo, 1, 1, type_of },
@@ -1248,6 +1253,66 @@ bool map_decl_to_entity(APValue &Result, Sema &S, EvalFn Evaluator,
     return SetAndSucceed(Result, makeReflection(TName));
   } else {
     return SetAndSucceed(Result, makeReflection(D));
+  }
+  llvm_unreachable("unknown reflection kind");
+}
+
+template <typename DT>
+bool getQualifiedName(APValue &Result, Sema &S, EvalFn Evaluator, DT& declType)
+{
+    SmallString<128> QualifiedNameBuffer;
+    llvm::raw_svector_ostream OS(QualifiedNameBuffer);
+    declType.printQualifiedName(OS);
+    StringRef Name = QualifiedNameBuffer.str();
+    if( makeCString(Result, Name, S.Context, Evaluator) )
+    {
+      llvm_unreachable("failed to create qualified name string");
+      return true;
+    }
+    return false;
+}
+
+bool qualified_name_of(APValue &Result, Sema &S, EvalFn Evaluator, QualType ResultTy,
+             SourceRange Range, ArrayRef<Expr *> Args) {
+  assert(Args[0]->getType()->isReflectionType());
+  assert(ResultTy ==
+         S.Context.getPointerType(S.Context.getConstType(S.Context.CharTy)));
+
+  APValue R;
+  if (!Evaluator(R, Args[0], true))
+    return true;
+
+  switch (R.getReflection().getKind()) {
+  case ReflectionValue::RK_type: { 
+    QualType QT = R.getReflectedType(); // inconsitently returns qualified type {fix?}
+    return SetAndSucceed(Result, getTypeName(S.Context, Evaluator, QT,
+                                             /*emptyIfUnnamed=*/true));
+  }
+  case ReflectionValue::RK_declaration: { // works
+    const ValueDecl *VD = cast<ValueDecl>(R.getReflectedDecl());
+    return getQualifiedName(Result, S, Evaluator, *VD);
+  }
+  case ReflectionValue::RK_template: {  // works
+    const TemplateDecl *TD = cast<TemplateDecl>(R.getReflectedTemplate().getAsTemplateDecl());
+    return getQualifiedName(Result, S, Evaluator, *TD);
+  }
+  case ReflectionValue::RK_const_value: {
+    if (makeCString(Result, "", S.Context, Evaluator))
+      llvm_unreachable("failed to create empty string");
+    return false;
+  }
+  case ReflectionValue::RK_namespace: { // works
+    const NamespaceDecl *ND = cast<NamespaceDecl>(R.getReflectedNamespace());
+    return getQualifiedName(Result, S, Evaluator, *ND);
+  }
+  case ReflectionValue::RK_base_specifier: {
+    QualType QT = R.getReflectedBaseSpecifier()->getType();
+    const Decl* D = findTypeDecl(QT);
+    const TypeDecl *TD = cast<TypeDecl>(D);
+    return getQualifiedName(Result, S, Evaluator, *TD);
+  }
+  case ReflectionValue::RK_data_member_spec:
+    return true;
   }
   llvm_unreachable("unknown reflection kind");
 }

@@ -28,6 +28,7 @@ using info = decltype(^int);
 
 // name and location
 consteval auto name_of(info) -> string_view;
+consteval auto qualified_name_of(info) -> string_view;
 consteval auto display_name_of(info) -> string_view;
 consteval auto source_location_of(info r) -> source_location;
 
@@ -159,6 +160,7 @@ enum : unsigned {
 
   // exposed metafunctions
   __metafn_name_of,
+  __metafn_qualified_name_of,
   __metafn_display_name_of,
   __metafn_source_location_of,
   __metafn_type_of,
@@ -442,6 +444,11 @@ struct front_parameter_of_fn {
 // Returns the name of the reflected entity, or the empty string if it has none.
 consteval auto name_of(info r) -> string_view {
   return __metafunction(detail::__metafn_name_of, r);
+}
+
+// Returns the qualified name of the reflected entity, or the empty string if it has none.
+consteval auto qualified_name_of(info r) -> string_view {
+  return __metafunction(detail::__metafn_qualified_name_of, r);
 }
 
 // Returns a name for the reflected entity.
