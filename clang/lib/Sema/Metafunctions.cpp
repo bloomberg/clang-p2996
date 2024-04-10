@@ -1284,15 +1284,15 @@ bool qualified_name_of(APValue &Result, Sema &S, EvalFn Evaluator, QualType Resu
 
   switch (R.getReflection().getKind()) {
   case ReflectionValue::RK_type: { 
-    QualType QT = R.getReflectedType(); // inconsitently returns qualified type {fix?}
+    QualType QT = R.getReflectedType(); 
     return SetAndSucceed(Result, getTypeName(S.Context, Evaluator, QT,
                                              /*emptyIfUnnamed=*/true));
   }
-  case ReflectionValue::RK_declaration: { // works
+  case ReflectionValue::RK_declaration: { 
     const ValueDecl *VD = cast<ValueDecl>(R.getReflectedDecl());
     return getQualifiedName(Result, S, Evaluator, *VD);
   }
-  case ReflectionValue::RK_template: {  // works
+  case ReflectionValue::RK_template: {  
     const TemplateDecl *TD = cast<TemplateDecl>(R.getReflectedTemplate().getAsTemplateDecl());
     return getQualifiedName(Result, S, Evaluator, *TD);
   }
@@ -1301,7 +1301,7 @@ bool qualified_name_of(APValue &Result, Sema &S, EvalFn Evaluator, QualType Resu
       llvm_unreachable("failed to create empty string");
     return false;
   }
-  case ReflectionValue::RK_namespace: { // works
+  case ReflectionValue::RK_namespace: {
     const NamespaceDecl *ND = cast<NamespaceDecl>(R.getReflectedNamespace());
     return getQualifiedName(Result, S, Evaluator, *ND);
   }
