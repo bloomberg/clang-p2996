@@ -38,7 +38,6 @@ public:
   }
 
 protected:
-  
   TypeSystemClang *m_ast = nullptr;
   std::unique_ptr<clang_utils::TypeSystemClangHolder> m_holder;
 
@@ -436,7 +435,7 @@ TEST_F(TestTypeSystemClang, TestRecordHasFields) {
   TypeSystemClang::StartTagDeclarationDefinition(empty_derived);
   std::unique_ptr<clang::CXXBaseSpecifier> non_empty_base_spec =
       m_ast->CreateBaseClassSpecifier(non_empty_base.GetOpaqueQualType(),
-                                      lldb::eAccessPublic, false, false);
+                                      lldb::eAccessPublic, false);
   bases.push_back(std::move(non_empty_base_spec));
   bool result = m_ast->TransferBaseClasses(empty_derived.GetOpaqueQualType(),
                                            std::move(bases));
@@ -459,7 +458,7 @@ TEST_F(TestTypeSystemClang, TestRecordHasFields) {
   TypeSystemClang::StartTagDeclarationDefinition(empty_derived2);
   std::unique_ptr<CXXBaseSpecifier> non_empty_vbase_spec =
       m_ast->CreateBaseClassSpecifier(non_empty_base.GetOpaqueQualType(),
-                                      lldb::eAccessPublic, true, false);
+                                      lldb::eAccessPublic, true);
   bases.push_back(std::move(non_empty_vbase_spec));
   result = m_ast->TransferBaseClasses(empty_derived2.GetOpaqueQualType(),
                                       std::move(bases));

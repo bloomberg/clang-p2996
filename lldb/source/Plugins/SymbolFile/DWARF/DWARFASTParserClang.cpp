@@ -1440,7 +1440,6 @@ void DWARFASTParserClang::ParseInheritance(
   DWARFFormValue encoding_form;
   AccessType accessibility = default_accessibility;
   bool is_virtual = false;
-  bool is_base_of_class = true;
   off_t member_byte_offset = 0;
 
   for (uint32_t i = 0; i < attributes.Size(); ++i) {
@@ -1493,8 +1492,7 @@ void DWARFASTParserClang::ParseInheritance(
   }
   std::unique_ptr<clang::CXXBaseSpecifier> result =
       ast->CreateBaseClassSpecifier(base_class_clang_type.GetOpaqueQualType(),
-                                    accessibility, is_virtual,
-                                    is_base_of_class);
+                                    accessibility, is_virtual);
   if (!result)
     return;
 

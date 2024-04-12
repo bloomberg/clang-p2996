@@ -23,6 +23,7 @@
 
 namespace clang {
 
+class OpenACCClause;
 class TypeLoc;
 
 /// An object for streaming information to a record.
@@ -307,6 +308,12 @@ public:
 
   /// Writes data related to the OpenMP directives.
   void writeOMPChildren(OMPChildren *Data);
+
+  /// Writes out a single OpenACC Clause.
+  void writeOpenACCClause(const OpenACCClause *C);
+
+  /// Writes out a list of OpenACC clauses.
+  void writeOpenACCClauseList(ArrayRef<const OpenACCClause *> Clauses);
 
   /// Emit a string.
   void AddString(StringRef Str) {
