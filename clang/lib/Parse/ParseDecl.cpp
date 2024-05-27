@@ -6750,12 +6750,25 @@ void Parser::ParseDeclaratorInternal(Declarator &D,
     // Is a reference
     DeclSpec DS(AttrFactory);
 
-    // Complain about rvalue references in C++03, but then go on and build
-    // the declarator.
-    if (Kind == tok::ampamp)
-      Diag(Loc, getLangOpts().CPlusPlus11 ?
-           diag::warn_cxx98_compat_rvalue_reference :
-           diag::ext_rvalue_reference);
+    // Complain about:
+    // - rvalue references in C++03,
+    // - `^T &&` parsing ambiguity in C++2x
+    // but then go on and build the declarator.
+    if (Kind == tok::ampamp) {
+      if (D.getContext() == DeclaratorContext::ReflectOperator) {
+        std::string typeName = "T";
+        if (D.hasName()) {
+          typeName = Actions.GetNameForDeclarator(D).getName().getAsString();
+        }
+        Diag(Loc,
+             diag::warn_parsing_ambiguity_in_refl_expression_with_ampamp_token)
+            << typeName;
+      }
+
+      Diag(Loc, getLangOpts().CPlusPlus11
+                    ? diag::warn_cxx98_compat_rvalue_reference
+                    : diag::ext_rvalue_reference);
+    }
 
     // GNU-style and C++11 attributes are allowed here, as is restrict.
     ParseTypeQualifierListOpt(DS);

@@ -1713,6 +1713,10 @@ let CategoryName = "Reflection Issue" in {
 def err_cannot_reflect_entity : Error<"cannot reflect entity">;
 def err_expansion_statements_disabled : Error<
   "'template for' statements are not enabled; use '-fexpansion-statements'">;
+
+def warn_parsing_ambiguity_in_refl_expression_with_ampamp_token : Warning <
+    "the compound condition may be misinterpreted due to '%0 &&' type parsing logic. did you mean '... (^%0) && ...'?"
+    >;
 }
 
 let CategoryName = "Generics Issue" in {
