@@ -1532,3 +1532,6 @@ def BitIntExtension : DiagGroup<"bit-int-extension">;
 
 // Warnings about misuse of ExtractAPI options.
 def ExtractAPIMisuse : DiagGroup<"extractapi-misuse">;
+
+// Warning related to reflection
+def ReflExprParsingAmbiguity : DiagGroup<"reflect-parsing-ambiguity">;
