@@ -6766,11 +6766,10 @@ void Parser::ParseDeclaratorInternal(Declarator &D,
 
     // Complain about rvalue references in C++03, but then go on and build
     // the declarator.
-    if (Kind == tok::ampamp) {
-      Diag(Loc, getLangOpts().CPlusPlus11
-                    ? diag::warn_cxx98_compat_rvalue_reference
-                    : diag::ext_rvalue_reference);
-    }
+    if (Kind == tok::ampamp)
+      Diag(Loc, getLangOpts().CPlusPlus11 ?
+                                          diag::warn_cxx98_compat_rvalue_reference :
+                                          diag::ext_rvalue_reference);
 
     // GNU-style and C++11 attributes are allowed here, as is restrict.
     ParseTypeQualifierListOpt(DS);
