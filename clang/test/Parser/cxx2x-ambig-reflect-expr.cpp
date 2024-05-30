@@ -8,7 +8,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// RUN: %clang_cc1 -std=c++26 -freflection -verify %s
+// RUN: %clang_cc1 -std=c++26 -freflection -Wno-parentheses -verify %s
 
 
 enum MyEnum { x, y, e = -1, f, z = 99 };
@@ -25,8 +25,13 @@ void func(MyEnum && x) { // ok
   constexpr bool test_comparison_2 = ^MyEnum != (^MyEnum) && true; // ok
   constexpr bool test_comparison_3 = (^MyEnum != (^MyEnum) && true); // ok
 
-  constexpr bool test_comparison_4 = reflValue != ^MyEnum && true;
-  // expected-warning@28 {{the compound condition may be misinterpreted due to 'T &&' type parsing logic. did you mean '... (^T) && ...'?}}
-  // expected-error@28 {{expected ';' at end of declaration}}
+  constexpr bool test_comparison_4 = (reflValue != (^MyEnum) & true); // ok
+
+  constexpr bool test_comparison_5 = reflValue != ^MyEnum && true;
+  // expected-warning@30 {{the compound condition may be misinterpreted due to 'T &&' type parsing logic. did you mean '... (^T) && ...'?}}
+  // expected-error@30 {{expected ';' at end of declaration}}
+  constexpr bool test_comparison_6 = reflValue != ^MyEnum & true;
+  // expected-warning@33 {{the compound condition may be misinterpreted due to 'T &' type parsing logic. did you mean '... (^T) & ...'?}}
+  // expected-error@33 {{expected ';' at end of declaration}}
 }
 

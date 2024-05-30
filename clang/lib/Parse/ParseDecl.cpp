@@ -6750,20 +6750,23 @@ void Parser::ParseDeclaratorInternal(Declarator &D,
     // Is a reference
     DeclSpec DS(AttrFactory);
 
-    // Complain about:
-    // - rvalue references in C++03
-    // - `^T &&` parsing ambiguity of compound expression with reflection in C++2x
-    // but then go on and build the declarator.
-    if (Kind == tok::ampamp) {
-      if (D.getContext() == DeclaratorContext::ReflectOperator) {
-        // parser already consumed '^' token before setting this context
-        Diag(Loc,
-             diag::warn_parsing_ambiguity_in_refl_expression_with_ampamp_token)
-            << (D.hasName()
-                    ? Actions.GetNameForDeclarator(D).getName().getAsString()
-                    : "T");
-      }
+    // Complain about parsing ambiguity of parsing reference types
+    // inside expressions with reflection in C++2x
+    if (D.getContext() == DeclaratorContext::ReflectOperator) {
+      // parser already consumed '^' token before setting this context
+      assert((Kind == tok::ampamp || Kind == tok::amp) &&
+             "expected '&' or '&&'");
+      Diag(Loc,
+           diag::warn_parsing_ambiguity_in_refl_expression_with_reference_types)
+          << (D.hasName()
+                  ? Actions.GetNameForDeclarator(D).getName().getAsString()
+                  : "T")
+          << tok::getPunctuatorSpelling(Kind);
+    }
 
+    // Complain about rvalue references in C++03, but then go on and build
+    // the declarator.
+    if (Kind == tok::ampamp) {
       Diag(Loc, getLangOpts().CPlusPlus11
                     ? diag::warn_cxx98_compat_rvalue_reference
                     : diag::ext_rvalue_reference);
