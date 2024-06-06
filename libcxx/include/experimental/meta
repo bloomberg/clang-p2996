@@ -76,6 +76,7 @@ consteval auto is_override(info) -> bool;
 consteval auto is_deleted(info) -> bool;
 consteval auto is_defaulted(info) -> bool;
 consteval auto is_explicit(info) -> bool;
+consteval bool is_noexcept(info) -> bool;
 consteval auto is_bit_field(info) -> bool;
 consteval auto has_static_storage_duration(info) -> bool;
 consteval auto has_internal_linkage(info) -> bool;
@@ -183,6 +184,7 @@ enum : unsigned {
   __metafn_is_deleted,
   __metafn_is_defaulted,
   __metafn_is_explicit,
+  __metafn_is_noexcept,
   __metafn_is_bit_field,
   __metafn_has_static_storage_duration,
   __metafn_has_internal_linkage,
@@ -690,6 +692,11 @@ consteval auto is_defaulted(info r) -> bool {
 // Returns whether the reflected class member function is explicit.
 consteval auto is_explicit(info r) -> bool {
   return __metafunction(detail::__metafn_is_explicit, r);
+}
+
+// Returns whether the reflected member function, it's type, closure type of a non-generic lambda or it's value is noexcept.
+consteval auto is_noexcept(info r) -> bool {
+  return __metafunction(detail::__metafn_is_noexcept, r);
 }
 
 // Returns whether the reflected class data member is a bit field.
