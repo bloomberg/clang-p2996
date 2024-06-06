@@ -150,6 +150,10 @@ static bool is_explicit(APValue &Result, Sema &S, EvalFn Evaluator,
                         QualType ResultTy, SourceRange Range,
                         ArrayRef<Expr *> Args);
 
+static bool is_noexcept(APValue &Result, Sema &S, EvalFn Evaluator,
+                        QualType ResultTy, SourceRange Range,
+                        ArrayRef<Expr *> Args);
+
 static bool is_bit_field(APValue &Result, Sema &S, EvalFn Evaluator,
                          QualType ResultTy, SourceRange Range,
                          ArrayRef<Expr *> Args);
@@ -358,6 +362,7 @@ static constexpr Metafunction Metafunctions[] = {
   { Metafunction::MFRK_bool, 1, 1, is_deleted },
   { Metafunction::MFRK_bool, 1, 1, is_defaulted },
   { Metafunction::MFRK_bool, 1, 1, is_explicit },
+  { Metafunction::MFRK_bool, 1, 1, is_noexcept },
   { Metafunction::MFRK_bool, 1, 1, is_bit_field },
   { Metafunction::MFRK_bool, 1, 1, has_static_storage_duration },
   { Metafunction::MFRK_bool, 1, 1, has_internal_linkage },
@@ -2506,6 +2511,11 @@ bool is_explicit(APValue &Result, Sema &S, EvalFn Evaluator, QualType ResultTy,
   }
   }
   llvm_unreachable("invalid reflection type");
+}
+
+bool is_noexcept(APValue &Result, Sema &S, EvalFn Evaluator, QualType ResultTy,
+                 SourceRange Range, ArrayRef<Expr *> Args) {
+  return is_explicit(Result, S, Evaluator, ResultTy, Range, Args);
 }
 
 bool is_bit_field(APValue &Result, Sema &S, EvalFn Evaluator, QualType ResultTy,

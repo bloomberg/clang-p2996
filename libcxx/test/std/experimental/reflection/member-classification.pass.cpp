@@ -359,6 +359,115 @@ static_assert(!is_explicit(^::));
 static_assert(!is_explicit(^inner));
 }  // namespace explicit_functions
 
+                             // ==================
+                             // noexcept_functions
+                             // ==================
+
+namespace noexcept_functions {
+struct S {
+  // methods
+  void noexcept_method() noexcept;
+  void not_noexcept_method();
+  
+  // virtual methods
+  virtual void noexcept_virtual_method() noexcept;
+  virtual void not_noexcept_virtual_method();
+
+  // template methods
+  template <typename T>
+  void noexcept_template_method() noexcept;
+  template <typename T>
+  void not_noexcept_template_method();
+};
+
+// non generic lambdas
+constexpr auto noexcept_lambda = []() noexcept {};
+constexpr auto not_noexcept_lambda = []{};
+
+// generic lambdas
+constexpr auto noexcept_generic_lambda = []<typename T>() noexcept {};
+constexpr auto not_noexcept_generic_lambda = []<typename T>() {};
+
+// functions
+void noexcept_function() noexcept;
+void not_noexcept_function() noexcept;
+
+// template functions
+template <typename T>
+void noexcept_template_function() noexcept;
+template <typename T>
+void not_noexcept_template_function() noexcept;
+
+// Everything mentioned in the proposal
+// (no-)noexcept member functions
+static_assert(is_noexcept(^S::noexcept_method));
+static_assert(!is_noexcept(^S::not_noexcept_method));
+
+// (no-)noexcept member function types
+static_assert(is_noexcept(type_of(^S::noexcept_method)));
+static_assert(!is_noexcept(type_of(^S::not_noexcept_method)));
+
+// (no-)noexcept virtual methods
+static_assert(is_noexcept(^S::noexcept_virtual_method));
+static_assert(!is_noexcept(^S::not_noexcept_virtual_method));
+
+// (no-)noexcept virtual method types
+static_assert(is_noexcept(type_of(^S::noexcept_virtual_method)));
+static_assert(!is_noexcept(type_of(^S::not_noexcept_virtual_method)));
+
+// (no-)noexcept lambdas
+static_assert(is_noexcept(^noexcept_lambda));
+static_assert(!is_noexcept(^not_noexcept_lambda));
+
+// (no-)noexcept closure types
+static_assert(is_noexcept(type_of(^noexcept_lambda)));
+static_assert(!is_noexcept(type_of(^not_noexcept_lambda)));
+
+// (no-)noexcept function
+static_assert(is_noexcept(^noexcept_function));
+static_assert(!is_noexcept(^not_noexcept_function));
+
+// (no-)noexcept function type
+static_assert(is_noexcept(type_of(^noexcept_function)));
+static_assert(!is_noexcept(type_of(^not_noexcept_function)));
+
+// The rest (should all be false regardless of noexcept specifier)
+// (no-)noexcept template methods
+static_assert(!is_noexcept(^S::noexcept_template_method));
+static_assert(!is_noexcept(^S::not_noexcept_template_method));
+
+// (no-)noexcept instantiated template methods
+static_assert(!is_noexcept(^S::noexcept_template_method<int>));
+static_assert(!is_noexcept(^S::not_noexcept_template_method<int>));
+static_assert(!is_noexcept(type_of(^S::noexcept_template_method<int>)));
+static_assert(!is_noexcept(type_of(^S::not_noexcept_template_method<int>)));
+
+// (no-)noexcept generic closure types
+static_assert(!is_noexcept(^noexcept_generic_lambda));
+static_assert(!is_noexcept(^not_noexcept_generic_lambda));
+static_assert(!is_noexcept(type_of(^noexcept_generic_lambda)));
+static_assert(!is_noexcept(type_of(^not_noexcept_generic_lambda)));
+
+// (no-)noexcept template functions
+static_assert(!is_noexcept(^noexcept_template_function));
+static_assert(!is_noexcept(^not_noexcept_template_function));
+
+// (no-)noexcept instantiated template functions
+static_assert(!is_noexcept(^noexcept_template_function<int>));
+static_assert(!is_noexcept(^not_noexcept_template_function<int>));
+static_assert(!is_noexcept(type_of(^noexcept_template_function<int>)));
+static_assert(!is_noexcept(type_of(^not_noexcept_template_function<int>)));
+
+// Random non callable types
+auto x = 1;
+auto s = S();
+
+static_assert(!is_noexcept(^x));
+static_assert(!is_noexcept(type_of(^x)));
+static_assert(!is_noexcept(^s));
+static_assert(!is_noexcept(type_of(^s)));
+} // namespace noexcept_functions
+
                               // ================
                               // bitfield members
                               // ================
