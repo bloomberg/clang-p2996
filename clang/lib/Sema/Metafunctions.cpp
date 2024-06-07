@@ -1011,6 +1011,37 @@ bool isAccessible(Sema &S, DeclContext *AccessDC, NamedDecl *D) {
   return Result;
 }
 
+template <typename T>
+static bool isFunctionDeclNoexcept(const T *FuncD) {
+  switch (FuncD->getExceptionSpecType()) {
+    case EST_BasicNoexcept:
+    case EST_NoexceptTrue:
+      return true;
+    default:
+      return false;
+  }
+}
+
+static bool isFunctionOrLambdaNoexcept(const QualType QT) {
+  const Type* T = QT.getTypePtr();
+
+  if (T->isFunctionProtoType()) {
+    // This covers (virtual) methods & functions
+    const auto *FPT = T->getAs<FunctionProtoType>();
+
+    return isFunctionDeclNoexcept(FPT);
+  } else if (T->isRecordType()) {
+    // This branch is for lambdas only
+    const auto RT = T->getAs<RecordType>();
+    const auto RecordD = cast<CXXRecordDecl>(RT->getDecl());
+    
+    if (RecordD && RecordD->isLambda() && !RecordD->isGenericLambda())
+      return isFunctionDeclNoexcept(RecordD->getLambdaCallOperator());
+  }
+
+  return false;
+}
+
 // -----------------------------------------------------------------------------
 // Metafunction implementations
 // -----------------------------------------------------------------------------
@@ -2515,7 +2546,34 @@ bool is_explicit(APValue &Result, Sema &S, EvalFn Evaluator, QualType ResultTy,
 
 bool is_noexcept(APValue &Result, Sema &S, EvalFn Evaluator, QualType ResultTy,
                  SourceRange Range, ArrayRef<Expr *> Args) {
-  return is_explicit(Result, S, Evaluator, ResultTy, Range, Args);
+  assert(Args[0]->getType()->isReflectionType());
+  assert(ResultTy == S.Context.BoolTy);
+
+  APValue R;
+  if (!Evaluator(R, Args[0], true))
+    return true;
+
+  switch (R.getReflection().getKind()) {
+  case ReflectionValue::RK_const_value:
+  case ReflectionValue::RK_namespace:
+  case ReflectionValue::RK_base_specifier:
+  case ReflectionValue::RK_data_member_spec:
+  case ReflectionValue::RK_template:
+    return SetAndSucceed(Result, makeBool(S.Context, false));
+  case ReflectionValue::RK_type: {
+    const QualType QT = R.getReflectedType();
+    const auto result = isFunctionOrLambdaNoexcept(QT);
+
+    return SetAndSucceed(Result, makeBool(S.Context, result));
+  }
+  case ReflectionValue::RK_declaration: {
+    const ValueDecl *D = R.getReflectedDecl();
+    const auto result = isFunctionOrLambdaNoexcept(D->getType());
+    
+    return SetAndSucceed(Result, makeBool(S.Context, result));
+  }
+  }
+  llvm_unreachable("invalid reflection type");
 }
 
 bool is_bit_field(APValue &Result, Sema &S, EvalFn Evaluator, QualType ResultTy,
