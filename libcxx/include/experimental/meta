@@ -806,6 +806,7 @@ consteval auto is_special_member(info r) -> bool {
   return __metafunction(detail::__metafn_is_special_member, r);
 }
 
+// Returns whether the reflected entity is a structured binding.
 consteval auto is_structured_binding(info r) -> bool {
   return __metafunction(detail::__metafn_is_structured_binding, r);
 }
