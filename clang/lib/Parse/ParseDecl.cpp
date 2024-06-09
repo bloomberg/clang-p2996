@@ -6752,7 +6752,8 @@ void Parser::ParseDeclaratorInternal(Declarator &D,
 
     // Complain about parsing ambiguity of parsing reference types
     // inside expressions with reflection in C++2x
-    if (D.getContext() == DeclaratorContext::ReflectOperator) {
+    if (D.getContext() == DeclaratorContext::ReflectOperator &&
+        !Tok.isOneOf(tok::r_paren, tok::semi)) {
       // parser already consumed '^' token before setting this context
       assert((Kind == tok::ampamp || Kind == tok::amp) &&
              "expected '&' or '&&'");
