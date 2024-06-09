@@ -264,6 +264,10 @@ static bool is_special_member(APValue &Result, Sema &S, EvalFn Evaluator,
                               QualType ResultTy, SourceRange Range,
                               ArrayRef<Expr *> Args);
 
+static bool is_structured_binding(APValue &Result, Sema &S, EvalFn Evaluator,
+                              QualType ResultTy, SourceRange Range,
+                              ArrayRef<Expr *> Args);
+
 static bool reflect_result(APValue &Result, Sema &S, EvalFn Evaluator,
                            QualType ResultTy, SourceRange Range,
                            ArrayRef<Expr *> Args);
@@ -386,6 +390,7 @@ static constexpr Metafunction Metafunctions[] = {
   { Metafunction::MFRK_bool, 1, 1, is_constructor },
   { Metafunction::MFRK_bool, 1, 1, is_destructor },
   { Metafunction::MFRK_bool, 1, 1, is_special_member },
+    { Metafunction::MFRK_bool, 1, 1, is_structured_binding },
   { Metafunction::MFRK_metaInfo, 2, 2, reflect_result },
   { Metafunction::MFRK_metaInfo, 3, 3, reflect_invoke },
   { Metafunction::MFRK_metaInfo, 9, 9, data_member_spec },
@@ -3108,6 +3113,16 @@ bool is_special_member(APValue &Result, Sema &S, EvalFn Evaluator,
     return SetAndSucceed(Result, makeBool(S.Context, result));
   }
   }
+  llvm_unreachable("invalid reflection type");
+}
+
+bool is_structured_binding(APValue &Result, Sema &S, EvalFn Evaluator,
+                           QualType ResultTy, SourceRange Range,
+                           ArrayRef<Expr *> Args) {
+  assert(Args[0]->getType()->isReflectionType());
+  assert(ResultTy == S.Context.BoolTy);
+
+  return false;
   llvm_unreachable("invalid reflection type");
 }
 

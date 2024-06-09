@@ -17,6 +17,7 @@
 
 
 #include <experimental/meta>
+#include <tuple>
 
 
 struct type {};
@@ -425,6 +426,34 @@ struct Derived : Base {};
 static_assert(!is_base(^Base));
 static_assert(!is_type(bases_of(^Derived)[0]));
 static_assert(is_base(bases_of(^Derived)[0]));
+
+static int struct_binding_case1[] = {1, 2, 3};
+auto [x1, y1, z1] = struct_binding_case1;
+static_assert(is_structured_binding(^x1));
+static_assert(is_structured_binding(^y1));
+static_assert(is_structured_binding(^z1));
+static_assert(!is_variable(^x1));
+static_assert(!is_variable(^y1));
+static_assert(!is_variable(^z1));
+
+auto struct_binding_case2() { return std::make_tuple(1, 2, 3); }
+auto [x2, y2, z2] = struct_binding_case2();
+static_assert(is_structured_binding(^x2));
+static_assert(is_structured_binding(^y2));
+static_assert(is_structured_binding(^z2));
+static_assert(is_variable(^x2));
+static_assert(is_variable(^y2));
+static_assert(is_variable(^z2));
+
+struct StructBinding { int a, b, c; };
+auto struct_binding_case3() { return  StructBinding {1, 2, 3}; }
+auto [x3, y3, z3] = struct_binding_case3();
+static_assert(is_structured_binding(^x3));
+static_assert(is_structured_binding(^y3));
+static_assert(is_structured_binding(^z3));
+static_assert(!is_variable(^x3));
+static_assert(!is_variable(^y3));
+static_assert(!is_variable(^z3));
 
 
 int main() { }
