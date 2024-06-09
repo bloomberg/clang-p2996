@@ -1715,8 +1715,8 @@ def err_expansion_statements_disabled : Error<
   "'template for' statements are not enabled; use '-fexpansion-statements'">;
 
 def warn_parsing_ambiguity_in_refl_expression_with_reference_types : Warning <
-    "given expression may be misinterpreted due to '%0 %1'"
-    " type parsing logic. did you mean '... (^%0) %1 ...'?"
+    "token '%1' binds left to type '%0 %1'; "
+    "did you mean '(^%0) %1'?"
     >,
     InGroup<ReflExprParsingAmbiguity>;
 }

@@ -28,10 +28,10 @@ void func(MyEnum && x) { // ok
   constexpr bool test_comparison_4 = (reflValue != (^MyEnum) & true); // ok
 
   constexpr bool test_comparison_5 = reflValue != ^MyEnum && true;
-  // expected-warning@-1 {{given expression may be misinterpreted due to 'T &&' type parsing logic. did you mean '... (^T) && ...'?}}
+  // expected-warning@-1 {{token '&' binds left to type 'T &&'; did you mean '(^T) &&'?}}
   // expected-error@-2 {{expected ';' at end of declaration}}
   constexpr bool test_comparison_6 = reflValue != ^MyEnum & true;
-  // expected-warning@-1 {{given expression may be misinterpreted due to 'T &' type parsing logic. did you mean '... (^T) & ...'?}}
+  // expected-warning@-1 {{token '&' binds left to type 'T &'; did you mean '(^T) &'?}}
   // expected-error@-2 {{expected ';' at end of declaration}}
 
   constexpr auto test_ref_type_0 = ^int &; // ok
