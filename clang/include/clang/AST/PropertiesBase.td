@@ -265,6 +265,11 @@ class PropertyTypeCase<PropertyType type, string name> : HasProperties {
 // Type cases for ReflectionValue.
 def : PropertyTypeKind<ReflectionValue, ReflectionKind,
                        "node.getKind()">;
+let Class = PropertyTypeCase<ReflectionValue, "RK_null"> in {
+  def : Creator<[{
+    return ReflectionValue();
+  }]>;
+}
 let Class = PropertyTypeCase<ReflectionValue, "RK_type"> in {
   def : Property<"value", QualType> {
     let Read = [{ node.getAsType() }];
@@ -274,12 +279,12 @@ let Class = PropertyTypeCase<ReflectionValue, "RK_type"> in {
                            value.getAsOpaquePtr());
   }]>;
 }
-let Class = PropertyTypeCase<ReflectionValue, "RK_const_value"> in {
+let Class = PropertyTypeCase<ReflectionValue, "RK_expr_result"> in {
   def : Property<"value", StmtRef> {
-    let Read = [{ node.getAsConstValueExpr() }];
+    let Read = [{ node.getAsExprResult() }];
   }
   def : Creator<[{
-    return ReflectionValue(ReflectionValue::RK_const_value, value);
+    return ReflectionValue(ReflectionValue::RK_expr_result, value);
   }]>;
 }
 let Class = PropertyTypeCase<ReflectionValue, "RK_declaration"> in {

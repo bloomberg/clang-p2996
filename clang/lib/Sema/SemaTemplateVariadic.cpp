@@ -68,6 +68,9 @@ namespace {
 
     bool shouldWalkTypesOfTypeLocs() const { return false; }
 
+    // We need this so we can find e.g. attributes on lambdas.
+    bool shouldVisitImplicitCode() const { return true; }
+
     //------------------------------------------------------------------------
     // Recording occurrences of (unexpanded) parameter packs.
     //------------------------------------------------------------------------

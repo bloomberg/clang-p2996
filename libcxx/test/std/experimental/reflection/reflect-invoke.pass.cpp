@@ -115,9 +115,28 @@ template <typename T, template <typename, size_t> class C, size_t Sz>
 consteval bool FirstElemZero(C<T, Sz> Container) { return Container[0] == 0; }
 static_assert(
         [:reflect_invoke(substitute(^FirstElemZero, {^int, ^std::array, ^4}),
-                         {std::meta::reflect_result(std::array{0,2,3,4})}):]);
+                         {std::meta::reflect_value(std::array{0,2,3,4})}):]);
 
 }  // namespace function_templates
+
+                           // ======================
+                           // explicit_template_args
+                           // ======================
+
+namespace explicit_template_args {
+template <template <typename, size_t> class C, typename T, size_t Sz>
+consteval auto GetSubstitution() { return ^C<T, Sz>; }
+
+static_assert([:reflect_invoke(^GetSubstitution,
+                               {^std::array, ^int, ^5}, {}):] ==
+              ^std::array<int, 5>);
+
+template <typename... Ts> consteval auto sum(Ts... ts) { return (... + ts); }
+
+static_assert(type_of(reflect_invoke(^sum, {^long, ^long, ^long},
+              {std::meta::reflect_value(1), std::meta::reflect_value(2),
+               std::meta::reflect_value(3)})) == ^long);
+}  // namespace explicit_template_args
 
                                 // ============
                                 // constructors
@@ -148,5 +167,43 @@ static_assert([:reflect_invoke(ctor(1), {^'c'}):].value == 1);
 
 }  // namespace constructors_and_destructors
 
+                            // ====================
+                            // returning_references
+                            // ====================
+
+namespace returning_references {
+const int K = 0;
+consteval const int &fn() { return K; }
+
+constexpr auto r = reflect_invoke(^fn, {});
+static_assert(is_object(r) && !is_value(r));
+static_assert(type_of(r) == ^const int);
+static_assert(is_variable(r));
+static_assert(name_of(r) == u8"K");
+static_assert(r != std::meta::reflect_value(0));
+
+constexpr auto v = value_of(r);
+static_assert(is_value(v) && !is_object(v));
+static_assert(type_of(v) == ^int);
+static_assert(!is_variable(v));
+static_assert(v == std::meta::reflect_value(0));
+
+}  // namespace returning_references
+
+                         // ==========================
+                         // with_non_contiguous_ranges
+                         // ==========================
+
+namespace with_non_contiguous_ranges {
+consteval auto sum(auto... vs) { return (... + vs); }
+
+static_assert(
+    std::meta::reflect_value(20) ==
+    reflect_invoke(^sum, std::ranges::iota_view{1, 10} |
+                         std::views::filter([](int v) {
+                           return v % 2 == 0;
+                         }) |
+                         std::views::transform(std::meta::reflect_value<int>)));
+}  // namespace with_non_contiguous_ranges
 
 int main() { }

@@ -31,7 +31,6 @@ public:
   // Enumerators identifying the return-type of a metafunction.
   enum ResultKind : unsigned {
     MFRK_bool,
-    MFRK_cstring,
     MFRK_metaInfo,
     MFRK_sizeT,
     MFRK_sourceLoc,

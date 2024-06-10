@@ -869,10 +869,14 @@ bool RecursiveASTVisitor<Derived>::TraverseDeclarationNameInfo(
 
 template <typename Derived>
 bool RecursiveASTVisitor<Derived>::TraverseTemplateName(TemplateName Template) {
-  if (DependentTemplateName *DTN = Template.getAsDependentTemplateName())
+  if (DependentTemplateName *DTN = Template.getAsDependentTemplateName()) {
     TRY_TO(TraverseNestedNameSpecifier(DTN->getQualifier()));
-  else if (QualifiedTemplateName *QTN = Template.getAsQualifiedTemplateName())
-    TRY_TO(TraverseNestedNameSpecifier(QTN->getQualifier()));
+  } else if (QualifiedTemplateName *QTN =
+                 Template.getAsQualifiedTemplateName()) {
+    if (QTN->getQualifier()) {
+      TRY_TO(TraverseNestedNameSpecifier(QTN->getQualifier()));
+    }
+  }
 
   return true;
 }
@@ -2954,8 +2958,8 @@ DEF_TRAVERSE_STMT(CXXReflectExpr, {
     TRY_TO(TraverseType(Op.getAsType()));
     break;
   }
-  case ReflectionValue::RK_const_value: {
-    TRY_TO(TraverseStmt(Op.getAsConstValueExpr()));
+  case ReflectionValue::RK_expr_result: {
+    TRY_TO(TraverseStmt(Op.getAsExprResult()));
     break;
   }
   case ReflectionValue::RK_declaration: {
@@ -2970,6 +2974,7 @@ DEF_TRAVERSE_STMT(CXXReflectExpr, {
     TRY_TO(TraverseDecl(Op.getAsNamespace()));
     break;
   }
+  case ReflectionValue::RK_null:
   case ReflectionValue::RK_base_specifier:
   case ReflectionValue::RK_data_member_spec:
     break;
@@ -4111,6 +4116,8 @@ bool RecursiveASTVisitor<Derived>::VisitOpenACCClauseList(
 }
 
 DEF_TRAVERSE_STMT(OpenACCComputeConstruct,
+                  { TRY_TO(TraverseOpenACCAssociatedStmtConstruct(S)); })
+DEF_TRAVERSE_STMT(OpenACCLoopConstruct,
                   { TRY_TO(TraverseOpenACCAssociatedStmtConstruct(S)); })
 
 // FIXME: look at the following tricky-seeming exprs to see if we

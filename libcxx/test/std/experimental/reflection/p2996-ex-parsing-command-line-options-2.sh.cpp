@@ -44,7 +44,7 @@ template<typename R>
 consteval auto expand(R range) {
   std::vector<std::meta::info> args;
   for (auto r : range) {
-    args.push_back(std::meta::reflect_result(r));
+    args.push_back(std::meta::reflect_value(r));
   }
   return substitute(^__impl::replicator, args);
 }
@@ -72,7 +72,8 @@ consteval auto spec_to_opts(std::meta::info opts,
   std::vector<std::meta::info> new_members;
   for (auto member : nonstatic_data_members_of(spec)) {
     auto new_type = template_arguments_of(type_of(member))[0];
-    new_members.push_back(data_member_spec(new_type, {.name=name_of(member)}));
+    new_members.push_back(
+        data_member_spec(new_type, {.name=name_of<std::string_view>(member)}));
   }
   return define_class(opts, new_members);
 }
@@ -112,16 +113,16 @@ struct Clap {
       auto it = std::find_if(cmdline.begin(), cmdline.end(),
           [&](std::string_view arg){
             return (cur.use_short && arg.size() == 2 && arg[0] == '-' &&
-                   arg[1] == name_of(sm)[0])
+                   arg[1] == name_of<std::string_view>(sm)[0])
                 || (cur.use_long && arg.starts_with("--") &&
-                    arg.substr(2) == name_of(sm));
+                    arg.substr(2) == name_of<std::string_view>(sm));
           });
 
       if (it == cmdline.end()) {
         // no such argument
         //
-        // The following needs to be decomposed, as clang seems to have a bug around
-        // short-circuiting of compound 'if constexpr'-conditions:
+        // The following needs to be decomposed, as clang seems to have a bug
+        // around short-circuiting of compound 'if constexpr'-conditions:
         //   https://godbolt.org/z/9b4faz96T
         if constexpr (has_template_arguments(type_of(om))) {
           if (template_of(type_of(om)) == ^std::optional)
@@ -132,12 +133,13 @@ struct Clap {
           opts.[:om:] = *cur.initializer;
           return;
         } else {
-          std::cerr << "Missing required option " << name_of(sm) << '\n';
+          std::cerr << "Missing required option "
+                    << name_of<std::string_view>(sm) << '\n';
           std::exit(EXIT_FAILURE);
         }
       } else if (it + 1 == cmdline.end()) {
-        std::cout << "Option " << *it << " for " << name_of(sm)
-                  << " is missing a value\n";
+        std::cout << "Option " << *it << " for "
+                  << name_of<std::string_view>(sm) << " is missing a value\n";
         std::exit(EXIT_FAILURE);
       }
 
@@ -146,7 +148,8 @@ struct Clap {
       iss << it[1];
       if (iss >> opts.[:om:]; !iss) {
         std::cerr << "Failed to parse " << it[1] << " into option "
-                  << name_of(sm) << " of type " << name_of(type_of(om)) << '\n';
+                  << name_of<std::string_view>(sm) << " of type "
+                  << name_of<std::string_view>(type_of(om)) << '\n';
         std::exit(EXIT_FAILURE);
       }
     };
@@ -164,7 +167,7 @@ int main(int argc, const char** argv) {
   auto opts = Args{}.parse(argc, argv);
 
   // RUN: grep "Hello WG21" %t.stdout | wc -l | grep 5
-  for (int i = 0; i < opts.count; ++i) {         // opts.count has type int
-    std::cout << "Hello " << opts.name << "!\n"; // opts.name has type std::string
+  for (int i = 0; i < opts.count; ++i) {  // opts.count has type int
+    std::println("Hello {}", opts.name);  // opts.name has type std::string
   }
 }

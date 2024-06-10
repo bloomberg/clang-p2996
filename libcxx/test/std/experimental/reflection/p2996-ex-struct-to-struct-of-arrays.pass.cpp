@@ -34,7 +34,9 @@ consteval auto make_struct_of_arrays(std::meta::info type,
   std::vector<std::meta::info> new_members = {};
   for (std::meta::info member : old_members) {
     auto array_type = substitute(^std::array, {type_of(member), N });
-    auto mem_descr = data_member_spec(array_type, {.name = name_of(member)});
+    auto mem_descr =
+        data_member_spec(array_type,
+                         {.name = name_of<std::string_view>(member)});
     new_members.push_back(mem_descr);
   }
   return std::meta::define_class(substitute(^struct_of_arrays_impl, {type, N}),
@@ -43,7 +45,7 @@ consteval auto make_struct_of_arrays(std::meta::info type,
 
 template <typename T, size_t N>
 using struct_of_arrays = 
-    [: make_struct_of_arrays(^T, std::meta::reflect_result(N)) :];
+    [: make_struct_of_arrays(^T, std::meta::reflect_value(N)) :];
 
 
 struct point {

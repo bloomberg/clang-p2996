@@ -3029,9 +3029,10 @@ protected:
 
 public:
   struct FindResult {
-    OverloadExpr *Expression;
-    bool IsAddressOfOperand;
-    bool HasFormOfMemberPointer;
+    OverloadExpr *Expression = nullptr;
+    bool IsAddressOfOperand = false;
+    bool IsAddressOfOperandWithParen = false;
+    bool HasFormOfMemberPointer = false;
   };
 
   /// Finds the overloaded expression in the given expression \p E of
@@ -3043,6 +3044,7 @@ public:
     assert(E->getType()->isSpecificBuiltinType(BuiltinType::Overload));
 
     FindResult Result;
+    bool HasParen = isa<ParenExpr>(E);
 
     E = E->IgnoreParens();
     if (isa<UnaryOperator>(E)) {
@@ -3052,10 +3054,9 @@ public:
 
       Result.HasFormOfMemberPointer = (E == Ovl && Ovl->getQualifier());
       Result.IsAddressOfOperand = true;
+      Result.IsAddressOfOperandWithParen = HasParen;
       Result.Expression = Ovl;
     } else {
-      Result.HasFormOfMemberPointer = false;
-      Result.IsAddressOfOperand = false;
       Result.Expression = cast<OverloadExpr>(E->IgnoreExprSplices());
     }
 
@@ -5329,6 +5330,7 @@ class CXXReflectExpr : public Expr {
   SourceLocation OpLoc;
   SourceLocation ArgLoc;
 
+  CXXReflectExpr(const ASTContext &C, QualType T);
   CXXReflectExpr(const ASTContext &C, QualType T, QualType Arg);
   CXXReflectExpr(const ASTContext &C, QualType T, Expr *Arg);
   CXXReflectExpr(const ASTContext &C, QualType T, Decl *Arg, bool IsNamespace);
@@ -5337,6 +5339,8 @@ class CXXReflectExpr : public Expr {
   CXXReflectExpr(const ASTContext &C, QualType T, TagDataMemberSpec *Arg);
 
 public:
+  static CXXReflectExpr *Create(ASTContext &C, SourceLocation OperatorLoc,
+                                SourceLocation OperandLoc);
   static CXXReflectExpr *Create(ASTContext &C, SourceLocation OperatorLoc,
                                 SourceLocation ArgLoc, QualType Operand);
   static CXXReflectExpr *Create(ASTContext &C, SourceLocation OperatorLoc,

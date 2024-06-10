@@ -15366,11 +15366,21 @@ bool ComplexExprEvaluator::VisitBinaryOperator(const BinaryOperator *E) {
       APFloat &ResI = Result.getComplexFloatImag();
       if (LHSReal) {
         assert(!RHSReal && "Cannot have two real operands for a complex op!");
-        ResR = A * C;
-        ResI = A * D;
+        ResR = A;
+        ResI = A;
+        // ResR = A * C;
+        // ResI = A * D;
+        if (!handleFloatFloatBinOp(Info, E, ResR, BO_Mul, C) ||
+            !handleFloatFloatBinOp(Info, E, ResI, BO_Mul, D))
+          return false;
       } else if (RHSReal) {
-        ResR = C * A;
-        ResI = C * B;
+        // ResR = C * A;
+        // ResI = C * B;
+        ResR = C;
+        ResI = C;
+        if (!handleFloatFloatBinOp(Info, E, ResR, BO_Mul, A) ||
+            !handleFloatFloatBinOp(Info, E, ResI, BO_Mul, B))
+          return false;
       } else {
         // In the fully general case, we need to handle NaNs and infinities
         // robustly.
@@ -15446,8 +15456,13 @@ bool ComplexExprEvaluator::VisitBinaryOperator(const BinaryOperator *E) {
       APFloat &ResR = Result.getComplexFloatReal();
       APFloat &ResI = Result.getComplexFloatImag();
       if (RHSReal) {
-        ResR = A / C;
-        ResI = B / C;
+        ResR = A;
+        ResI = B;
+        // ResR = A / C;
+        // ResI = B / C;
+        if (!handleFloatFloatBinOp(Info, E, ResR, BO_Div, C) ||
+            !handleFloatFloatBinOp(Info, E, ResI, BO_Div, C))
+          return false;
       } else {
         if (LHSReal) {
           // No real optimizations we can do here, stub out with zero.
@@ -15777,6 +15792,15 @@ public:
     return true;
   }
 
+  bool ZeroInitialization(const Expr *E) {
+    Result = APValue(ReflectionValue::RK_null, nullptr);
+    return true;
+  }
+
+  bool VisitImplicitValueInitExpr(const ImplicitValueInitExpr *E) {
+    return ZeroInitialization(E);
+  }
+
   bool VisitCXXReflectExpr(const CXXReflectExpr *E);
   bool VisitCXXMetafunctionExpr(const CXXMetafunctionExpr *E);
   bool VisitCXXIndeterminateSpliceExpr(const CXXIndeterminateSpliceExpr *E);
@@ -15786,12 +15810,16 @@ public:
 bool ReflectionEvaluator::VisitCXXReflectExpr(const CXXReflectExpr *E) {
   const ReflectionValue &Ref = E->getOperand();
   switch (Ref.getKind()) {
+  case ReflectionValue::RK_null: {
+    APValue Result(ReflectionValue::RK_null, nullptr);
+    return Success(Result, E);
+  }
   case ReflectionValue::RK_type: {
     APValue Result(ReflectionValue::RK_type, Ref.getAsType().getAsOpaquePtr());
     return Success(Result, E);
   }
-  case ReflectionValue::RK_const_value: {
-    APValue Result(ReflectionValue::RK_const_value, Ref.getAsConstValueExpr());
+  case ReflectionValue::RK_expr_result: {
+    APValue Result(ReflectionValue::RK_expr_result, Ref.getAsExprResult());
     return Success(Result, E);
   }
   case ReflectionValue::RK_declaration: {
@@ -16014,6 +16042,9 @@ static bool FastEvaluateAsRValue(const Expr *Exp, Expr::EvalResult &Result,
 
   if (const auto *CE = dyn_cast<ConstantExpr>(Exp)) {
     if (CE->hasAPValueResult()) {
+      if (CE->isLValue())
+        return false;
+
       Result.Val = CE->getAPValueResult();
       IsConst = true;
       return true;

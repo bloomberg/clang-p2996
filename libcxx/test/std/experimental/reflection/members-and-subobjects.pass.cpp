@@ -166,9 +166,9 @@ public:
   int mem2 = 0;
 };
 
-static_assert(name_of(members_of(^Cls)[0]) == "mem1");
-static_assert(name_of(members_of(^Cls)[1]) == "memfn");
-static_assert(name_of(members_of(^Cls)[2]) == "mem2");
+static_assert(name_of(members_of(^Cls)[0]) == u8"mem1");
+static_assert(name_of(members_of(^Cls)[1]) == u8"memfn");
+static_assert(name_of(members_of(^Cls)[2]) == u8"mem2");
 
 // Ensure these can be spliced.
 constexpr Cls obj;

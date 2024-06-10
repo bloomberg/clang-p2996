@@ -140,14 +140,15 @@ ExprResult Sema::ActOnCXXReflectExpr(SourceLocation OpLoc,
   switch (RV.getKind()) {
   case ReflectionValue::RK_type:
     return BuildCXXReflectExpr(OpLoc, E->getExprLoc(), RV.getAsType());
-  case ReflectionValue::RK_const_value:
-    return BuildCXXReflectExpr(OpLoc, RV.getAsConstValueExpr());
+  case ReflectionValue::RK_expr_result:
+    return BuildCXXReflectExpr(OpLoc, RV.getAsExprResult());
   case ReflectionValue::RK_declaration:
     return BuildCXXReflectExpr(OpLoc, E->getExprLoc(), RV.getAsDecl());
   case ReflectionValue::RK_template:
     return BuildCXXReflectExpr(OpLoc, E->getExprLoc(), RV.getAsTemplate());
   case ReflectionValue::RK_namespace:
     return BuildCXXReflectExpr(OpLoc, E->getExprLoc(), RV.getAsNamespace());
+  case ReflectionValue::RK_null:
   case ReflectionValue::RK_base_specifier:
   case ReflectionValue::RK_data_member_spec:
     return ExprError();
@@ -321,9 +322,9 @@ ParsedTemplateArgument Sema::ActOnTemplateIndeterminateSpliceArgument(
     return ParsedTemplateArgument(ParsedTemplateArgument::Type,
                                   RV.getAsType().getAsOpaquePtr(),
                                   Splice->getExprLoc());
-  case ReflectionValue::RK_const_value:
+  case ReflectionValue::RK_expr_result:
     return ParsedTemplateArgument(ParsedTemplateArgument::NonType,
-                                  RV.getAsConstValueExpr(),
+                                  RV.getAsExprResult(),
                                   Splice->getExprLoc());
   case ReflectionValue::RK_template: {
     TemplateName TName = RV.getAsTemplate();
@@ -337,6 +338,10 @@ ParsedTemplateArgument Sema::ActOnTemplateIndeterminateSpliceArgument(
     return ParsedTemplateArgument(ParsedTemplateArgument::NonType, E,
                                   E->getExprLoc());
   }
+  case ReflectionValue::RK_null:
+    Diag(Splice->getExprLoc(), diag::err_unsupported_splice_kind)
+      << "null reflections" << 0 << 0;
+    break;
   case ReflectionValue::RK_namespace:
     Diag(Splice->getExprLoc(), diag::err_unsupported_splice_kind)
       << "namespaces" << 0 << 0;
@@ -481,9 +486,6 @@ ExprResult Sema::BuildCXXMetafunctionExpr(
     switch (MetaFn->getResultKind()) {
     case Metafunction::MFRK_bool:
       Result = Context.BoolTy;
-      return false;
-    case Metafunction::MFRK_cstring:
-      Result = Context.getPointerType(Context.getConstType(Context.CharTy));
       return false;
     case Metafunction::MFRK_metaInfo:
       Result = Context.MetaInfoTy;
@@ -705,8 +707,8 @@ ExprResult Sema::BuildReflectionSpliceExpr(
                                           RSplice, TArgs, AllowMemberReference);
       break;
     }
-    case ReflectionValue::RK_const_value: {
-      Operand = RV.getAsConstValueExpr();
+    case ReflectionValue::RK_expr_result: {
+      Operand = RV.getAsExprResult();
       if (!isConstantEvaluatedContext() && !isa<ConstantExpr>(Operand)) {
         Operand = ConstantExpr::Create(Context, Operand,
                                        ConstantResultStorageKind::APValue,
@@ -784,6 +786,7 @@ ExprResult Sema::BuildReflectionSpliceExpr(
                                           AllowMemberReference);
       break;
     }
+    case ReflectionValue::RK_null:
     case ReflectionValue::RK_type:
     case ReflectionValue::RK_namespace:
     case ReflectionValue::RK_base_specifier:
@@ -905,7 +908,8 @@ DeclContext *Sema::TryFindDeclContextOf(const Expr *E) {
       NS = A->getNamespace();
     return cast<DeclContext>(NS);
   }
-  case ReflectionValue::RK_const_value:
+  case ReflectionValue::RK_null:
+  case ReflectionValue::RK_expr_result:
   case ReflectionValue::RK_declaration:
   case ReflectionValue::RK_template:
   case ReflectionValue::RK_base_specifier:

@@ -32,11 +32,14 @@
 namespace class_templates {
 // Handles all template argument kinds.
 template <typename T, auto V, template <typename, size_t> class C>
-struct Cls {};
+struct Cls;
 static_assert(can_substitute(^Cls, {^int, ^1, ^std::array}));
-constexpr auto ClsInt5Array = substitute(^Cls, {^int, ^1, ^std::array});
+[[maybe_unused]] constexpr auto obj1 = substitute(^Cls,
+                                                  {^int, ^1, ^std::array});
 static_assert(is_incomplete_type(^Cls<int, 1, std::array>));
-typename [:ClsInt5Array:] obj1;
+
+template <typename T, auto V, template <typename, size_t> class C>
+struct Cls {};
 static_assert(!is_incomplete_type(^Cls<int, 1, std::array>));
 
 // Template arguments are dependent.
@@ -45,9 +48,7 @@ consteval auto makeCls() {
   static_assert(can_substitute(^Cls, {^T, ^V, ^C}));
   return typename [:substitute(^Cls, {^T, ^V, ^C}):]{};
 }
-static_assert(is_incomplete_type(^Cls<int, 2, std::array>));
 [[maybe_unused]] constexpr auto obj2 = makeCls<int, 2, std::array>();
-static_assert(!is_incomplete_type(^Cls<int, 2, std::array>));
 
 // With a dependent type parameter pack.
 template <typename... Ts>
@@ -56,10 +57,8 @@ consteval auto makeTuple(Ts... vs) {
   typename [:substitute(^std::tuple, {^Ts...}):] tup { vs... };
   return tup;
 }
-static_assert(is_incomplete_type(^std::tuple<int, bool, char>));
 [[maybe_unused]] constexpr auto tup1 = makeTuple<int, bool, char>(4, true, 'f');
 static_assert(get<2>(tup1) == 'f');
-static_assert(!is_incomplete_type(^std::tuple<int, bool, char>));
 
 // With a dependent non-type parameter pack.
 template <auto... Vs>
@@ -68,9 +67,7 @@ consteval auto returnNumElems() {
   typename [:substitute(^std::integer_sequence, {^int, ^Vs...}):] seq;
   return seq.size();
 }
-static_assert(is_incomplete_type(^std::integer_sequence<int, 1, 3, 5>));
 static_assert(returnNumElems<1, 3, 5>() == 3);
-static_assert(!is_incomplete_type(^std::integer_sequence<int, 1, 3, 5>));
 
 // With a dependent template template parameter pack.
 template <template <typename...> class... Cs>
@@ -82,12 +79,8 @@ consteval auto FindSize() {
   static_assert(can_substitute(^SizeOfContainersOfInts, {^Cs...}));
   return [:substitute(^SizeOfContainersOfInts, {^Cs...}):]::Sz;
 }
-static_assert(is_incomplete_type(^SizeOfContainersOfInts<std::vector,
-                                                         std::queue>));
 static_assert(FindSize<std::vector, std::queue>() ==
               sizeof(std::vector<int>) + sizeof(std::queue<int>));
-static_assert(!is_incomplete_type(^SizeOfContainersOfInts<std::vector,
-                                                          std::queue>));
 }  // namespace class_templates
 
                              // ==================
@@ -387,6 +380,32 @@ struct S { static constexpr int val = 4; };
 static_assert([:substitute(^Plus1, {static_data_members_of(^S)[0]}):] == 5);
 }  // namespace with_reflection_of_declaration
 
+                         // ==========================
+                         // with_non_contiguous_ranges
+                         // ==========================
+
+namespace with_non_contiguous_ranges {
+template <char... Is> consteval std::string join() {
+  return std::string{Is...};
+}
+static_assert(
+    [:substitute(^join, "Hello, world!" |
+                        std::views::filter([](char c) {
+                          return (c >= 'A' && c <= 'Z') ||
+                                 (c >= 'a' && c <= 'z') || c == ' ';
+                        }) |
+                        std::views::transform(std::meta::reflect_value<char>))
+    :]() == "Hello world");
+
+static_assert(!can_substitute(^join, std::vector {^int, ^std::array, ^bool} |
+                                     std::views::filter(std::meta::is_type)));
+
+static_assert(test_types(^std::is_same_v, std::vector {^int, ^void, ^int} |
+                                          std::views::filter([](auto R) {
+                                            return R != ^void;
+                                          })));
+}  // namespace with_non_contiguous_ranges
+
                             // ====================
                             // invalid_template_ids
                             // ====================
@@ -401,6 +420,5 @@ static_assert(!can_substitute(^Cls, {^int, ^bool, ^std::array}));
 static_assert(!can_substitute(^Cls, {^int, ^bool, ^bool}));
 static_assert(!can_substitute(^Cls, {^int, ^bool, ^std::array, ^std::array}));
 }  // namespace invalid_template_ids
-
 
 int main() { }

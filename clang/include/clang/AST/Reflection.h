@@ -38,13 +38,16 @@ class ReflectionValue {
 public:
   /// \brief The kind of construct reflected.
   enum ReflectionKind {
+    /// \brief A null reflection. Corresponds to no object.
+    RK_null = 0,
+
     /// \brief A reflection of a type. Corresponds to an object of type
     /// QualType.
     RK_type = 1,
 
-    /// \brief A reflection of an expression that constant evaluates to a
-    /// prvalue. Corresponds to an object of type ConstantExpr.
-    RK_const_value = 2,
+    /// \brief A reflection of the result of an expression. Corresponds to an
+    /// object of type ConstantExpr.
+    RK_expr_result = 2,
 
     /// \brief A reflection of an expression referencing an entity (e.g.,
     /// variable, function, member function, etc). Corresponds to an object of
@@ -86,7 +89,7 @@ private:
   void *Entity;
 
 public:
-  ReflectionValue() = default;
+  ReflectionValue();
   ReflectionValue(ReflectionValue const&Rhs);
   ReflectionValue(ReflectionKind ReflKind, void *Entity);
   ReflectionValue &operator=(ReflectionValue const& Rhs);
@@ -98,12 +101,15 @@ public:
     return Entity;
   }
 
+  /// Returns whether this is a null reflection.
+  bool isNull() const;
+
   /// Returns this as a type operand.
   QualType getAsType() const;
 
   /// Returns this as an expression.
-  ConstantExpr *getAsConstValueExpr() const {
-    assert(getKind() == RK_const_value && "not a constant value");
+  ConstantExpr *getAsExprResult() const {
+    assert(getKind() == RK_expr_result && "not an expression result");
     return reinterpret_cast<ConstantExpr *>(Entity);
   }
 

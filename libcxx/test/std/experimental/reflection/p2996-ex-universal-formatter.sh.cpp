@@ -40,7 +40,7 @@ template<typename R>
 consteval auto expand(R range) {
   std::vector<std::meta::info> args;
   for (auto r : range) {
-    args.push_back(reflect_result(r));
+    args.push_back(reflect_value(r));
   }
   return substitute(^__impl::replicator, args);
 }
@@ -50,7 +50,7 @@ struct universal_formatter {
 
   template <typename T>
   auto format(T const& t, auto& ctx) const {
-    auto out = std::format_to(ctx.out(), "{}{{", name_of(^T));
+    auto out = std::format_to(ctx.out(), "{}{{", name_of<std::string_view>(^T));
 
     auto delim = [first=true, &out]() mutable {
       if (!first) {
@@ -62,12 +62,14 @@ struct universal_formatter {
 
     [: expand(bases_of(^T)) :] >> [&]<auto base>{
         delim();
-        out = std::format_to(out, "{}", (typename [: type_of(base) :] const&)(t));
+        out = std::format_to(out, "{}",
+                             (typename [: type_of(base) :] const&)(t));
     };
 
     [: expand(nonstatic_data_members_of(^T)) :] >> [&]<auto mem>{
       delim();
-      out = std::format_to(out, ".{}={}", name_of(mem), t.[:mem:]);
+      out = std::format_to(out, ".{}={}", name_of<std::string_view>(mem),
+                           t.[:mem:]);
     };
 
     *out++ = '}';

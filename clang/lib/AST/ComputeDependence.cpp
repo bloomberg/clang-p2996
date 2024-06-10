@@ -955,10 +955,17 @@ ExprDependence clang::computeDependence(CXXReflectExpr *E,
       D |= ExprDependence::UnexpandedPack;
     return D;
   }
-  case ReflectionValue::RK_const_value:
-    return Operand.getAsConstValueExpr()->getDependence();
-  case ReflectionValue::RK_declaration:
-    return computeDeclDependence(Operand.getAsDecl(), Ctx);
+  case ReflectionValue::RK_expr_result:
+    return Operand.getAsExprResult()->getDependence();
+  case ReflectionValue::RK_declaration: {
+    ValueDecl *VD = Operand.getAsDecl();
+    if (VD->getType()->isDependentType())
+      D |= ExprDependence::ValueInstantiation;
+    if (VD->getType()->containsUnexpandedParameterPack())
+      D |= ExprDependence::UnexpandedPack;
+    return D | computeDeclDependence(VD, Ctx);
+  }
+  case ReflectionValue::RK_null:
   case ReflectionValue::RK_namespace:
   case ReflectionValue::RK_base_specifier:
   case ReflectionValue::RK_data_member_spec:

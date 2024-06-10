@@ -92,7 +92,7 @@ QualType APValue::LValueBase::getType() const {
   // For a materialized temporary, the type of the temporary we materialized
   // may not be the type of the expression.
   if (const MaterializeTemporaryExpr *MTE =
-          clang::dyn_cast<MaterializeTemporaryExpr>(Base)) {
+          llvm::dyn_cast<MaterializeTemporaryExpr>(Base)) {
     SmallVector<const Expr *, 2> CommaLHSs;
     SmallVector<SubobjectAdjustment, 2> Adjustments;
     const Expr *Temp = MTE->getSubExpr();
@@ -636,10 +636,10 @@ QualType APValue::getReflectedType() const {
   return Refl.getAsType();
 }
 
-ConstantExpr *APValue::getReflectedConstValueExpr() const {
+ConstantExpr *APValue::getReflectedExprResult() const {
   const ReflectionValue &Refl = getReflection();
-  assert(Refl.getKind() == ReflectionValue::RK_const_value);
-  return Refl.getAsConstValueExpr();
+  assert(Refl.getKind() == ReflectionValue::RK_expr_result);
+  return Refl.getAsExprResult();
 }
 
 ValueDecl *APValue::getReflectedDecl() const {
@@ -996,11 +996,14 @@ void APValue::printPretty(raw_ostream &Out, const PrintingPolicy &Policy,
     const ReflectionValue& Refl = getReflection();
     std::string Repr("...");
     switch (Refl.getKind()) {
+    case ReflectionValue::RK_null:
+      Repr = "null";
+      break;
     case ReflectionValue::RK_type:
       Repr = "type";
       break;
-    case ReflectionValue::RK_const_value:
-      Repr = "constant-value";
+    case ReflectionValue::RK_expr_result:
+      Repr = "expression-result";
       break;
     case ReflectionValue::RK_declaration:
       Repr = "declaration";

@@ -22,6 +22,8 @@
 
 namespace clang {
 
+ReflectionValue::ReflectionValue() : Kind(RK_null), Entity(nullptr) { }
+
 ReflectionValue::ReflectionValue(ReflectionKind Kind, void *Entity)
     : Kind(Kind), Entity(Entity) {
 }
@@ -36,6 +38,8 @@ ReflectionValue &ReflectionValue::operator=(ReflectionValue const&Rhs) {
 
   return *this;
 }
+
+bool ReflectionValue::isNull() const { return Kind == RK_null; }
 
 QualType ReflectionValue::getAsType() const {
   assert(getKind() == RK_type && "not a type");
@@ -53,9 +57,11 @@ QualType ReflectionValue::getAsType() const {
       New.setLocalFastQualifiers(QT.getLocalFastQualifiers());
       QT = New;
     }
-    if (const auto *STTPT = dyn_cast<SubstTemplateTypeParmType>(QT))
+    if (const auto *STTPT = dyn_cast<SubstTemplateTypeParmType>(QT);
+      STTPT && !STTPT->isDependentType())
       QT = STTPT->getReplacementType();
-    if (const auto *RST = dyn_cast<ReflectionSpliceType>(QT))
+    if (const auto *RST = dyn_cast<ReflectionSpliceType>(QT);
+      RST && !RST->isDependentType())
       QT = RST->getUnderlyingType();
     if (const auto *DTT = dyn_cast<DecltypeType>(QT))
       QT = DTT->desugar();
@@ -66,17 +72,19 @@ QualType ReflectionValue::getAsType() const {
 void ReflectionValue::Profile(llvm::FoldingSetNodeID &ID) const {
   ID.AddInteger(Kind);
   switch (Kind) {
+  case RK_null:
+    break;
   case RK_type: {
     QualType QT = getAsType();
     QT.Profile(ID);
     break;
   }
-  case RK_const_value:
-    if (auto *RD = getAsConstValueExpr()->getType()->getAsRecordDecl();
+  case RK_expr_result:
+    if (auto *RD = getAsExprResult()->getType()->getAsRecordDecl();
         RD && RD->isLambda()) {
       QualType(RD->getTypeForDecl(), 0).Profile(ID);
     }
-    getAsConstValueExpr()->getAPValueResult().Profile(ID);
+    getAsExprResult()->getAPValueResult().Profile(ID);
     break;
   case RK_declaration:
     ID.AddPointer(getAsDecl());
@@ -113,6 +121,8 @@ bool ReflectionValue::operator==(ReflectionValue const& Rhs) const {
     return false;
 
   switch (getKind()) {
+  case RK_null:
+    return true;
   case RK_type: {
     QualType LQT = getAsType(), RQT = Rhs.getAsType();
     if (LQT.getQualifiers() != RQT.getQualifiers())
@@ -134,15 +144,15 @@ bool ReflectionValue::operator==(ReflectionValue const& Rhs) const {
 
     return LQT.getCanonicalType() == RQT.getCanonicalType();
   }
-  case RK_const_value: {
-    APValue LV = getAsConstValueExpr()->getAPValueResult();
-    APValue RV = Rhs.getAsConstValueExpr()->getAPValueResult();
+  case RK_expr_result: {
+    APValue LV = getAsExprResult()->getAPValueResult();
+    APValue RV = Rhs.getAsExprResult()->getAPValueResult();
 
     llvm::FoldingSetNodeID LID, RID;
-    getAsConstValueExpr()->getType()
+    getAsExprResult()->getType()
         .getCanonicalType().getUnqualifiedType().Profile(LID);
     LV.Profile(LID);
-    Rhs.getAsConstValueExpr()->getType()
+    Rhs.getAsExprResult()->getType()
         .getCanonicalType().getUnqualifiedType().Profile(RID);
     RV.Profile(RID);
 

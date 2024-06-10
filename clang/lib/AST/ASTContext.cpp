@@ -5017,9 +5017,6 @@ ASTContext::getTemplateSpecializationType(TemplateName Template,
                                           QualType Underlying) const {
   assert(!Template.getAsDependentTemplateName() &&
          "No dependent template names here!");
-  // Look through qualified template names.
-  if (QualifiedTemplateName *QTN = Template.getAsQualifiedTemplateName())
-    Template = QTN->getUnderlyingTemplate();
 
   const auto *TD = Template.getAsTemplateDecl();
   bool IsTypeAlias = TD && TD->isTypeAlias();
@@ -5054,10 +5051,6 @@ QualType ASTContext::getCanonicalTemplateSpecializationType(
     TemplateName Template, ArrayRef<TemplateArgument> Args) const {
   assert(!Template.getAsDependentTemplateName() &&
          "No dependent template names here!");
-
-  // Look through qualified template names.
-  if (QualifiedTemplateName *QTN = Template.getAsQualifiedTemplateName())
-    Template = TemplateName(QTN->getUnderlyingTemplate());
 
   // Build the canonical template specialization type.
   TemplateName CanonTemplate = getCanonicalTemplateName(Template);
@@ -5327,10 +5320,12 @@ TemplateArgument ASTContext::getInjectedTemplateArg(NamedDecl *Param) {
     Arg = TemplateArgument(E);
   } else {
     auto *TTP = cast<TemplateTemplateParmDecl>(Param);
+    TemplateName Name = getQualifiedTemplateName(
+        nullptr, /*TemplateKeyword=*/false, TemplateName(TTP));
     if (TTP->isParameterPack())
-      Arg = TemplateArgument(TemplateName(TTP), std::optional<unsigned>());
+      Arg = TemplateArgument(Name, std::optional<unsigned>());
     else
-      Arg = TemplateArgument(TemplateName(TTP));
+      Arg = TemplateArgument(Name);
   }
 
   if (Param->isTemplateParameterPack())
@@ -6903,7 +6898,7 @@ bool ASTContext::isSameEntity(const NamedDecl *X, const NamedDecl *Y) const {
   // Using shadow declarations with the same target match.
   if (const auto *USX = dyn_cast<UsingShadowDecl>(X)) {
     const auto *USY = cast<UsingShadowDecl>(Y);
-    return USX->getTargetDecl() == USY->getTargetDecl();
+    return declaresSameEntity(USX->getTargetDecl(), USY->getTargetDecl());
   }
 
   // Using declarations with the same qualifier match. (We already know that
@@ -9414,7 +9409,8 @@ TemplateName ASTContext::getAssumedTemplateName(DeclarationName Name) const {
 TemplateName ASTContext::getQualifiedTemplateName(NestedNameSpecifier *NNS,
                                                   bool TemplateKeyword,
                                                   TemplateName Template) const {
-  assert(NNS && "Missing nested-name-specifier in qualified template name");
+  assert(Template.getKind() == TemplateName::Template ||
+         Template.getKind() == TemplateName::UsingTemplate);
 
   // FIXME: Canonicalization?
   llvm::FoldingSetNodeID ID;
@@ -12151,7 +12147,7 @@ bool ASTContext::DeclMustBeEmitted(const Decl *D) {
     return false;
 
   // Variables in other module units shouldn't be forced to be emitted.
-  if (VD->isInAnotherModuleUnit())
+  if (VD->shouldEmitInExternalSource())
     return false;
 
   // Variables that can be needed in other TUs are required.

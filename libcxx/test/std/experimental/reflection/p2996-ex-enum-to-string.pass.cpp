@@ -40,7 +40,7 @@ template<typename R>
 consteval auto expand(R range) {
   std::vector<std::meta::info> args;
   for (auto r : range) {
-    args.push_back(std::meta::reflect_result(r));
+    args.push_back(std::meta::reflect_value(r));
   }
   return substitute(^__impl::replicator, args);
 }
@@ -53,7 +53,7 @@ constexpr std::string enum_to_string(E value) {
     std::string result = "<unnamed>";
     [:expand(enumerators_of(^E)):] >> [&] <auto e> {
         if (value == [:e:]) {
-            result = std::string(name_of(e));
+            result = std::string(name_of<std::string_view>(e));
         }
     };
     return result;
@@ -61,7 +61,7 @@ constexpr std::string enum_to_string(E value) {
 
 template <typename E>
   requires std::is_enum_v<E>
-constexpr std::optional<E> string_to_enum(std::string_view name) {
+constexpr std::optional<E> string_to_enum(std::u8string_view name) {
   std::optional<E> result = std::nullopt;
   [:expand(enumerators_of(^E)):] >> [&] <auto e> {
     if (name == name_of(e)) {
@@ -77,9 +77,9 @@ int main() {
   static_assert(enum_to_string(Color::red) == "red");
   static_assert(enum_to_string(Color(42)) == "<unnamed>");
 
-  static_assert(string_to_enum<Color>("red") == Color::red);
-  static_assert(string_to_enum<Color>("blue") == Color::blue);
-  static_assert(string_to_enum<Color>("yellow") == std::nullopt);
+  static_assert(string_to_enum<Color>(u8"red") == Color::red);
+  static_assert(string_to_enum<Color>(u8"blue") == Color::blue);
+  static_assert(string_to_enum<Color>(u8"yellow") == std::nullopt);
 
   std::println("{} (red)", enum_to_string(Color::red));
   std::println("{} (blue)", enum_to_string(Color::blue));

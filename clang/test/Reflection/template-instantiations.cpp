@@ -30,7 +30,11 @@ struct Test {
   using type = int;
 };
 
+constexpr info null1;
+constexpr info null2;
+
 // Test equality of instantiations parameterized by reflection types.
+static_assert(fn<null1> == fn<null2>);
 static_assert(fn<^int> == fn<^int>);
 static_assert(fn<^int> != fn<^void>);
 static_assert(fn<^int> != fn2<^int>);
@@ -45,6 +49,7 @@ static_assert(fn<^::Test::type> == fn<^::Test::type>);
 constexpr info refl = ^int;
 static_assert(fn<refl> == fn<refl>);
 static_assert(fn<refl> == fn<^int>);
+static_assert(fn<refl> != fn<null1>);
 static_assert(fn<refl> != fn<^3>);
 static_assert(fn<refl> != fn<^myns::Test>);
 static_assert(fn<refl> != fn<^myns::Test::type>);

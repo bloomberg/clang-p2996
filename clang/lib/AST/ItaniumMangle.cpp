@@ -4672,6 +4672,9 @@ void CXXNameMangler::mangleReflection(const ReflectionValue &R) {
   Out << 'M';
 
   switch (R.getKind()) {
+  case ReflectionValue::RK_null:
+    Out << '0';
+    break;
   case ReflectionValue::RK_type: {
     Out << 't';
     QualType QT = R.getAsType();
@@ -4684,9 +4687,9 @@ void CXXNameMangler::mangleReflection(const ReflectionValue &R) {
     Context.mangleCanonicalTypeName(QT, Out, false);
     break;
   }
-  case ReflectionValue::RK_const_value:
+  case ReflectionValue::RK_expr_result:
     Out << 'e';
-    mangleExpression(R.getAsConstValueExpr());
+    mangleExpression(R.getAsExprResult());
     break;
   case ReflectionValue::RK_declaration: {
     Out << 'd';

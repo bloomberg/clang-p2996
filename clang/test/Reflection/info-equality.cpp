@@ -61,7 +61,14 @@ namespace NsAlias = ::myns;
 
 
 // Ensure that different entities compare equally to themselves.
+constexpr info null1;     // default-initialized
+constexpr info null2 {};  // zero-initialized
 constexpr info refl = ^int;
+
+static_assert(null1 == null1);
+static_assert(null2 == null2);
+static_assert(null1 == null2);
+
 static_assert(^int == ^int);
 static_assert(^int == refl);
 static_assert(^A == ^A);
@@ -95,6 +102,7 @@ static_assert(^myns::rTest == ^myns::rTest);
 
 // Check equality semantics of types and type aliases.
 using int_alias = int;
+static_assert(^int != null1);
 static_assert(^int != ^void);
 static_assert(^int != ^unsigned int);
 static_assert(^int != ^Enum);

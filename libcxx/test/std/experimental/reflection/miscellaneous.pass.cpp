@@ -56,7 +56,7 @@ consteval auto get_struct_to_tuple_helper() {
 
   std::vector args = {^To, ^From};
   for (auto mem : nonstatic_data_members_of(^From)) {
-    args.push_back(reflect_result(mem));
+    args.push_back(reflect_value(mem));
   }
 
   return extract<To(*)(From const&)>(substitute(^struct_to_tuple_helper, args));
@@ -85,6 +85,10 @@ void run_test() {
 }
 }  // namespace alexandrescu_lambda_to_tuple
 
+                           // =======================
+                           // pdimov_sorted_type_list
+                           // =======================
+
 namespace pdimov_sorted_type_list {
 template<class...> struct type_list { };
 
@@ -106,6 +110,85 @@ void run_test() {
 }
 }  // namespace pdimov_sorted_type_list
 
+                           // =======================
+                           // alisdair_universal_swap
+                           // =======================
+
+namespace alisdair_universal_swap {
+namespace __impl {
+template<auto... vals>
+struct replicator_type {
+  template<typename F>
+  constexpr void operator>>(F body) const {
+    (body.template operator()<vals>(), ...);
+  }
+};
+
+template<auto... vals>
+replicator_type<vals...> replicator = {};
+
+} // namespace __impl
+
+template<typename R>
+consteval auto expand(R range) {
+  std::vector<std::meta::info> args;
+  for (auto r : range) {
+    args.push_back(std::meta::reflect_value(r));
+  }
+  return substitute(^__impl::replicator, args);
+}
+
+template <typename T>
+void do_swap_representations(T& lhs, T& rhs) {
+  // This implementation cannot rebind references, and does not handle const
+  // data members --- still need to decide whether we support the latter
+  if constexpr (std::is_class_v<T>) {
+    // This implementation ensures that empty types do nothing
+    [: expand(bases_of(^T)) :] >> [&]<auto base> {
+      using Base = [:type_of(base):];
+      do_swap_representations<Base>((Base &)lhs, (Base &)rhs);
+    };
+    [: expand(nonstatic_data_members_of(^T)) :] >> [&]<auto mem>{
+      do_swap_representations<[:type_of(mem):]>(lhs.[:mem:], rhs.[:mem:]);
+    };
+  } else if constexpr (std::is_array_v<T>) {
+    static_assert(0 < std::rank_v<T>, "cannot swap arrays of unknown bound");
+    using MemT = std::decay_t<decltype(lhs[0])>;
+    [:expand([] {
+      std::vector<size_t> result;
+      for (size_t idx = 0; idx < std::size(result); ++idx)
+        result.push_back(idx);
+      return result;
+    }()):] >> [&]<size_t Idx> {
+      do_swap_representations<MemT>(lhs[Idx], rhs[Idx]);
+    };
+  } else if constexpr (std::is_scalar_v<T> or std::is_union_v<T>) {
+    // correct for unions without tail padding, including swapping active
+    // element will need compiler magic to eliminate tail padding though
+    // language ensures to not overwrite tail padding for scalars
+    // May be broken if union overloads `operator=`
+    T intrm = lhs;
+    lhs = rhs;
+    rhs = intrm;
+  } else if constexpr (std::is_reference_v<T>) {
+    static_assert(false, "Does not yet rebind references");
+  } else {
+    static_assert(false, "Unexpected type category");
+  }
+}
+
+void run_test() {
+    std::vector<int> a = {1, 2, 3};
+    std::vector<int> b = {3, 2, 1};
+    do_swap_representations(a, b);
+
+    // RUN: grep "universal-swap: a = \[3, 2, 1]" %t.stdout
+    // RUN: grep "universal-swap: b = \[1, 2, 3]" %t.stdout
+    std::println("universal-swap: a = [{}, {}, {}]", a[0], a[1], a[2]);
+    std::println("universal-swap: b = [{}, {}, {}]", b[0], b[1], b[2]);
+}
+}  // namespace alisdair_universal_swap
+
                        // ==============================
                        // std_apply_with_function_splice
                        // ==============================
@@ -123,13 +206,32 @@ void run_test() {
 }
 }  // namespace std_apply_with_function_splice
 
+                 // ==========================================
+                 // array_with_default_initialized_reflections
+                 // ==========================================
+
+namespace array_with_default_initialized_reflections {
+consteval auto fn() {
+    std::array<std::meta::info, 3> arr = {};
+    arr[0] = ^int;
+
+    return arr;
+}
+
+[[maybe_unused]] constexpr auto rs = fn();
+}  // namespace array_with_default_initialized_reflections
+
+
 template <std::meta::info... Tests>
 void run_tests() {
   (..., [:Tests:]::run_test());
 }
 
 int main() {
-  run_tests<^alexandrescu_lambda_to_tuple,
-            ^std_apply_with_function_splice,
-            ^pdimov_sorted_type_list>();
+  run_tests<
+      ^alexandrescu_lambda_to_tuple,
+      ^pdimov_sorted_type_list,
+      ^alisdair_universal_swap,
+      ^std_apply_with_function_splice
+  >();
 }

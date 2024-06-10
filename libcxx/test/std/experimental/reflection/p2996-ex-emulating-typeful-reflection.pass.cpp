@@ -62,8 +62,8 @@ consteval std::meta::info enrich(std::meta::info r) {
   std::array checks = {^Choices::check..., ^unmatched::check};
 
   for (auto [check, ctor] : std::views::zip(checks, ctors))
-    if (extract<bool>(reflect_invoke(check, {reflect_result(r)})))
-      return reflect_invoke(ctor, {reflect_result(r)});
+    if (extract<bool>(reflect_invoke(check, {reflect_value(r)})))
+      return reflect_invoke(ctor, {reflect_value(r)});
 
   std::unreachable();
 }

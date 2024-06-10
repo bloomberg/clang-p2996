@@ -604,7 +604,7 @@ public:
     return const_cast<APValue*>(this)->getReflection();
   }
   QualType getReflectedType() const;
-  ConstantExpr *getReflectedConstValueExpr() const;
+  ConstantExpr *getReflectedExprResult() const;
   ValueDecl *getReflectedDecl() const;
   const TemplateName getReflectedTemplate() const;
   Decl *getReflectedNamespace() const;

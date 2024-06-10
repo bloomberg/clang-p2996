@@ -122,7 +122,7 @@ template <> struct S<2> {};
 
 consteval int nextIncompleteIdx() {
   for (int Idx = 0;; ++Idx)
-    if (is_incomplete_type(substitute(^S, {std::meta::reflect_result(Idx)})))
+    if (is_incomplete_type(substitute(^S, {std::meta::reflect_value(Idx)})))
       return Idx;
 }
 static_assert(is_type(define_class(^S<nextIncompleteIdx()>, {
@@ -202,6 +202,31 @@ constexpr foo<int> f2 = {2};
 constexpr foo<bool, char> f3 = {3};
 static_assert(f1.mem1 + f2.mem2 + f3.mem3 == 6);
 }  // namespace completion_of_template_with_pack_param
+
+                          // =========================
+                          // with_non_contiguous_range
+                          // =========================
+
+namespace with_non_contiguous_range {
+struct foo;
+static_assert(is_type(define_class(
+    ^foo,
+    std::views::join(std::vector<std::vector<std::pair<bool,
+                                                       std::meta::info>>> {
+      {
+        std::make_pair(true, std::meta::data_member_spec(^int, {.name="i"})),
+      }, {
+        std::make_pair(false, std::meta::data_member_spec(^std::string)),
+        std::make_pair(true, std::meta::data_member_spec(^bool, {.name="b"})),
+      }
+    }) |
+    std::views::filter([](auto P) { return P.first; }) |
+    std::views::transform([](auto P) { return P.second; }))));
+
+static_assert(type_of(^foo::i) == ^int);
+static_assert(type_of(^foo::b) == ^bool);
+static_assert(nonstatic_data_members_of(^foo).size() == 2);
+}  // namespace with_non_contiguous_range
 
                              // ==================
                              // static_data_member

@@ -1842,6 +1842,11 @@ TypeTraitExpr *TypeTraitExpr::CreateDeserialized(const ASTContext &C,
   return new (Mem) TypeTraitExpr(EmptyShell());
 }
 
+CXXReflectExpr::CXXReflectExpr(const ASTContext &C, QualType T)
+    : Expr(CXXReflectExprClass, T, VK_PRValue, OK_Ordinary), Ref() {
+  setDependence(computeDependence(this, C));
+}
+
 CXXReflectExpr::CXXReflectExpr(const ASTContext &C, QualType T,
                                QualType Operand)
     : Expr(CXXReflectExprClass, T, VK_PRValue, OK_Ordinary),
@@ -1852,7 +1857,7 @@ CXXReflectExpr::CXXReflectExpr(const ASTContext &C, QualType T,
 CXXReflectExpr::CXXReflectExpr(const ASTContext &C, QualType T,
                                Expr *Operand)
     : Expr(CXXReflectExprClass, T, VK_PRValue, OK_Ordinary),
-      Ref(ReflectionValue::RK_const_value, Operand) {
+      Ref(ReflectionValue::RK_expr_result, Operand) {
   setDependence(computeDependence(this, C));
 }
 
@@ -1883,6 +1888,15 @@ CXXReflectExpr::CXXReflectExpr(const ASTContext &C, QualType T,
     : Expr(CXXReflectExprClass, T, VK_PRValue, OK_Ordinary),
       Ref(ReflectionValue::RK_data_member_spec, Operand) {
   setDependence(computeDependence(this, C));
+}
+
+CXXReflectExpr *CXXReflectExpr::Create(ASTContext &C,
+                                       SourceLocation OperatorLoc,
+                                       SourceLocation OperandLoc) {
+  CXXReflectExpr *E = new (C) CXXReflectExpr(C, C.MetaInfoTy);
+  E->setOperatorLoc(OperatorLoc);
+  E->setArgLoc(OperandLoc);
+  return E;
 }
 
 CXXReflectExpr *CXXReflectExpr::Create(ASTContext &C,
