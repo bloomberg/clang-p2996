@@ -694,7 +694,8 @@ consteval auto is_explicit(info r) -> bool {
   return __metafunction(detail::__metafn_is_explicit, r);
 }
 
-// Returns whether the reflected member function, it's type, closure type of a non-generic lambda or it's value is noexcept.
+// Returns whether the reflected function, function pointer, function type,
+// non-generic lambda expression, or non-generic closure type is noexcept.
 consteval auto is_noexcept(info r) -> bool {
   return __metafunction(detail::__metafn_is_noexcept, r);
 }
