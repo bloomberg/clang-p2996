@@ -1011,32 +1011,34 @@ bool isAccessible(Sema &S, DeclContext *AccessDC, NamedDecl *D) {
   return Result;
 }
 
-template <typename T>
-static bool isFunctionDeclNoexcept(const T *FuncD) {
-  switch (FuncD->getExceptionSpecType()) {
+static bool isFunctionOrLambdaNoexcept(const QualType QT) {
+  constexpr auto isExceptionSpecNoexcept = [](
+    const ExceptionSpecificationType EST) {
+    switch (EST) {
     case EST_BasicNoexcept:
     case EST_NoexceptTrue:
       return true;
     default:
       return false;
-  }
-}
+    }
+  };
 
-static bool isFunctionOrLambdaNoexcept(const QualType QT) {
   const Type* T = QT.getTypePtr();
 
   if (T->isFunctionProtoType()) {
     // This covers (virtual) methods & functions
     const auto *FPT = T->getAs<FunctionProtoType>();
 
-    return isFunctionDeclNoexcept(FPT);
+    return isExceptionSpecNoexcept(FPT->getExceptionSpecType());
   } else if (T->isRecordType()) {
     // This branch is for lambdas only
     const auto RT = T->getAs<RecordType>();
     const auto RecordD = cast<CXXRecordDecl>(RT->getDecl());
     
-    if (RecordD && RecordD->isLambda() && !RecordD->isGenericLambda())
-      return isFunctionDeclNoexcept(RecordD->getLambdaCallOperator());
+    if (RecordD && RecordD->isLambda() && !RecordD->isGenericLambda()) {
+      const auto EST = RecordD->getLambdaCallOperator()->getExceptionSpecType();
+      return isExceptionSpecNoexcept(EST);
+    }
   }
 
   return false;
