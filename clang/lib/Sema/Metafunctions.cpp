@@ -390,7 +390,7 @@ static constexpr Metafunction Metafunctions[] = {
   { Metafunction::MFRK_bool, 1, 1, is_constructor },
   { Metafunction::MFRK_bool, 1, 1, is_destructor },
   { Metafunction::MFRK_bool, 1, 1, is_special_member },
-    { Metafunction::MFRK_bool, 1, 1, is_structured_binding },
+  { Metafunction::MFRK_bool, 1, 1, is_structured_binding },
   { Metafunction::MFRK_metaInfo, 2, 2, reflect_result },
   { Metafunction::MFRK_metaInfo, 3, 3, reflect_invoke },
   { Metafunction::MFRK_metaInfo, 9, 9, data_member_spec },
