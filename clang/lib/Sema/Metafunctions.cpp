@@ -2777,7 +2777,12 @@ bool is_variable(APValue &Result, Sema &S, EvalFn Evaluator, QualType ResultTy,
 
   bool result = false;
   if (R.getReflection().getKind() == ReflectionValue::RK_declaration) {
-    result = isa<const VarDecl>(R.getReflectedDecl());
+    Decl *D = R.getReflectedDecl();
+    if (auto *BD = dyn_cast<BindingDecl>(D)) {
+      result = (BD->getHoldingVar() != nullptr);
+    } else {
+      result = isa<const VarDecl>(D);
+    }
   }
   return SetAndSucceed(Result, makeBool(S.Context, result));
 }
@@ -3122,8 +3127,16 @@ bool is_structured_binding(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  return false;
-  llvm_unreachable("invalid reflection type");
+  APValue R;
+  if (!Evaluator(R, Args[0], true))
+    return true;
+
+  bool result = false;
+  if (R.getReflection().getKind() == ReflectionValue::RK_declaration) {
+    result = isa<const BindingDecl>(R.getReflectedDecl());
+  }
+
+  return SetAndSucceed(Result, makeBool(S.Context, result));
 }
 
 bool reflect_result(APValue &Result, Sema &S, EvalFn Evaluator,
