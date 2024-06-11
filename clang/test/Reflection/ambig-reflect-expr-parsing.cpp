@@ -47,7 +47,10 @@ void func(MyEnum && x) { // ok
   // expected-error@-1 {{invalid operands to binary expression ('meta::info' and 'const meta::info')}}
 
   constexpr auto test_comparison_13 = reflValue != ^MyEnum&& || true; // ok
-  constexpr auto test_comparison_14 = reflValue != ^MyEnum&  | true; // ok
+  constexpr auto test_comparison_14 = reflValue != ^MyEnum& | true; // ok
+
+  constexpr auto test_comparison_15 = reflValue != ^MyEnum&; // ok
+  constexpr auto test_comparison_16 = reflValue == ^MyEnum&; // ok
 
   constexpr auto test_ref_type_0 = ^MyEnum &; // ok
   constexpr auto test_ref_type_1 = ^MyEnum &&; // ok
@@ -56,6 +59,7 @@ void func(MyEnum && x) { // ok
 
   constexpr auto ternary_comparison_test_0 = reflValue == ^MyEnum& ? 1 : 0; // ok
   constexpr auto ternary_comparison_test_1 = (2 > 0) ? ^MyEnum& : ^MyEnum; // ok
+  constexpr auto ternary_comparison_test_2 = (2 > 0) ? ^MyEnum : ^MyEnum&; // ok
 
   constexpr auto test_init_0 {^MyEnum&}; // ok
   constexpr auto test_type_id_0 = ^MyEnum&(*)(bool); // ok
