@@ -455,5 +455,7 @@ static_assert(!is_variable(^x3));
 static_assert(!is_variable(^y3));
 static_assert(!is_variable(^z3));
 
+static_assert(!is_structured_binding(^var));
+static_assert(!is_structured_binding(std::meta::reflect_value(3)));
 
 int main() { }
