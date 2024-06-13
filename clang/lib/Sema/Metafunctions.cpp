@@ -2564,11 +2564,12 @@ bool is_noexcept(APValue &Result, Sema &S, EvalFn Evaluator, QualType ResultTy,
     return true;
 
   switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_const_value:
+  case ReflectionValue::RK_null:
+  case ReflectionValue::RK_expr_result:
+  case ReflectionValue::RK_template:
   case ReflectionValue::RK_namespace:
   case ReflectionValue::RK_base_specifier:
   case ReflectionValue::RK_data_member_spec:
-  case ReflectionValue::RK_template:
     return SetAndSucceed(Result, makeBool(S.Context, false));
   case ReflectionValue::RK_type: {
     const QualType QT = R.getReflectedType();
