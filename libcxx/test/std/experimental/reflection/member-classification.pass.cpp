@@ -497,14 +497,66 @@ static_assert(!is_noexcept(type_of(^not_noexcept_generic_lambda)));
 static_assert(!is_noexcept(^noexcept_template_function));
 static_assert(!is_noexcept(^not_noexcept_template_function));
 
-// Random non callable types
-auto x = 1;
-auto s = S();
+// Expressions that can't be noexcept
+// Namespaces
+static_assert(!is_noexcept(^::));
+static_assert(!is_noexcept(^noexcept_functions));
 
-static_assert(!is_noexcept(^x));
-static_assert(!is_noexcept(type_of(^x)));
-static_assert(!is_noexcept(^s));
-static_assert(!is_noexcept(type_of(^s)));
+// Non callable id-expressions & their types
+struct T {
+  static const int static_mem = 1;
+  int non_static_mem = 2;
+};
+
+template <typename>
+struct TT {};
+
+enum class EC {
+  Something
+};
+
+enum E {
+  E_Something
+};
+
+static auto static_x = 1;
+auto non_static_x = static_x;
+auto t = T();
+auto template_t = TT<int>();
+int c_array[] = {1, 2};
+auto [structured_binding1, structured_binding2] = c_array;
+
+// a variable
+static_assert(!is_noexcept(^static_x));
+static_assert(!is_noexcept(type_of(^static_x)));
+static_assert(!is_noexcept(^non_static_x));
+static_assert(!is_noexcept(type_of(^non_static_x)));
+
+// a static data member
+static_assert(!is_noexcept(^T::static_mem));
+static_assert(!is_noexcept(type_of(^T::static_mem)));
+
+// a structured binding
+static_assert(!is_noexcept(^structured_binding1));
+static_assert(!is_noexcept(type_of(^structured_binding1)));
+
+// a non static data member
+static_assert(!is_noexcept(^t.non_static_mem));
+static_assert(!is_noexcept(type_of(^t.non_static_mem)));
+
+// a template
+static_assert(!is_noexcept(^TT));
+static_assert(!is_noexcept(^template_t));
+static_assert(!is_noexcept(type_of(^template_t)));
+
+// an enum
+static_assert(!is_noexcept(^EC));
+static_assert(!is_noexcept(^EC::Something));
+static_assert(!is_noexcept(type_of(^EC::Something)));
+
+static_assert(!is_noexcept(^E));
+static_assert(!is_noexcept(^E_Something));
+static_assert(!is_noexcept(type_of(^E_Something)));
 } // namespace noexcept_functions
 
                               // ================
