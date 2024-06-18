@@ -240,6 +240,10 @@ static bool is_concept(APValue &Result, Sema &S, EvalFn Evaluator,
                        QualType ResultTy, SourceRange Range,
                        ArrayRef<Expr *> Args);
 
+static bool is_structured_binding(APValue &Result, Sema &S, EvalFn Evaluator,
+                                  QualType ResultTy, SourceRange Range,
+                                  ArrayRef<Expr *> Args);
+
 static bool is_value(APValue &Result, Sema &S, EvalFn Evaluator,
                      QualType ResultTy, SourceRange Range,
                      ArrayRef<Expr *> Args);
@@ -261,10 +265,6 @@ static bool is_destructor(APValue &Result, Sema &S, EvalFn Evaluator,
                           ArrayRef<Expr *> Args);
 
 static bool is_special_member(APValue &Result, Sema &S, EvalFn Evaluator,
-                              QualType ResultTy, SourceRange Range,
-                              ArrayRef<Expr *> Args);
-
-static bool is_structured_binding(APValue &Result, Sema &S, EvalFn Evaluator,
                               QualType ResultTy, SourceRange Range,
                               ArrayRef<Expr *> Args);
 
@@ -384,13 +384,13 @@ static constexpr Metafunction Metafunctions[] = {
   { Metafunction::MFRK_bool, 1, 1, is_class_template },
   { Metafunction::MFRK_bool, 1, 1, is_alias_template },
   { Metafunction::MFRK_bool, 1, 1, is_concept },
+  { Metafunction::MFRK_bool, 1, 1, is_structured_binding },
   { Metafunction::MFRK_bool, 1, 1, is_value },
   { Metafunction::MFRK_bool, 1, 1, is_object },
   { Metafunction::MFRK_bool, 1, 1, has_template_arguments },
   { Metafunction::MFRK_bool, 1, 1, is_constructor },
   { Metafunction::MFRK_bool, 1, 1, is_destructor },
   { Metafunction::MFRK_bool, 1, 1, is_special_member },
-  { Metafunction::MFRK_bool, 1, 1, is_structured_binding },
   { Metafunction::MFRK_metaInfo, 2, 2, reflect_result },
   { Metafunction::MFRK_metaInfo, 3, 3, reflect_invoke },
   { Metafunction::MFRK_metaInfo, 9, 9, data_member_spec },
@@ -2948,6 +2948,24 @@ bool is_concept(APValue &Result, Sema &S, EvalFn Evaluator, QualType ResultTy,
   return SetAndSucceed(Result, makeBool(S.Context, IsConcept));
 }
 
+bool is_structured_binding(APValue &Result, Sema &S, EvalFn Evaluator,
+                           QualType ResultTy, SourceRange Range,
+                           ArrayRef<Expr *> Args) {
+  assert(Args[0]->getType()->isReflectionType());
+  assert(ResultTy == S.Context.BoolTy);
+
+  APValue R;
+  if (!Evaluator(R, Args[0], true))
+    return true;
+
+  bool result = false;
+  if (R.getReflection().getKind() == ReflectionValue::RK_declaration) {
+    result = isa<const BindingDecl>(R.getReflectedDecl());
+  }
+
+  return SetAndSucceed(Result, makeBool(S.Context, result));
+}
+
 bool is_value(APValue &Result, Sema &S, EvalFn Evaluator, QualType ResultTy,
               SourceRange Range, ArrayRef<Expr *> Args) {
   assert(Args[0]->getType()->isReflectionType());
@@ -3114,24 +3132,6 @@ bool is_special_member(APValue &Result, Sema &S, EvalFn Evaluator,
   }
   }
   llvm_unreachable("invalid reflection type");
-}
-
-bool is_structured_binding(APValue &Result, Sema &S, EvalFn Evaluator,
-                           QualType ResultTy, SourceRange Range,
-                           ArrayRef<Expr *> Args) {
-  assert(Args[0]->getType()->isReflectionType());
-  assert(ResultTy == S.Context.BoolTy);
-
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
-    return true;
-
-  bool result = false;
-  if (R.getReflection().getKind() == ReflectionValue::RK_declaration) {
-    result = isa<const BindingDecl>(R.getReflectedDecl());
-  }
-
-  return SetAndSucceed(Result, makeBool(S.Context, result));
 }
 
 bool reflect_result(APValue &Result, Sema &S, EvalFn Evaluator,
