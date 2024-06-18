@@ -24,16 +24,11 @@ using alias = type;
 int var;
 void func();
 
-template <typename T>
-struct TCls {};
-template <typename T>
-void TFn();
-template <typename T>
-concept TConcept = requires { true; };
-template <typename T>
-int TVar;
-template <typename T>
-using TClsAlias = TCls<T>;
+template <typename T> struct TCls {};
+template <typename T> void TFn();
+template <typename T> concept TConcept = requires { true; };
+template <typename T> int TVar;
+template <typename T> using TClsAlias = TCls<T>;
 
 namespace ns {}
 namespace ns_alias = ns;
@@ -420,9 +415,7 @@ static_assert(!is_incomplete_type(^incomplete_alias));
 
 static_assert(is_incomplete_type(^TCls<int>));
 static_assert(is_incomplete_type(^TClsAlias<int>));
-namespace {
-[[maybe_unused]] TCls<int> TClsCompletion;
-};
+namespace { [[maybe_unused]] TCls<int> TClsCompletion; };
 static_assert(!is_incomplete_type(^TCls<int>));
 static_assert(!is_incomplete_type(^TClsAlias<int>));
 
