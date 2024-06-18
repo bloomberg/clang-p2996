@@ -98,11 +98,11 @@ consteval auto is_variable_template(info) -> bool;
 consteval auto is_class_template(bool) -> bool;
 consteval auto is_alias_template(bool) -> bool;
 consteval auto is_concept(info) -> bool;
+consteval auto is_structured_binding(info) -> bool;
 consteval auto has_template_arguments(info) -> bool;
 consteval auto is_constructor(info) -> bool;
 consteval auto is_destructor(info) -> bool;
 consteval auto is_special_member(info) -> bool;
-consteval auto is_structured_binding(info) -> bool;
 
 // reflect expression results
 consteval auto reflect_value(auto) -> info;
@@ -207,13 +207,13 @@ enum : unsigned {
   __metafn_is_class_template,
   __metafn_is_alias_template,
   __metafn_is_concept,
+  __metafn_is_structured_binding,
   __metafn_is_value,
   __metafn_is_object,
   __metafn_has_template_arguments,
   __metafn_is_constructor,
   __metafn_is_destructor,
   __metafn_is_special_member,
-  __metafn_is_structured_binding,
   __metafn_reflect_result,
   __metafn_reflect_invoke,
   __metafn_data_member_spec,
@@ -776,6 +776,11 @@ consteval auto is_concept(info r) -> bool {
   return __metafunction(detail::__metafn_is_concept, r);
 }
 
+// Returns whether the reflected entity is a structured binding.
+consteval auto is_structured_binding(info r) -> bool {
+  return __metafunction(detail::__metafn_is_structured_binding, r);
+}
+
 // Returns true if the reflected entity is a value.
 consteval auto is_value(info r) -> bool {
   return __metafunction(detail::__metafn_is_value, r);
@@ -804,11 +809,6 @@ consteval auto is_destructor(info r) -> bool {
 // Returns whether the reflected entity is a special member function.
 consteval auto is_special_member(info r) -> bool {
   return __metafunction(detail::__metafn_is_special_member, r);
-}
-
-// Returns whether the reflected entity is a structured binding.
-consteval auto is_structured_binding(info r) -> bool {
-  return __metafunction(detail::__metafn_is_structured_binding, r);
 }
 
 // Returns a reflection of the value held by the provided argument.
