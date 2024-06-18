@@ -4,7 +4,7 @@
 namespace issue1 {
   template<class T, class U = T> class B {};
   template<template<class> class P, class T> void f(P<T>);
-  // new-note@-1 {{deduced type 'B<[...], (default) int>' of 1st parameter does not match adjusted type 'B<[...], float>' of argument [with P = issue1::B, T = int]}}
+  // new-note@-1 {{deduced type 'B<[...], (default) int>' of 1st parameter does not match adjusted type 'B<[...], float>' of argument [with P = B, T = int]}}
   // old-note@-2 2{{template template argument has different template parameters}}
 
   void g() {
@@ -201,3 +201,19 @@ namespace consistency {
     // new-error@-1 {{ambiguous partial specializations}}
   } // namespace t2
 } // namespace consistency
+
+namespace regression1 {
+  template <typename T, typename Y> struct map {};
+  template <typename T> class foo {};
+
+  template <template <typename...> class MapType, typename Value>
+  Value bar(MapType<int, Value> map);
+
+  template <template <typename...> class MapType, typename Value>
+  Value bar(MapType<int, foo<Value>> map);
+
+  void aux() {
+    map<int, foo<int>> input;
+    bar(input);
+  }
+} // namespace regression1

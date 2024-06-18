@@ -222,7 +222,7 @@ static Cl::Kinds ClassifyInternal(ASTContext &Ctx, const Expr *E) {
 
   case Expr::ConstantExprClass: {
     if (!cast<ConstantExpr>(E)->getSubExpr())
-      return Cl::CL_PRValue;
+      return E->isLValue() ? Cl::CL_LValue : Cl::CL_PRValue;
     return ClassifyInternal(Ctx, cast<ConstantExpr>(E)->getSubExpr());
   }
 

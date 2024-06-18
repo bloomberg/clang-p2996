@@ -203,6 +203,31 @@ constexpr foo<bool, char> f3 = {3};
 static_assert(f1.mem1 + f2.mem2 + f3.mem3 == 6);
 }  // namespace completion_of_template_with_pack_param
 
+                          // =========================
+                          // with_non_contiguous_range
+                          // =========================
+
+namespace with_non_contiguous_range {
+struct foo;
+static_assert(is_type(define_class(
+    ^foo,
+    std::views::join(std::vector<std::vector<std::pair<bool,
+                                                       std::meta::info>>> {
+      {
+        std::make_pair(true, std::meta::data_member_spec(^int, {.name="i"})),
+      }, {
+        std::make_pair(false, std::meta::data_member_spec(^std::string)),
+        std::make_pair(true, std::meta::data_member_spec(^bool, {.name="b"})),
+      }
+    }) |
+    std::views::filter([](auto P) { return P.first; }) |
+    std::views::transform([](auto P) { return P.second; }))));
+
+static_assert(type_of(^foo::i) == ^int);
+static_assert(type_of(^foo::b) == ^bool);
+static_assert(nonstatic_data_members_of(^foo).size() == 2);
+}  // namespace with_non_contiguous_range
+
                              // ==================
                              // static_data_member
                              // ==================
@@ -214,11 +239,49 @@ union U;
 
 static_assert(is_incomplete_type(^S));
 static_assert(is_type(define_class(^S, {
-                data_member_spec(^int,{.name="count", .is_static=true}),
+                data_member_spec(^int, {.name="count", .is_static=true}),
               })));
 static_assert(!is_incomplete_type(^S));
 decltype(S::count) S::count = 14;
 }  // namespace static_data_member
+
+                           // =======================
+                           // utf8_name_of_roundtrips
+                           // =======================
+
+namespace utf8_name_of_roundtrip {
+class Kühl { };
+
+class Cls1;
+static_assert(
+    is_type(define_class(^Cls1, {data_member_spec(^int,
+                                                  {.name=name_of(^Kühl)})})));
+static_assert(name_of(nonstatic_data_members_of(^Cls1)[0]) == u8"Kühl");
+
+class Cls2;
+
+constexpr std::string_view sv = name_of<std::string_view>(^Kühl);
+static_assert(sv == "K\\u{00FC}hl");
+static_assert(is_type(define_class(^Cls2,
+                                   {data_member_spec(^int, {.name=sv})})));
+static_assert(name_of(nonstatic_data_members_of(^Cls2)[0]) == u8"Kühl");
+
+}  // namespace utf8_name_of_roundtrip
+
+                           // ======================
+                           // member_names_with_ucns
+                           // ======================
+
+namespace member_names_with_ucns {
+struct S;
+constexpr auto U = define_class(^S, {
+  data_member_spec(^int, {.name="i", .alignment=64}),
+  data_member_spec(^int, {.name=u8"こんにち", .alignment=64}),
+  data_member_spec(^int, {.name="v\\N{LATIN SMALL LETTER AE}rs\\u{E5}god"})
+});
+[[maybe_unused]] constexpr [:U:] s{.i=1, .こんにち=2, .værsågod=3};
+
+}  // namespace member_names_with_ucns
 
 int main() {
     // RUN: grep "S::count=14" %t.stdout

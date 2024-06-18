@@ -1875,7 +1875,7 @@ Decl *TemplateInstantiator::TransformDecl(SourceLocation Loc, Decl *D) {
         Arg = getPackSubstitutedTemplateArgument(getSema(), Arg);
       }
 
-      TemplateName Template = Arg.getAsTemplate().getNameToSubstitute();
+      TemplateName Template = Arg.getAsTemplate();
       assert(!Template.isNull() && Template.getAsTemplateDecl() &&
              "Wrong kind of template template argument");
       return Template.getAsTemplateDecl();
@@ -2053,10 +2053,8 @@ TemplateName TemplateInstantiator::TransformTemplateName(
         return SemaRef.Context.getDependentTemplateName(Splice);
       }
 
-      TemplateName Template = Arg.getAsTemplate().getNameToSubstitute();
+      TemplateName Template = Arg.getAsTemplate();
       assert(!Template.isNull() && "Null template template argument");
-      assert(!Template.getAsQualifiedTemplateName() &&
-             "template decl to substitute is qualified?");
 
       if (Final)
         return Template;
@@ -2076,8 +2074,8 @@ TemplateName TemplateInstantiator::TransformTemplateName(
     if (SubstPack->getFinal())
       return Template;
     return getSema().Context.getSubstTemplateTemplateParm(
-        Template.getNameToSubstitute(), SubstPack->getAssociatedDecl(),
-        SubstPack->getIndex(), getPackIndex(Pack));
+        Template, SubstPack->getAssociatedDecl(), SubstPack->getIndex(),
+        getPackIndex(Pack));
   }
 
   return inherited::TransformTemplateName(SS, Name, NameLoc, ObjectType,

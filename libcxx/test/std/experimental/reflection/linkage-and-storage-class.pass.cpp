@@ -58,6 +58,16 @@ void foo() {
 
 template <auto V> struct TCls {};
 static_assert(!has_static_storage_duration(template_arguments_of(^TCls<5>)[0]));
+
+template <auto K> constexpr auto R = ^K;
+static_assert(has_static_storage_duration(R<S{}>));
+
+static std::pair<int, int> p;
+
+constexpr auto first = std::meta::reflect_object(p.first);
+static_assert(has_static_storage_duration(first));
+
+static_assert(!has_static_storage_duration(std::meta::reflect_value(4)));
 }  // namespace storage_class_and_duration
 
                                    // =======
@@ -67,6 +77,10 @@ static_assert(!has_static_storage_duration(template_arguments_of(^TCls<5>)[0]));
 namespace linkage {
 int global;
 static int s_global;
+
+std::pair<int, int> p1;
+static std::pair<int, int> p2;
+
 void fn();
 
 static_assert(has_linkage(^global));
@@ -81,6 +95,14 @@ static_assert(has_linkage(^fn));
 static_assert(!has_internal_linkage(^fn));
 static_assert(has_external_linkage(^fn));
 
+static_assert(has_linkage(std::meta::reflect_object(p1.first)));
+static_assert(!has_internal_linkage(std::meta::reflect_object(p1.first)));
+static_assert(has_external_linkage(std::meta::reflect_object(p1.first)));
+
+static_assert(has_linkage(std::meta::reflect_object(p1.first)));
+static_assert(has_internal_linkage(std::meta::reflect_object(p2.first)));
+static_assert(!has_external_linkage(std::meta::reflect_object(p2.first)));
+
 void fn() {
   struct S { static void fn(); };
   static_assert(!has_linkage(^S::fn));
@@ -94,21 +116,21 @@ template <typename T> int TVar;
 
 static_assert(!has_linkage(^::));
 static_assert(!has_linkage(^::linkage));
-static_assert(!has_linkage(^3));
+static_assert(!has_linkage(std::meta::reflect_value(3)));
 static_assert(!has_linkage(^int));
 static_assert(!has_linkage(^TCls));
 static_assert(!has_linkage(^TFn));
 static_assert(!has_linkage(^TVar));
 static_assert(!has_internal_linkage(^::));
 static_assert(!has_internal_linkage(^::linkage));
-static_assert(!has_internal_linkage(^3));
+static_assert(!has_internal_linkage(std::meta::reflect_value(3)));
 static_assert(!has_internal_linkage(^int));
 static_assert(!has_internal_linkage(^TCls));
 static_assert(!has_internal_linkage(^TFn));
 static_assert(!has_internal_linkage(^TVar));
 static_assert(!has_external_linkage(^::));
 static_assert(!has_external_linkage(^::linkage));
-static_assert(!has_external_linkage(^3));
+static_assert(!has_external_linkage(std::meta::reflect_value(3)));
 static_assert(!has_external_linkage(^int));
 static_assert(!has_external_linkage(^TCls));
 static_assert(!has_external_linkage(^TFn));

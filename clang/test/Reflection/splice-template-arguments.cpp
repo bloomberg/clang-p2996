@@ -39,31 +39,26 @@ concept Concept = requires { requires sizeof(C<T, Sz>) == sizeof(T) * Sz; };
 
 namespace non_dependent_arguments {
 constexpr unsigned x = 4;
-constexpr info R1a = ^ArrayCls, R1b = ^Array, R2 = ^int, R3a = ^4, R3b = ^x;
-static_assert(TCls<[:R1a:], [:R2:], [:R3a:]>::value == sizeof(int) * 4);
-static_assert(TCls<[:R1a:], [:R2:], [:R3b:]>::value == sizeof(int) * 4);
-static_assert(TCls<template [:R1a:], typename [:R2:], ([:R3b:])>::value ==
+constexpr info R1a = ^ArrayCls, R1b = ^Array, R2 = ^int, R3 = ^x;
+static_assert(TCls<[:R1a:], [:R2:], [:R3:]>::value == sizeof(int) * 4);
+static_assert(TCls<template [:R1a:], typename [:R2:], ([:R3:])>::value ==
               sizeof(int) * 4);
-static_assert(TCls<[:R1b:], [:R2:], [:R3a:]>::value == sizeof(int) * 4);
-static_assert(TAlias<[:R1b:], [:R2:], [:R3a:]>::value == sizeof(int) * 4);
-static_assert(TAlias<[:R1b:], [:R2:], [:R3b:]>::value == sizeof(int) * 4);
-static_assert(TAlias<[:R1b:], [:R2:], [:R3a:]>::value == sizeof(int) * 4);
-static_assert(TAlias<template [:R1b:], typename [:R2:], ([:R3a:])>::value ==
+static_assert(TCls<[:R1b:], [:R2:], [:R3:]>::value == sizeof(int) * 4);
+static_assert(TAlias<[:R1a:], [:R2:], [:R3:]>::value == sizeof(int) * 4);
+static_assert(TAlias<[:R1b:], [:R2:], [:R3:]>::value == sizeof(int) * 4);
+static_assert(TAlias<template [:R1b:], typename [:R2:], ([:R3:])>::value ==
               sizeof(int) * 4);
-static_assert(TFn<[:R1a:], [:R2:], [:R3a:]>() == sizeof(int) * 4);
-static_assert(TFn<[:R1a:], [:R2:], [:R3b:]>() == sizeof(int) * 4);
-static_assert(TFn<[:R1b:], [:R2:], [:R3a:]>() == sizeof(int) * 4);
-static_assert(TFn<template [:R1b:], typename [:R2:], ([:R3a:])>() ==
+static_assert(TFn<[:R1a:], [:R2:], [:R3:]>() == sizeof(int) * 4);
+static_assert(TFn<[:R1b:], [:R2:], [:R3:]>() == sizeof(int) * 4);
+static_assert(TFn<template [:R1b:], typename [:R2:], ([:R3:])>() ==
               sizeof(int) * 4);
-static_assert(TVar<[:R1a:], [:R2:], [:R3a:]> == sizeof(int) * 4);
-static_assert(TVar<[:R1a:], [:R2:], [:R3b:]> == sizeof(int) * 4);
-static_assert(TVar<[:R1b:], [:R2:], [:R3a:]> == sizeof(int) * 4);
-static_assert(TVar<template [:R1b:], typename [:R2:], ([:R3a:])> ==
+static_assert(TVar<[:R1a:], [:R2:], [:R3:]> == sizeof(int) * 4);
+static_assert(TVar<[:R1b:], [:R2:], [:R3:]> == sizeof(int) * 4);
+static_assert(TVar<template [:R1b:], typename [:R2:], ([:R3:])> ==
               sizeof(int) * 4);
-static_assert(Concept<[:R1a:], [:R2:], [:R3a:]>);
-static_assert(Concept<[:R1a:], [:R2:], [:R3b:]>);
-static_assert(Concept<[:R1b:], [:R2:], [:R3a:]>);
-static_assert(Concept<template [:R1b:], typename [:R2:], ([:R3a:])>);
+static_assert(Concept<[:R1a:], [:R2:], [:R3:]>);
+static_assert(Concept<[:R1b:], [:R2:], [:R3:]>);
+static_assert(Concept<template [:R1b:], typename [:R2:], ([:R3:])>);
 }  // namespace non_dependent_arguments
 
                              // ===================
@@ -92,23 +87,18 @@ template <info TN, info T, info Sz>
 concept DependentConcept = Concept<[:TN:], [:T:], [:Sz:]>;
 
 constexpr unsigned x = 4;
-constexpr info R1a = ^ArrayCls, R1b = ^Array, R2 = ^int, R3a = ^4, R3b = ^x;
-static_assert(szTCls<R1a, R2, R3a>() == sizeof(int) * 4);
-static_assert(szTCls<R1a, R2, R3b>() == sizeof(int) * 4);
-static_assert(szTCls<R1b, R2, R3a>() == sizeof(int) * 4);
-static_assert(constrainedSzTCls<R1a, R2, R3a>() == sizeof(int) * 4);
-static_assert(szTAlias<R1a, R2, R3a>() == sizeof(int) * 4);
-static_assert(szTAlias<R1a, R2, R3b>() == sizeof(int) * 4);
-static_assert(szTAlias<R1a, R2, R3a>() == sizeof(int) * 4);
-static_assert(szTFn<R1a, R2, R3a>() == sizeof(int) * 4);
-static_assert(szTFn<R1a, R2, R3b>() == sizeof(int) * 4);
-static_assert(szTFn<R1b, R2, R3a>() == sizeof(int) * 4);
-static_assert(szTVar<R1b, R2, R3a> == sizeof(int) * 4);
-static_assert(szTVar<R1b, R2, R3b> == sizeof(int) * 4);
-static_assert(szTVar<R1b, R2, R3a> == sizeof(int) * 4);
-static_assert(DependentConcept<R1a, R2, R3a>);
-static_assert(DependentConcept<R1a, R2, R3b>);
-static_assert(DependentConcept<R1b, R2, R3a>);
+constexpr info R1a = ^ArrayCls, R1b = ^Array, R2 = ^int, R3 = ^x;
+static_assert(szTCls<R1a, R2, R3>() == sizeof(int) * 4);
+static_assert(szTCls<R1b, R2, R3>() == sizeof(int) * 4);
+static_assert(constrainedSzTCls<R1a, R2, R3>() == sizeof(int) * 4);
+static_assert(szTAlias<R1a, R2, R3>() == sizeof(int) * 4);
+static_assert(szTAlias<R1a, R2, R3>() == sizeof(int) * 4);
+static_assert(szTFn<R1a, R2, R3>() == sizeof(int) * 4);
+static_assert(szTFn<R1b, R2, R3>() == sizeof(int) * 4);
+static_assert(szTVar<R1b, R2, R3> == sizeof(int) * 4);
+static_assert(szTVar<R1b, R2, R3> == sizeof(int) * 4);
+static_assert(DependentConcept<R1a, R2, R3>);
+static_assert(DependentConcept<R1b, R2, R3>);
 }  // namespace dependent_arguments
 
 template <typename T, unsigned Sz>
@@ -201,8 +191,8 @@ constexpr unsigned depSumVar = SumVar<[:Rs:]...>;
 template <info... Rs>
 concept depSumMoreThan5 = SumMoreThan5<[:Rs:]...>;
 
-constexpr unsigned x = 2;
-constexpr info R1 = ^1, R2 = ^x, R3 = ^3;
+constexpr unsigned x = 1, y = 2, z = 3;
+constexpr info R1 = ^x, R2 = ^y, R3 = ^z;
 constexpr unsigned Expected = [:R1:] + [:R2:] + [:R3:];
 static_assert(SumCls<[:R1:], [:R2:], [:R3:]>::sz == Expected);
 static_assert(SumAlias<[:R1:], [:R2:], [:R3:]>::sz == Expected);
@@ -289,14 +279,11 @@ template <info... Rs>
 constexpr unsigned szTVar = TVar<[:Rs:]...>;
 
 constexpr int x = 4;
-constexpr info R1a = ^ArrayCls, R1b = ^Array, R2 = ^int, R3a = ^4, R3b = ^x;
-static_assert(szTCls<R1a, R2, R3a>() == sizeof(int) * 4);
-static_assert(szTCls<R1a, R2, R3b>() == sizeof(int) * 4);
-static_assert(szTCls<R1b, R2, R3a>() == sizeof(int) * 4);
-static_assert(szTFn<R1a, R2, R3a>() == sizeof(int) * 4);
-static_assert(szTFn<R1a, R2, R3b>() == sizeof(int) * 4);
-static_assert(szTFn<R1b, R2, R3a>() == sizeof(int) * 4);
-static_assert(szTVar<R1b, R2, R3a> == sizeof(int) * 4);
-static_assert(szTVar<R1b, R2, R3b> == sizeof(int) * 4);
-static_assert(szTVar<R1b, R2, R3a> == sizeof(int) * 4);
+constexpr info R1a = ^ArrayCls, R1b = ^Array, R2 = ^int, R3 = ^x;
+static_assert(szTCls<R1a, R2, R3>() == sizeof(int) * 4);
+static_assert(szTCls<R1b, R2, R3>() == sizeof(int) * 4);
+static_assert(szTFn<R1a, R2, R3>() == sizeof(int) * 4);
+static_assert(szTFn<R1b, R2, R3>() == sizeof(int) * 4);
+static_assert(szTVar<R1b, R2, R3> == sizeof(int) * 4);
+static_assert(szTVar<R1b, R2, R3> == sizeof(int) * 4);
 }  // namespace heterogeneous_packs_of_reflections

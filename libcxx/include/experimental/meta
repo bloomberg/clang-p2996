@@ -26,10 +26,17 @@ inline namespace reflection_v2
 // std::meta::info
 using info = decltype(^int);
 
+// concept reflection_range
+template <typename R>
+concept reflection_range = see below;
+
 // name and location
-consteval auto name_of(info) -> string_view;
-consteval auto display_name_of(info) -> string_view;
-consteval auto source_location_of(info r) -> source_location;
+template<typename T = u8string_view>
+  consteval auto name_of(info) -> string_view;
+template<typename T = u8string_view>
+  consteval auto display_name_of(info) -> string_view;
+template<typename T = u8string_view>
+  consteval auto source_location_of(info r) -> source_location;
 
 // type queries
 consteval auto type_of(info) -> info;
@@ -45,17 +52,79 @@ consteval auto template_arguments_of(info r) -> vector<info>;
 
 // member queries
 template <typename... Preds>
-consteval auto members_of(info class_type, Preds... filters) -> vector<info>;
+  consteval auto members_of(info class_type, Preds... filters) -> vector<info>;
 typename <template... Preds>
-consteval auto bases_of(info class_type, Preds... filters) -> vector<info>;
+  consteval auto bases_of(info class_type, Preds... filters) -> vector<info>;
 consteval auto static_data_members_of(info class_type) -> vector<info>;
 consteval auto nonstatic_data_members_of(info class_type) -> vector<info>;
 consteval auto subobjects_of(info class_type) -> vector<info>;
 consteval auto enumerators_of(info enum_type) -> vector<info>;
 
+// member access queries
+consteval auto access_context() -> info;
+struct access_pair {
+  consteval access_pair(info target, info from = access_context());
+};
+
+consteval auto is_accessible(access_pair p) -> bool;
+consteval auto is_accessible(info r, info from);
+
+template <typename Pred>
+  consteval auto accessible_members_of(access_pair p, Pred pred);
+template <typename Pred>
+  consteval auto accessible_members_of(info target, info from, Pred pred);
+template <typename... Preds>
+  consteval auto accessible_members_of(access_pair p,
+                                       Preds... preds) -> vector<info>;
+template <typename... Preds>
+  consteval auto accessible_members_of(info target, info from,
+                                       Preds... preds) -> vector<info>;
+consteval auto accessible_members_of(access_pair p) -> vector<info>;
+consteval auto accessible_members_of(info target, info from) -> vector<info>;
+consteval auto accessible_nonstatic_data_members_of(access_pair p)
+    -> vector<info>;
+consteval auto accessible_nonstatic_data_members_of(info target,
+                                                    info from) -> vector<info>;
+consteval auto accessible_static_data_members_of(access_pair p) -> vector<info>;
+consteval auto accessible_static_data_members_of(info target,
+                                                 info from) -> vector<info>;
+template <typename Pred>
+  consteval auto accessible_bases_of(access_pair p, Pred pred);
+template <typename Pred>
+  consteval auto accessible_bases_of(info target, info from, Pred pred);
+template <typename... Preds>
+  consteval auto accessible_bases_of(access_pair p,
+                                       Preds... preds) -> vector<info>;
+template <typename... Preds>
+  consteval auto accessible_bases_of(info target, info from,
+                                       Preds... preds) -> vector<info>;
+consteval auto accessible_bases_of(access_pair p) -> vector<info>;
+consteval auto accessible_bases_of(info target, info from) -> vector<info>;
+consteval auto accessible_subobjects_of(acess_pair p) -> vector<info>;
+consteval auto accessible_subobject_of(info target,
+                                       info from) -> vector<info>;
+
 // substitute
-consteval auto can_substitute(info templ, span<info const>) -> bool;
-consteval auto substitute(info templ, span<info const>) -> info;
+template <reflection_range R = span<info const>>
+  consteval auto can_substitute(info templ, R &&args) -> bool;
+template <reflection_range R = span<info const>>
+  consteval auto substitute(info templ, R &&args) -> info;
+
+// reflect_invoke
+template <reflection_range R = span<info const>>
+  consteval auto reflect_invoke(info target, R &&args) -> info;
+template <reflection_range R1 = span<info const>,
+          reflection_range R2 = span<info const>>
+  consteval auto reflect_invoke(info target,
+                                R1 &&tmpl_args, R2 &&args) -> info;
+
+// reflect expression results
+template <typename T>
+  consteval auto reflect_value(T) -> info;
+template <typename T>
+  consteval auto reflect_object(T &) -> info;
+template <typename T>
+  consteval auto reflect_function(T &) -> info;
 
 // extract<T>
 template <typename Ty>
@@ -63,13 +132,13 @@ template <typename Ty>
 
 // test_type
 consteval auto test_type(info templ, info type) -> bool;
-consteval auto test_types(info templ, span<info const> types) -> bool;
+template <reflection_range R = span<info const>>
+  consteval auto test_types(info templ, R &&types) -> bool;
 
 // other type predicates
 consteval auto is_public(info) -> bool;
 consteval auto is_protected(info) -> bool;
 consteval auto is_private(info) -> bool;
-consteval auto is_accessible(info) -> bool;
 consteval auto is_virtual(info) -> bool;
 consteval auto is_pure_virtual(info) -> bool;
 consteval auto is_override(info) -> bool;
@@ -103,20 +172,14 @@ consteval auto has_template_arguments(info) -> bool;
 consteval auto is_constructor(info) -> bool;
 consteval auto is_destructor(info) -> bool;
 consteval auto is_special_member(info) -> bool;
-
-// reflect expression results
-consteval auto reflect_value(auto) -> info;
-consteval auto reflect_object(auto &) -> info;
-consteval auto reflect_function(auto &) -> info;
-
-// reflect_invoke
-consteval auto reflect_invoke(info target, span<info const> args) -> info;
+consteval auto is_user_provided(info) -> bool;
 
 // define_class
 struct data_member_options_t;
 consteval auto data_member_spec(info class_type,
                                 data_member_options = {}) -> info;
-consteval auto define_class(info class_type, span<info const>) -> info;
+template <reflection_range R = span<info const>>
+  consteval auto define_class(info class_type, R &&members) -> info;
 
 // data layout
 consteval auto offset_of(info) -> size_t;
@@ -125,10 +188,171 @@ consteval auto bit_offset_of(info) -> size_t;
 consteval auto bit_size_of(info) -> size_t;
 consteval auto alignment_of(info) -> size_t;
 
+// primary type categories
+consteval auto type_is_void(info) -> bool;
+consteval auto type_is_null_pointer(info) -> bool;
+consteval auto type_is_integral(info) -> bool;
+consteval auto type_is_floating_point(info) -> bool;
+consteval auto type_is_array(info) -> bool;
+consteval auto type_is_pointer(info) -> bool;
+consteval auto type_is_lvalue_reference(info) -> bool;
+consteval auto type_is_rvalue_reference(info) -> bool;
+consteval auto type_is_member_object_pointer(info) -> bool;
+consteval auto type_is_member_function_pointer(info) -> bool;
+consteval auto type_is_enum(info) -> bool;
+consteval auto type_is_union(info) -> bool;
+consteval auto type_is_class(info) -> bool;
+consteval auto type_is_function(info) -> bool;
+
+// composite type categories
+consteval auto type_is_reference(info) -> bool;
+consteval auto type_is_arithmetic(info) -> bool;
+consteval auto type_is_fundamental(info) -> bool;
+consteval auto type_is_object(info) -> bool;
+consteval auto type_is_scalar(info) -> bool;
+consteval auto type_is_compound(info) -> bool;
+consteval auto type_is_member_pointer(info) -> bool;
+
+// type properties
+consteval auto type_is_const(info) -> bool;
+consteval auto type_is_volatile(info) -> bool;
+consteval auto type_is_trivial(info) -> bool;
+consteval auto type_is_trivially_copyable(info) -> bool;
+consteval auto type_is_standard_layout(info) -> bool;
+consteval auto type_is_empty(info) -> bool;
+consteval auto type_is_polymorphic(info) -> bool;
+consteval auto type_is_abstract(info) -> bool;
+consteval auto type_is_final(info) -> bool;
+consteval auto type_is_aggregate(info) -> bool;
+consteval auto type_is_signed(info) -> bool;
+consteval auto type_is_unsigned(info) -> bool;
+consteval auto type_is_bounded_array(info) -> bool;
+consteval auto type_is_unbounded_array(info) -> bool;
+consteval auto type_is_scoped_enum(info) -> bool;
+
+template <reflection_range R = span<info const>>
+  consteval auto type_is_constructible(info, R &&type_args) -> bool;
+consteval auto type_is_default_constructible(info) -> bool;
+consteval auto type_is_copy_constructible(info) -> bool;
+consteval auto type_is_move_constructible(info) -> bool;
+
+consteval auto type_is_assignable(info dst, info src) -> bool;
+consteval auto type_is_copy_assignable(info) -> bool;
+consteval auto type_is_move_assignable(info) -> bool;
+
+consteval auto type_is_swappable_with(info dst, info src) -> bool;
+consteval auto type_is_swappable(info) -> bool;
+
+consteval auto type_is_destructible(info) -> bool;
+
+template <reflection_range R = span<info const>>
+  consteval auto type_is_trivially_constructible(info, R &&type_args) -> bool;
+consteval auto type_is_trivially_default_constructible(info) -> bool;
+consteval auto type_is_trivially_copy_constructible(info) -> bool;
+consteval auto type_is_trivially_move_constructible(info) -> bool;
+
+consteval auto type_is_trivially_assignable(info dst, info src) -> bool;
+consteval auto type_is_trivially_copy_assignable(info) -> bool;
+consteval auto type_is_trivially_move_assignable(info) -> bool;
+consteval auto type_is_trivially_destructible(info) -> bool;
+
+template <reflection_range R = span<info const>>
+  consteval auto type_is_nothrow_constructible(info, R &&type_args) -> bool;
+consteval auto type_is_nothrow_default_constructible(info) -> bool;
+consteval auto type_is_nothrow_copy_constructible(info) -> bool;
+consteval auto type_is_nothrow_move_constructible(info) -> bool;
+
+consteval auto type_is_nothrow_assignable(info dst, info src) -> bool;
+consteval auto type_is_nothrow_copy_assignable(info) -> bool;
+consteval auto type_is_nothrow_move_assignable(info) -> bool;
+
+consteval auto type_is_nothrow_swappable_with(info dst, info src) -> bool;
+consteval auto type_is_nothrow_swappable(info) -> bool;
+
+consteval auto type_is_nothrow_destructible(info) -> bool;
+
+consteval auto type_is_implicit_lifetime(info) -> bool;
+
+consteval auto type_has_virtual_destructor(info) -> bool;
+
+consteval auto type_has_unique_object_representations(info) -> bool;
+
+consteval auto type_reference_constructs_from_temporary(info) -> bool;
+consteval auto type_reference_converts_from_temporary(info) -> bool;
+
+// type property queries
+consteval auto type_alignment_of(info) -> size_t;
+consteval auto type_rank(info) -> size_t;
+consteval auto type_extent(info type, unsigned i) -> size_t;
+
+// type relations
+consteval auto type_is_same(info, info) -> bool;
+consteval auto type_is_base_of(info, info) -> bool;
+consteval auto type_is_convertible(info, info) -> bool;
+consteval auto type_is_nothrow_convertible(info, info) -> bool;
+consteval auto type_is_layout_compatible(info, info) -> bool;
+consteval auto type_is_pointer_interconvertible_base_of(info, info) -> bool;
+
+template <reflection_range R = span<info const>>
+  consteval auto type_is_invocable(info type, R &&args) -> bool;
+template <reflection_range R = span<info const>>
+  consteval auto type_is_invocable_r(info type_result, info type,
+                                     R &&args) -> bool;
+
+template <reflection_range R = span<info const>>
+  consteval auto type_is_nothrow_invocable(info type, R &&args) -> bool;
+template <reflection_range R = span<info const>>
+  consteval auto type_is_nothrow_invocable_r(info type_result, info type,
+                                             R &&args) -> bool;
+
+// const volatile modifications
+consteval auto type_remove_const(info) -> info;
+consteval auto type_remove_volatile(info) -> info;
+consteval auto type_remove_cv(info) -> info;
+consteval auto type_add_const(info) -> info;
+consteval auto type_add_volatile(info) -> info;
+consteval auto type_add_cv(info) -> info;
+
+// reference modifications
+consteval auto type_remove_reference(info) -> info;
+consteval auto type_add_lvalue_reference(info) -> info;
+consteval auto type_add_rvalue_reference(info) -> info;
+
+// sign modifications
+consteval auto make_signed(info) -> info;
+consteval auto make_unsigned(info) -> info;
+
+// array modifications
+consteval auto type_remove_extent(info) -> info;
+consteval auto type_remove_all_extents(info) -> info;
+
+// pointer modifications
+consteval auto type_remove_pointer(info) -> info;
+consteval auto type_add_pointer(info) -> info;
+
+// other transformations
+consteval auto type_remove_cvref(info) -> info;
+consteval auto type_decay(info) -> info;
+template <reflection_range R = span<info const>>
+  consteval auto type_common_type(R &&type_args) -> info;
+template <reflection_range R = span<info const>>
+  consteval auto type_common_reference(R &&type_args) -> info;
+consteval auto type_underlying_type(info) -> info;
+template <reflection_range R = span<info const>>
+  consteval auto type_invoke_result(info type, R &&type_args) -> info;
+consteval auto type_unwrap_reference(info) -> info;
+consteval auto type_unwrap_ref_decay(info) -> info;
+
 // function parameters (P3096)
 consteval auto parameters_of(info) -> vector<info>;
 consteval auto has_consistent_name(info) -> bool;
+template<typename T = u8string_view>
+  consteval auto any_name_of(info) -> string_view;
+consteval auto has_ellipsis_parameter(info) -> bool;
 consteval auto has_default_argument(info) -> bool;
+consteval auto is_explicit_object_parameter(info) -> bool;
+consteval auto is_function_parameter(info) -> bool;
+consteval auto return_type_of(info) -> info;
 
 } // namespace reflection_v2
 } // namespace meta
@@ -138,10 +362,12 @@ consteval auto has_default_argument(info) -> bool;
 
 #include <experimental/__config>
 #include <optional>
+#include <ranges>
 #include <source_location>
 #include <span>
 #include <string_view>
 #include <type_traits>
+#include <variant>
 #include <vector>
 
 #if __has_feature(reflection)
@@ -150,6 +376,12 @@ _LIBCPP_BEGIN_NAMESPACE_META_V2
 
 // An opaque handle to a reflected entity.
 using info = decltype(^int);
+
+template <typename R>
+concept reflection_range =
+  ranges::input_range<R> &&
+  same_as<ranges::range_value_t<R>, info> &&
+  same_as<remove_cvref_t<ranges::range_reference_t<R>>, info>;
 
 namespace detail {
 enum : unsigned {
@@ -214,6 +446,7 @@ enum : unsigned {
   __metafn_is_constructor,
   __metafn_is_destructor,
   __metafn_is_special_member,
+  __metafn_is_user_provided,
   __metafn_reflect_result,
   __metafn_reflect_invoke,
   __metafn_data_member_spec,
@@ -224,10 +457,17 @@ enum : unsigned {
   __metafn_bit_size_of,
   __metafn_alignment_of,
 
+  // Proposed alternative P2996 accessibility API
+  __metafn_access_context,
+
   // P3096 metafunctions
   __metafn_get_ith_parameter_of,
   __metafn_has_consistent_name,
+  __metafn_has_ellipsis_parameter,
   __metafn_has_default_argument,
+  __metafn_is_explicit_object_parameter,
+  __metafn_is_function_parameter,
+  __metafn_return_type_of,
 };
 
 }  // namespace detail
@@ -449,14 +689,32 @@ struct front_parameter_of_fn {
 // Metafunctions
 // -----------------------------------------------------------------------------
 
+// Returns a reflection of the canonical type for the reflected type.
+consteval auto dealias(info r) -> info {
+  return __metafunction(detail::__metafn_dealias, r);
+}
+
 // Returns the name of the reflected entity, or the empty string if it has none.
-consteval auto name_of(info r) -> string_view {
-  return __metafunction(detail::__metafn_name_of, r);
+template<typename T = u8string_view>
+consteval auto name_of(info r) -> T {
+  static_assert(^T == dealias(^u8string_view) || ^T == dealias(^string_view),
+                "Name type must be 'string_view' or 'u8string_view'");
+
+  return __metafunction(detail::__metafn_name_of,
+                        ^const typename T::value_type *, r,
+                        ^T == dealias(^std::u8string_view),
+                        /*EnforceConsistent=*/true);
 }
 
 // Returns a name for the reflected entity.
-consteval auto display_name_of(info r) -> string_view {
-  return __metafunction(detail::__metafn_display_name_of, r);
+template<typename T = u8string_view>
+consteval auto display_name_of(info r) -> T {
+  static_assert(^T == dealias(^u8string_view) || ^T == dealias(^string_view),
+                "Name type must be 'string_view' or 'u8string_view'");
+
+  return __metafunction(detail::__metafn_display_name_of,
+                        ^const typename T::value_type *, r,
+                        ^T == dealias(^std::u8string_view));
 }
 
 // Returns the source location of the reflected entity.
@@ -473,11 +731,6 @@ consteval auto type_of(info r) -> info {
 // Returns the containing class or namespace of a class or namespace member.
 consteval auto parent_of(info r) -> info {
   return __metafunction(detail::__metafn_parent_of, r);
-}
-
-// Returns a reflection of the canonical type for the reflected type.
-consteval auto dealias(info r) -> info {
-  return __metafunction(detail::__metafn_dealias, r);
 }
 
 // Returns a reflection of the value evaluated from the reflected entity.
@@ -615,26 +868,41 @@ consteval auto enumerators_of(info r) -> vector<info> {
 }
 
 // Returns whether 'templ' substituted with 'args' forms a valid template-id.
-consteval auto can_substitute(info templ, span<info const> args) -> bool {
-  return __metafunction(detail::__metafn_can_substitute, templ,
-                        args.data(), args.size());
+template <reflection_range R = span<info const>>
+consteval auto can_substitute(info templ, R &&args) -> bool {
+  if constexpr (ranges::contiguous_range<R>) {
+    return __metafunction(detail::__metafn_can_substitute, templ,
+                          ranges::data(args), ranges::size(args));
+  } else {
+    vector vargs = args | ranges::to<vector>();
+    return __metafunction(detail::__metafn_can_substitute, templ,
+                          vargs.data(), vargs.size());
+  }
 }
 
 // Returns a reflection representing the template instantiation of the entity
 // reflected by 'templ' with the entities reflected by 'args'.
-consteval auto substitute(info templ, span<info const> args) -> info {
-  return __metafunction(detail::__metafn_substitute, templ,
-                        args.data(), args.size());
+template <reflection_range R = span<info const>>
+consteval auto substitute(info templ, R &&args) -> info {
+  if constexpr (ranges::contiguous_range<R>) {
+    return __metafunction(detail::__metafn_substitute, templ,
+                          ranges::data(args), ranges::size(args));
+  } else {
+    vector vargs = args | ranges::to<vector>();
+    return __metafunction(detail::__metafn_substitute, templ, vargs.data(),
+                          vargs.size());
+  }
 }
 
 // Returns the value or object from 'r' if 'r' is a reflection of a value
 // or object having type 'T'.
-template <typename Ty> requires (!std::is_rvalue_reference_v<Ty>)
+template <typename Ty> requires (!is_rvalue_reference_v<Ty>)
 consteval auto extract(info r) -> Ty {
   return __metafunction(detail::__metafn_extract, ^Ty, r);
 }
 
-consteval auto test_types(info templ, span<info const> args) -> bool {
+template <reflection_range R = span<info const>>
+consteval auto test_types(info templ, R &&args) -> bool {
   return extract<bool>(substitute(templ, args));
 }
 
@@ -656,11 +924,6 @@ consteval auto is_protected(info r) -> bool {
 // Returns whether the reflected entity is a private class member.
 consteval auto is_private(info r) -> bool {
   return __metafunction(detail::__metafn_is_private, r);
-}
-
-// Returns whether the reflected entity can be accessed from the callsite.
-consteval auto is_accessible(info r) -> bool {
-  return __metafunction(detail::__metafn_is_accessible, r);
 }
 
 // Returns whether the reflected entity is a virtual member function or a
@@ -811,27 +1074,38 @@ consteval auto is_special_member(info r) -> bool {
   return __metafunction(detail::__metafn_is_special_member, r);
 }
 
+// Returns whether the reflected entity is a user-provided function.
+consteval auto is_user_provided(info r) -> bool {
+  return __metafunction(detail::__metafn_is_user_provided, r);
+}
+
 // Returns a reflection of the value held by the provided argument.
-consteval auto reflect_value(auto r) -> info {
-  constexpr std::meta::info Ty = type_of(^r);
+template <typename T>
+consteval auto reflect_value(T r) -> info {
+  static_assert(!is_reference_v<decltype(r)>,
+                "values cannot have reference type");
+
+  constexpr info Ty = type_of(^r);
 
   return __metafunction(detail::__metafn_reflect_result, Ty,
                         static_cast<typename [:Ty:]>(r));
 }
 
 // Returns a reflection of the object designated by the provided argument.
-consteval auto reflect_object(auto &r) -> info {
+template <typename T>
+consteval auto reflect_object(T &r) -> info {
   constexpr auto Ty = type_of(^r);
 
-  static_assert(!is_function_v<std::remove_reference<typename [:Ty:]>>,
+  static_assert(!is_function_v<remove_reference<typename [:Ty:]>>,
                 "use 'reflect_function' for references to functions");
   return __metafunction(detail::__metafn_reflect_result, Ty, r);
 }
 
 // Returns a reflection of the object designated by the provided argument.
-consteval auto reflect_function(auto &r) -> info {
+template <typename T>
+consteval auto reflect_function(T &r) -> info {
   constexpr auto Ty = type_of(^r);
-  using UnrefTy = std::remove_reference_t<[:Ty:]>;
+  using UnrefTy = remove_reference_t<[:Ty:]>;
 
   constexpr bool IsPtr = is_pointer_v<UnrefTy>;
   static_assert(!IsPtr, "use 'reflect_value' for pointers to functions");
@@ -845,14 +1119,62 @@ consteval auto reflect_function(auto &r) -> info {
 
 // Returns a reflection of the constant value obtained from calling
 //   target(args...)
-consteval auto reflect_invoke(info target, span<info const> args) -> info {
-  return __metafunction(detail::__metafn_reflect_invoke, target,
-                        args.data(), args.size());
+template <reflection_range R = span<info const>>
+consteval auto reflect_invoke(info target, R &&args) -> info {
+  if constexpr (ranges::contiguous_range<R>) {
+    return __metafunction(detail::__metafn_reflect_invoke, target,
+                          static_cast<std::meta::info *>(nullptr), 0,
+                          ranges::data(args), ranges::size(args));
+  } else {
+    vector vargs = args | ranges::to<vector>();
+    return __metafunction(detail::__metafn_reflect_invoke, target,
+                          static_cast<std::meta::info *>(nullptr), 0,
+                          vargs.data(), vargs.size());
+  }
+}
+
+template <reflection_range R1 = span<info const>,
+          reflection_range R2 = span<info const>>
+consteval auto reflect_invoke(info target, R1 &&targs, R2 &&args) -> info {
+  if constexpr (ranges::contiguous_range<R1>) {
+    if constexpr (ranges::contiguous_range<R2>) {
+      return __metafunction(detail::__metafn_reflect_invoke, target,
+                            ranges::data(targs), ranges::size(targs),
+                            ranges::data(args), ranges::size(args));
+    } else {
+      vector vargs = args | ranges::to<vector>();
+      return __metafunction(detail::__metafn_reflect_invoke, target,
+                            ranges::data(targs), ranges::size(targs),
+                            vargs.data(), vargs.size());
+    }
+  } else {
+    vector vtargs = targs | ranges::to<vector>();
+    if constexpr (ranges::contiguous_range<R2>) {
+      return __metafunction(detail::__metafn_reflect_invoke, target,
+                            vtargs.data(), vtargs.size(),
+                            ranges::data(args), ranges::size(args));
+    } else {
+      vector vargs = args | ranges::to<vector>();
+      return __metafunction(detail::__metafn_reflect_invoke, target,
+                            vtargs.data(), vtargs.size(),
+                            vargs.data(), vargs.size());
+    }
+  }
 }
 
 // Representation of a data member which may be passed to 'data_member_spec'.
 struct data_member_options_t {
-  optional<string_view> name = nullopt;
+  struct name_type {
+    std::variant<u8string, string> impl;
+
+    template <typename T> requires constructible_from<u8string, T>
+    consteval name_type(T &&in) : impl(std::in_place_type<u8string>, in) {}
+
+    template <typename T> requires constructible_from<string, T>
+    consteval name_type(T &&in) : impl(std::in_place_type<string>, in) {}
+  };
+
+  optional<name_type> name = nullopt;
   bool is_static = false;
   optional<int> alignment = nullopt;
   optional<int> width = nullopt;
@@ -862,24 +1184,40 @@ struct data_member_options_t {
 // be used with 'define_class' to define a record type.
 consteval auto data_member_spec(info member_type,
                                 data_member_options_t options = {}) -> info {
-  string_view name = options.name.value_or("");
+  auto name = options.name.value_or(u8"").impl;
   bool is_static = options.is_static;
   int alignment = options.alignment.value_or(0);
   int width = options.width.value_or(0);
 
-  return __metafunction(detail::__metafn_data_member_spec,
-                        member_type, is_static,
-                        options.name.has_value(), name.size(), name.data(),
-                        options.alignment.has_value(), alignment,
-                        options.width.has_value(), width);
+  if (holds_alternative<u8string>(name)) {
+    const u8string &s = get<u8string>(name);
+    return __metafunction(detail::__metafn_data_member_spec,
+                          member_type, is_static, options.name.has_value(),
+                          s.size(), ^const char8_t *, s.data(),
+                          options.alignment.has_value(), alignment,
+                          options.width.has_value(), width);
+  } else {
+    const string &s = get<string>(name);
+    return __metafunction(detail::__metafn_data_member_spec,
+                          member_type, is_static, options.name.has_value(),
+                          s.size(), ^const char *, s.data(),
+                          options.alignment.has_value(), alignment,
+                          options.width.has_value(), width);
+  }
 }
 
 // Completes the definition of the record type reflected by 'class_type' with
 // the members described by the reflections in the provided span.
-consteval auto define_class(info class_type,
-                            span<info const> members) -> info {
-  return __metafunction(detail::__metafn_define_class, class_type,
-                        members.size(), members.data());
+template <reflection_range R = span<info const>>
+consteval auto define_class(info class_type, R &&members) -> info {
+  if constexpr (ranges::contiguous_range<R>) {
+    return __metafunction(detail::__metafn_define_class, class_type,
+                          ranges::size(members), ranges::data(members));
+  } else {
+    vector vmembers = members | ranges::to<vector>();
+    return __metafunction(detail::__metafn_define_class, class_type,
+                          vmembers.size(), vmembers.data());
+  }
 }
 
 // Returns the offset of the reflected entity.
@@ -907,6 +1245,637 @@ consteval auto alignment_of(info r) -> size_t {
   return __metafunction(detail::__metafn_alignment_of, r);
 }
 
+// Type trait wrappers
+
+consteval auto type_is_void(info r) -> bool {
+  return test_type(^is_void_v, r);
+}
+
+consteval auto type_is_null_pointer(info r) -> bool {
+  return test_type(^is_null_pointer_v, r);
+}
+
+consteval auto type_is_integral(info r) -> bool {
+  return test_type(^is_integral_v, r);
+}
+
+consteval auto type_is_floating_point(info r) -> bool {
+  return test_type(^is_floating_point_v, r);
+}
+
+consteval auto type_is_array(info r) -> bool {
+  return test_type(^is_array_v, r);
+}
+
+consteval auto type_is_pointer(info r) -> bool {
+  return test_type(^is_pointer_v, r);
+}
+
+consteval auto type_is_lvalue_reference(info r) -> bool {
+  return test_type(^is_lvalue_reference_v, r);
+}
+
+consteval auto type_is_rvalue_reference(info r) -> bool {
+  return test_type(^is_rvalue_reference_v, r);
+}
+
+consteval auto type_is_member_object_pointer(info r) -> bool {
+  return test_type(^is_member_object_pointer_v, r);
+}
+
+consteval auto type_is_member_function_pointer(info r) -> bool {
+  return test_type(^is_member_function_pointer_v, r);
+}
+
+consteval auto type_is_enum(info r) -> bool {
+  return test_type(^is_enum_v, r);
+}
+
+consteval auto type_is_union(info r) -> bool {
+  return test_type(^is_union_v, r);
+}
+
+consteval auto type_is_class(info r) -> bool {
+  return test_type(^is_class_v, r);
+}
+
+consteval auto type_is_function(info r) -> bool {
+  return test_type(^is_function_v, r);
+}
+
+consteval auto type_is_reference(info r) -> bool {
+  return test_type(^is_reference_v, r);
+}
+
+consteval auto type_is_arithmetic(info r) -> bool {
+  return test_type(^is_arithmetic_v, r);
+}
+
+consteval auto type_is_fundamental(info r) -> bool {
+  return test_type(^is_fundamental_v, r);
+}
+
+consteval auto type_is_object(info r) -> bool {
+  return test_type(^is_object_v, r);
+}
+
+consteval auto type_is_scalar(info r) -> bool {
+  return test_type(^is_scalar_v, r);
+}
+
+consteval auto type_is_compound(info r) -> bool {
+  return test_type(^is_compound_v, r);
+}
+
+consteval auto type_is_member_pointer(info r) -> bool {
+  return test_type(^is_member_pointer_v, r);
+}
+
+consteval auto type_is_const(info r) -> bool {
+  return test_type(^is_const_v, r);
+}
+
+consteval auto type_is_volatile(info r) -> bool {
+  return test_type(^is_volatile_v, r);
+}
+
+consteval auto type_is_trivial(info r) -> bool {
+  return test_type(^is_trivial_v, r);
+}
+
+consteval auto type_is_trivially_copyable(info r) -> bool {
+  return test_type(^is_trivially_copyable_v, r);
+}
+
+consteval auto type_is_standard_layout(info r) -> bool {
+  return test_type(^is_standard_layout_v, r);
+}
+
+consteval auto type_is_empty(info r) -> bool {
+  return test_type(^is_empty_v, r);
+}
+
+consteval auto type_is_polymorphic(info r) -> bool {
+  return test_type(^is_polymorphic_v, r);
+}
+
+consteval auto type_is_abstract(info r) -> bool {
+  return test_type(^is_abstract_v, r);
+}
+
+consteval auto type_is_final(info r) -> bool {
+  return test_type(^is_final_v, r);
+}
+
+consteval auto type_is_aggregate(info r) -> bool {
+  return test_type(^is_aggregate_v, r);
+}
+
+consteval auto type_is_signed(info r) -> bool {
+  return test_type(^is_signed_v, r);
+}
+
+consteval auto type_is_unsigned(info r) -> bool {
+  return test_type(^is_unsigned_v, r);
+}
+
+consteval auto type_is_bounded_array(info r) -> bool {
+  return test_type(^is_bounded_array_v, r);
+}
+
+consteval auto type_is_unbounded_array(info r) -> bool {
+  return test_type(^is_unbounded_array_v, r);
+}
+
+consteval auto type_is_scoped_enum(info r) -> bool {
+  return test_type(^is_scoped_enum_v, r);
+}
+
+template <reflection_range R = span<info const>>
+consteval auto type_is_constructible(info type, R &&type_args) {
+  std::vector<info> args(from_range, type_args);
+  args.insert(args.begin(), type);
+
+  return test_types(^is_constructible_v, args);
+}
+
+consteval auto type_is_default_constructible(info r) -> bool {
+  return test_type(^is_default_constructible_v, r);
+}
+
+consteval auto type_is_copy_constructible(info r) -> bool {
+  return test_type(^is_copy_constructible_v, r);
+}
+
+consteval auto type_is_move_constructible(info r) -> bool {
+  return test_type(^is_move_constructible_v, r);
+}
+
+consteval auto type_is_assignable(info dst, info src) -> bool {
+  return test_types(^is_assignable_v, {dst, src});
+}
+
+consteval auto type_is_copy_assignable(info r) -> bool {
+  return test_type(^is_copy_assignable_v, r);
+}
+
+consteval auto type_is_move_assignable(info r) -> bool {
+  return test_type(^is_move_assignable_v, r);
+}
+
+consteval auto type_is_swappable_with(info dst, info src) -> bool {
+  return test_types(^is_swappable_with_v, {dst, src});
+}
+
+consteval auto type_is_swappable(info r) -> bool {
+  return test_type(^is_swappable_v, r);
+}
+
+consteval auto type_is_destructible(info r) -> bool {
+  return test_type(^is_destructible_v, r);
+}
+
+template <reflection_range R = span<info const>>
+consteval auto type_is_trivially_constructible(info type, R &&type_args) {
+  std::vector<info> args(from_range, type_args);
+  args.insert(args.begin(), type);
+
+  return test_types(^is_trivially_constructible_v, args);
+}
+
+consteval auto type_is_trivially_default_constructible(info r) -> bool {
+  return test_type(^is_trivially_default_constructible_v, r);
+}
+
+consteval auto type_is_trivially_copy_constructible(info r) -> bool {
+  return test_type(^is_trivially_copy_constructible_v, r);
+}
+
+consteval auto type_is_trivially_move_constructible(info r) -> bool {
+  return test_type(^is_trivially_move_constructible_v, r);
+}
+
+consteval auto type_is_trivially_assignable(info dst, info src) -> bool {
+  return test_types(^is_trivially_assignable_v, {dst, src});
+}
+
+consteval auto type_is_trivially_copy_assignable(info r) -> bool {
+  return test_type(^is_trivially_copy_assignable_v, r);
+}
+
+consteval auto type_is_trivially_move_assignable(info r) -> bool {
+  return test_type(^is_trivially_move_assignable_v, r);
+}
+
+consteval auto type_is_trivially_destructible(info r) -> bool {
+  return test_type(^is_trivially_destructible_v, r);
+}
+
+template <reflection_range R = span<info const>>
+consteval auto type_is_nothrow_constructible(info type, R &&type_args) {
+  std::vector<info> args(from_range, type_args);
+  args.insert(args.begin(), type);
+
+  return test_types(^is_nothrow_constructible_v, args);
+}
+
+consteval auto type_is_nothrow_default_constructible(info r) -> bool {
+  return test_type(^is_nothrow_default_constructible_v, r);
+}
+
+consteval auto type_is_nothrow_copy_constructible(info r) -> bool {
+  return test_type(^is_nothrow_copy_constructible_v, r);
+}
+
+consteval auto type_is_nothrow_move_constructible(info r) -> bool {
+  return test_type(^is_nothrow_move_constructible_v, r);
+}
+
+consteval auto type_is_nothrow_assignable(info dst, info src) -> bool {
+  return test_types(^is_nothrow_assignable_v, {dst, src});
+}
+
+consteval auto type_is_nothrow_copy_assignable(info r) -> bool {
+  return test_type(^is_nothrow_copy_assignable_v, r);
+}
+
+consteval auto type_is_nothrow_move_assignable(info r) -> bool {
+  return test_type(^is_nothrow_move_assignable_v, r);
+}
+
+consteval auto type_is_nothrow_swappable_with(info dst, info src) -> bool {
+  return test_types(^is_nothrow_swappable_with_v, {dst, src});
+}
+
+consteval auto type_is_nothrow_swappable(info r) -> bool {
+  return test_type(^is_nothrow_swappable_v, r);
+}
+
+consteval auto type_is_nothrow_destructible(info r) -> bool {
+  return test_type(^is_nothrow_destructible_v, r);
+}
+
+// TODO(P2996): Not yet implemented in libc++.
+/*consteval auto type_is_implicit_lifetime(info r) -> bool {
+  return test_type(^is_implicit_lifetime_v, r);
+}*/
+
+consteval auto type_has_virtual_destructor(info r) -> bool {
+  return test_type(^has_virtual_destructor_v, r);
+}
+
+consteval auto type_has_unique_object_representations(info r) -> bool {
+  return test_type(^has_unique_object_representations_v, r);
+}
+
+// TODO(P2996): Not yet implemented in libc++.
+/*consteval auto type_reference_constructs_from_temporary(info r) -> bool {
+  return test_type(^reference_constructs_from_temporary_v, r);
+}*/
+
+// TODO({2996): Not yet implemented in libc++.
+/*consteval auto type_reference_converts_from_temporary(info r) -> bool {
+  return test_type(^reference_converts_from_temporary_v, r);
+}*/
+
+consteval auto type_alignment_of(info r) -> size_t {
+  return extract<size_t>(substitute(^alignment_of_v, {r}));
+}
+
+consteval auto type_rank(info r) -> size_t {
+  return extract<size_t>(substitute(^rank_v, {r}));
+}
+
+consteval auto type_extent(info r, unsigned i = 0) -> size_t {
+  return extract<size_t>(substitute(^extent_v,
+                                    {r, std::meta::reflect_value(i)}));
+}
+
+consteval auto type_is_same(info r, info s) -> bool {
+  return test_types(^is_same_v, {r, s});
+}
+
+consteval auto type_is_base_of(info r, info s) -> bool {
+  return test_types(^is_base_of_v, {r, s});
+}
+
+consteval auto type_is_convertible(info r, info s) -> bool {
+  return test_types(^is_convertible_v, {r, s});
+}
+
+consteval auto type_is_nothrow_convertible(info r, info s) -> bool {
+  return test_types(^is_nothrow_convertible_v, {r, s});
+}
+
+// TODO(P2996): Not yet implemented in libc++.
+/*consteval auto type_is_layout_compatible(info r, info s) -> bool {
+  return test_types(^is_layout_compatible_v, {r, s});
+}*/
+
+// TODO(P2996): Not yet implemented in libc++.
+/*consteval auto type_is_pointer_interconvertible_base_of(info r,
+                                                        info s) -> bool {
+  return test_types(^is_pointer_interconvertible_base_of_v, {r, s});
+}*/
+
+template <reflection_range R = span<info const>>
+consteval auto type_is_invocable(info type, R &&args) {
+  std::vector<info> targs(from_range, args);
+  targs.insert(targs.begin(), type);
+
+  return test_types(^is_invocable_v, targs);
+}
+
+template <reflection_range R = span<info const>>
+consteval auto type_is_invocable_r(info type_result, info type, R &&args) {
+  std::vector<info> targs(from_range, args);
+  targs.insert(targs.begin(), type);
+  targs.insert(targs.begin(), type_result);
+
+  return test_types(^is_invocable_r_v, targs);
+}
+
+template <reflection_range R = span<info const>>
+consteval auto type_is_nothrow_invocable(info type, R &&args) {
+  std::vector<info> targs(from_range, args);
+  targs.insert(targs.begin(), type);
+
+  return test_types(^is_nothrow_invocable_v, targs);
+}
+
+template <reflection_range R = span<info const>>
+consteval auto type_is_nothrow_invocable_r(info type_result, info type,
+                                           R &&args) {
+  std::vector<info> targs(from_range, args);
+  targs.insert(targs.begin(), type);
+  targs.insert(targs.begin(), type_result);
+
+  return test_types(^is_nothrow_invocable_r_v, targs);
+}
+
+consteval auto type_remove_const(info type) -> info {
+  return dealias(substitute(^remove_const_t, {type}));
+}
+
+consteval auto type_remove_volatile(info type) -> info {
+  return dealias(substitute(^remove_volatile_t, {type}));
+}
+
+consteval auto type_remove_cv(info type) -> info {
+  return dealias(substitute(^remove_cv_t, {type}));
+}
+
+consteval auto type_add_const(info type) -> info {
+  return dealias(substitute(^add_const_t, {type}));
+}
+
+consteval auto type_add_volatile(info type) -> info {
+  return dealias(substitute(^add_volatile_t, {type}));
+}
+
+consteval auto type_add_cv(info type) -> info {
+  return dealias(substitute(^add_cv_t, {type}));
+}
+
+consteval auto type_remove_reference(info type) -> info {
+  return dealias(substitute(^remove_reference_t, {type}));
+}
+
+consteval auto type_add_lvalue_reference(info type) -> info {
+  return dealias(substitute(^add_lvalue_reference_t, {type}));
+}
+
+consteval auto type_add_rvalue_reference(info type) -> info {
+  return dealias(substitute(^add_rvalue_reference_t, {type}));
+}
+
+consteval auto type_make_signed(info type) -> info {
+  return dealias(substitute(^make_signed_t, {type}));
+}
+
+consteval auto type_make_unsigned(info type) -> info {
+  return dealias(substitute(^make_unsigned_t, {type}));
+}
+
+consteval auto type_remove_extent(info type) -> info {
+  return dealias(substitute(^remove_extent_t, {type}));
+}
+
+consteval auto type_remove_all_extents(info type) -> info {
+  return dealias(substitute(^remove_all_extents_t, {type}));
+}
+
+consteval auto type_remove_pointer(info type) -> info {
+  return dealias(substitute(^remove_pointer_t, {type}));
+}
+
+consteval auto type_add_pointer(info type) -> info {
+  return dealias(substitute(^add_pointer_t, {type}));
+}
+
+consteval auto type_remove_cvref(info type) -> info {
+  return dealias(substitute(^remove_cvref_t, {type}));
+}
+
+consteval auto type_decay(info type) -> info {
+  return dealias(substitute(^decay_t, {type}));
+}
+
+template <reflection_range R = span<info const>>
+consteval auto type_common_type(R &&type_args) -> info {
+  return dealias(substitute(^common_type_t, type_args));
+}
+
+template <reflection_range R = span<info const>>
+consteval auto type_common_reference(R &&type_args) -> info {
+  return dealias(substitute(^common_reference_t, type_args));
+}
+
+consteval auto type_underlying_type(info type) -> info {
+  return dealias(substitute(^underlying_type_t, {type}));
+}
+
+template <reflection_range R = span<info const>>
+consteval auto type_invoke_result(info type, R &&type_args) -> info {
+  std::vector<info> targs(from_range, type_args);
+  targs.insert(targs.begin(), type);
+
+  return dealias(substitute(^invoke_result_t, targs));
+}
+
+consteval auto type_unwrap_reference(info type) -> info {
+  return dealias(substitute(^unwrap_reference_t, {type}));
+}
+
+consteval auto type_unwrap_ref_decay(info type) -> info {
+  return dealias(substitute(^unwrap_ref_decay_t, {type}));
+}
+
+// Proposed alternative P2996 accessibility API
+
+consteval auto access_context() -> info {
+  return __metafunction(detail::__metafn_access_context);
+}
+
+struct access_pair {
+  info target;
+  info from;
+
+  consteval access_pair(info target, info from = access_context())
+      : target(target), from(from) {}
+};
+
+consteval auto is_accessible(access_pair p) -> bool {
+  return __metafunction(detail::__metafn_is_accessible, p.target, p.from);
+}
+
+consteval auto is_accessible(info r, info from) -> bool {
+  return is_accessible(access_pair{r, from});
+}
+
+template <typename Pred>
+consteval auto accessible_members_of(access_pair p, Pred pred)
+    -> vector<info> {
+  if (is_namespace(p.target))
+    throw "Cannot query the accessible members of a namespace";
+
+  auto wrapped = [&](info r) {
+    return (is_accessible(r, p.from) && pred(r));
+  };
+
+  using iterator =
+      __range_of_infos::iterator<__range_of_infos::front_member_of_fn,
+                                 __range_of_infos::next_member_of_fn,
+                                 __range_of_infos::map_decl_to_entity_fn,
+                                 decltype(wrapped)>;
+  using range = __range_of_infos::range<iterator>;
+  auto rng = range{p.target, wrapped};
+  return vector<info>{rng.begin(), rng.end()};
+}
+
+template <typename Pred>
+consteval auto accessible_members_of(info target, info from,
+                                     Pred pred) -> vector<info> {
+  return accessible_members_of(access_pair{target, from}, pred);
+}
+
+
+template <typename... Preds>
+consteval auto accessible_members_of(access_pair p,
+                                     Preds... preds) -> vector<info> {
+  if (is_namespace(p.target))
+    throw "Cannot query the accessible members of a namespace";
+
+  return members_of(p.target, [&](info r) {
+    return is_accessible(r, p.from) && (preds(r) && ...);
+  });
+}
+
+template <typename... Preds>
+consteval auto accessible_members_of(info target, info from,
+                                     Preds... preds) -> vector<info> {
+  return accessible_members_of(access_pair{target, from}, preds...);
+}
+
+consteval auto accessible_members_of(access_pair p) -> vector<info> {
+  if (is_namespace(p.target))
+    throw "Cannot query the accessible members of a namespace";
+
+  return members_of(p.target, [&](info r) {
+    return is_accessible(r, p.from);
+  });
+}
+
+consteval auto accessible_members_of(info target, info from) -> vector<info> {
+  return accessible_members_of(access_pair{target, from});
+}
+
+template <typename Pred>
+consteval auto accessible_bases_of(access_pair p, Pred pred)
+    -> vector<info> {
+  if (is_namespace(p.target))
+    throw "Namespaces cannot have base classes";
+
+  auto wrapped = [&](info r) {
+    return (is_accessible(r, p.from) && pred(r));
+  };
+
+  using iterator =
+    __range_of_infos::iterator<__range_of_infos::front_base_of_fn,
+                                __range_of_infos::next_base_of_fn,
+                                __range_of_infos::map_identity_fn, Pred>;
+  using range = __range_of_infos::range<iterator>;
+  auto rng = range{p.target, wrapped};
+  return vector<info>{rng.begin(), rng.end()};
+}
+
+template <typename Pred>
+consteval auto accessible_bases_of(info target, info from,
+                                   Pred pred) -> vector<info> {
+  return accessible_bases_of(access_pair{target, from}, pred);
+}
+
+
+template <typename... Preds>
+consteval auto accessible_bases_of(access_pair p,
+                                   Preds... preds) -> vector<info> {
+  if (is_namespace(p.target))
+    throw "Namespaces cannot have base classes";
+
+  return bases_of(p.target, [&](info r) {
+    return is_accessible(r, p.from) && (preds(r) && ...);
+  });
+}
+
+template <typename... Preds>
+consteval auto accessible_bases_of(info target, info from,
+                                   Preds... preds) -> vector<info> {
+  return accessible_bases_of(access_pair{target, from}, preds...);
+}
+
+consteval auto accessible_bases_of(access_pair p) -> vector<info> {
+  if (is_namespace(p.target))
+    throw "Namespaces cannot have base classes";
+
+  return bases_of(p.target, [&](info r) {
+    return is_accessible(r, p.from);
+  });
+}
+
+consteval auto accessible_bases_of(info target, info from) -> vector<info> {
+  return accessible_bases_of(access_pair{target, from});
+}
+
+consteval auto accessible_nonstatic_data_members_of(access_pair p)
+    -> vector<info> {
+  return accessible_members_of(p, std::meta::is_nonstatic_data_member);
+}
+
+consteval auto accessible_nonstatic_data_members_of(info target,
+                                                    info from) -> vector<info> {
+  return accessible_nonstatic_data_members_of(access_pair{target, from});
+}
+
+consteval auto accessible_static_data_members_of(access_pair p)
+    -> vector<info> {
+  return accessible_members_of(p, std::meta::is_variable);
+}
+
+consteval auto accessible_static_data_members_of(info target,
+                                                 info from) -> vector<info> {
+  return accessible_static_data_members_of(access_pair{target, from});
+}
+
+consteval auto accessible_subobjects_of(access_pair p) -> vector<info> {
+  if (is_namespace(p.target))
+    throw "Namespaces cannot have subobjects";
+
+  auto subobjects = accessible_bases_of(p);
+  subobjects.append_range(accessible_nonstatic_data_members_of(p));
+  return subobjects;
+}
+
+
 #if __has_feature(parameter_reflection)
 
 consteval auto parameters_of(info r) -> vector<info> {
@@ -923,8 +1892,35 @@ consteval auto has_consistent_name(info r) -> bool {
   return __metafunction(detail::__metafn_has_consistent_name, r);
 }
 
+template<typename T = u8string_view>
+consteval auto any_name_of(info r) -> T {
+  static_assert(^T == dealias(^u8string_view) || ^T == dealias(^string_view),
+                "Name type must be 'string_view' or 'u8string_view'");
+
+  return __metafunction(detail::__metafn_name_of,
+                        ^const typename T::value_type *, r,
+                        ^T == dealias(^std::u8string_view),
+                        /*EnforceConsistent=*/false);
+}
+
+consteval auto has_ellipsis_parameter(info r) -> bool {
+  return __metafunction(detail::__metafn_has_ellipsis_parameter, r);
+}
+
 consteval auto has_default_argument(info r) -> bool {
   return __metafunction(detail::__metafn_has_default_argument, r);
+}
+
+consteval auto is_explicit_object_parameter(info r) -> bool {
+  return __metafunction(detail::__metafn_is_explicit_object_parameter, r);
+}
+
+consteval auto is_function_parameter(info r) -> bool {
+  return __metafunction(detail::__metafn_is_function_parameter, r);
+}
+
+consteval auto return_type_of(info r) -> info {
+  return __metafunction(detail::__metafn_return_type_of, r);
 }
 
 #endif  // __has_feature(parameter_reflection)
@@ -935,7 +1931,7 @@ template <typename Ty>
 consteval auto reflect_result(Ty r) -> info {
   constexpr auto DTy = dealias(^Ty);
   constexpr auto RTy = is_class_v<[:DTy:]> || is_reference_v<[:DTy:]> ?
-                       DTy : ^std::remove_cv_t<[:DTy:]>;
+                       DTy : ^remove_cv_t<[:DTy:]>;
 
   return __metafunction(detail::__metafn_reflect_result, dealias(RTy),
                         static_cast<typename [:DTy:]>(r));

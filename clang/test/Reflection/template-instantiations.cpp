@@ -50,7 +50,6 @@ constexpr info refl = ^int;
 static_assert(fn<refl> == fn<refl>);
 static_assert(fn<refl> == fn<^int>);
 static_assert(fn<refl> != fn<null1>);
-static_assert(fn<refl> != fn<^3>);
 static_assert(fn<refl> != fn<^myns::Test>);
 static_assert(fn<refl> != fn<^myns::Test::type>);
 static_assert(fn<refl> != fn<^::Test>);

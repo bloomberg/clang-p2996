@@ -28,9 +28,13 @@ using int_alias_alias = int_alias;
 
 extern int i;
 extern int_alias ia;
+extern decltype(int_alias{}) dtia;
 
 static_assert(type_of(^i) == ^int);
+static_assert(type_of(^ia) == ^int_alias);
 static_assert(type_of(^ia) != ^int);
+static_assert(type_of(^dtia) == ^int);
+static_assert(type_of(^dtia) != ^int_alias);
 static_assert(^int_alias != ^int);
 static_assert(^int_alias != ^int_alias_alias);
 }  // namespace expression_type

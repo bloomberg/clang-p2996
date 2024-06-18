@@ -46,6 +46,8 @@ QualType ReflectionValue::getAsType() const {
 
   QualType QT = QualType::getFromOpaquePtr(Entity);
 
+  bool UnwrapAliases = false;
+
   void *AsPtr;
   do {
     AsPtr = QT.getAsOpaquePtr();
@@ -58,13 +60,21 @@ QualType ReflectionValue::getAsType() const {
       QT = New;
     }
     if (const auto *STTPT = dyn_cast<SubstTemplateTypeParmType>(QT);
-      STTPT && !STTPT->isDependentType())
+        STTPT && !STTPT->isDependentType())
       QT = STTPT->getReplacementType();
     if (const auto *RST = dyn_cast<ReflectionSpliceType>(QT);
-      RST && !RST->isDependentType())
+        RST && !RST->isDependentType())
       QT = RST->getUnderlyingType();
-    if (const auto *DTT = dyn_cast<DecltypeType>(QT))
+    if (const auto *DTT = dyn_cast<DecltypeType>(QT)) {
       QT = DTT->desugar();
+      UnwrapAliases = true;
+    }
+    if (const auto *UT = dyn_cast<UsingType>(QT);
+        UT && UnwrapAliases)
+      QT = UT->desugar();
+    if (const auto *TDT = dyn_cast<TypedefType>(QT);
+        TDT && UnwrapAliases)
+      QT = TDT->desugar();
   } while (QT.getAsOpaquePtr() != AsPtr);
   return QT;
 }
@@ -139,7 +149,7 @@ bool ReflectionValue::operator==(ReflectionValue const& Rhs) const {
       return declaresSameEntity(LQT->getAsRecordDecl(), RQT->getAsRecordDecl());
     }
 
-    if (LQT->isTypedefNameType())
+    if (LQT->isTypedefNameType() || RQT->isTypedefNameType())
       return LQT == RQT;
 
     return LQT.getCanonicalType() == RQT.getCanonicalType();

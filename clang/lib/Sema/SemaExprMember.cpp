@@ -1213,7 +1213,8 @@ Sema::BuildMemberReferenceExpr(Expr *BaseExpr, QualType BaseExprType,
 
   if (VarTemplateDecl *VarTempl = dyn_cast<VarTemplateDecl>(MemberDecl)) {
     if (!TemplateArgs) {
-      diagnoseMissingTemplateArguments(TemplateName(VarTempl), MemberLoc);
+      diagnoseMissingTemplateArguments(
+          SS, /*TemplateKeyword=*/TemplateKWLoc.isValid(), VarTempl, MemberLoc);
       return ExprError();
     }
 
@@ -1292,7 +1293,8 @@ Sema::BuildMemberReferenceExpr(Scope *S, Expr *Base, SourceLocation OpLoc,
     if (isa<FieldDecl>(D) || isa<CXXMethodDecl>(D) ||
         (isa<VarDecl>(D) && DRE->getQualifierLoc())) {
       ND = D;
-      SS.Adopt(DRE->getQualifierLoc());
+      // NOTE(P2996): Uncomment the following line for static dispatch.
+      // SS.Adopt(DRE->getQualifierLoc());
     }
   } else if (auto *ULE = dyn_cast<UnresolvedLookupExpr>(RHS->getOperand())) {
     assert(ULE->getNumDecls() == 1);

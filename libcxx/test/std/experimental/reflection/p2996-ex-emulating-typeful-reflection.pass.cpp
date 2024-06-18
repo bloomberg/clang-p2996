@@ -29,7 +29,7 @@
 
 // Represents a 'std::meta::info' constrained by a predicate.
 template <std::meta::info Pred>
-  requires (type_of(^([:Pred:](^int))) == ^bool)
+  requires (^decltype([:Pred:](^int)) == ^bool)
 struct metatype {
   std::meta::info value;
 
@@ -86,7 +86,7 @@ int main() {
   };
 
   // Demonstration of using 'enrich' to select an overload.
-  PrintKind([:enrich(^metatype):]);  // "template"
-  PrintKind([:enrich(^type_t):]);    // "type"
-  PrintKind([:enrich(^3):]);         // "unknown kind"
+  PrintKind([:enrich(^metatype):]);                    // "template"
+  PrintKind([:enrich(^type_t):]);                      // "type"
+  PrintKind([:enrich(std::meta::reflect_value(3)):]);  // "unknown kind"
 }

@@ -296,7 +296,7 @@ TemplateNameKind Sema::isTemplateName(Scope *S,
     Template =
         FoundUsingShadow ? TemplateName(FoundUsingShadow) : TemplateName(TD);
     assert(!FoundUsingShadow || FoundUsingShadow->getTargetDecl() == TD);
-    if (SS.isSet() && !SS.isInvalid()) {
+    if (!SS.isInvalid()) {
       NestedNameSpecifier *Qualifier = SS.getScopeRep();
       Template = Context.getQualifiedTemplateName(Qualifier, hasTemplateKeyword,
                                                   Template);
@@ -346,8 +346,11 @@ bool Sema::isDeductionGuideName(Scope *S, const IdentifierInfo &Name,
   if (!TD || !getAsTypeTemplateDecl(TD))
     return false;
 
-  if (Template)
-    *Template = TemplateTy::make(TemplateName(TD));
+  if (Template) {
+    TemplateName Name = Context.getQualifiedTemplateName(
+        SS.getScopeRep(), /*TemplateKeyword=*/false, TemplateName(TD));
+    *Template = TemplateTy::make(Name);
+  }
   return true;
 }
 
@@ -995,10 +998,6 @@ ParsedTemplateArgument Sema::ActOnTemplateTypeArgument(TypeResult ParsedType) {
 
     if (auto DTST = TL.getAs<DeducedTemplateSpecializationTypeLoc>()) {
       TemplateName Name = DTST.getTypePtr()->getTemplateName();
-      if (SS.isSet())
-        Name = Context.getQualifiedTemplateName(SS.getScopeRep(),
-                                                /*HasTemplateKeyword=*/false,
-                                                Name);
       ParsedTemplateArgument Result(SS, TemplateTy::make(Name),
                                     DTST.getTemplateNameLoc());
       if (EllipsisLoc.isValid())
@@ -5654,6 +5653,15 @@ void Sema::diagnoseMissingTemplateArguments(TemplateName Name,
   }
 }
 
+void Sema::diagnoseMissingTemplateArguments(const CXXScopeSpec &SS,
+                                            bool TemplateKeyword,
+                                            TemplateDecl *TD,
+                                            SourceLocation Loc) {
+  TemplateName Name = Context.getQualifiedTemplateName(
+      SS.getScopeRep(), TemplateKeyword, TemplateName(TD));
+  diagnoseMissingTemplateArguments(Name, Loc);
+}
+
 ExprResult
 Sema::CheckConceptTemplateId(const CXXScopeSpec &SS,
                              SourceLocation TemplateKWLoc,
@@ -5685,7 +5693,7 @@ Sema::CheckConceptTemplateId(const CXXScopeSpec &SS,
   LocalInstantiationScope Scope(*this);
 
   EnterExpressionEvaluationContext EECtx{
-      *this, ExpressionEvaluationContext::ConstantEvaluated, CSD};
+      *this, ExpressionEvaluationContext::Unevaluated, CSD};
 
   if (!AreArgsDependent &&
       CheckConstraintSatisfaction(
@@ -5724,7 +5732,8 @@ ExprResult Sema::BuildTemplateIdExpr(const CXXScopeSpec &SS,
   // Non-function templates require a template argument list.
   if (auto *TD = R.getAsSingle<TemplateDecl>()) {
     if (!TemplateArgs && !isa<FunctionTemplateDecl>(TD)) {
-      diagnoseMissingTemplateArguments(TemplateName(TD), R.getNameLoc());
+      diagnoseMissingTemplateArguments(
+          SS, /*TemplateKeyword=*/TemplateKWLoc.isValid(), TD, R.getNameLoc());
       return ExprError();
     }
   }
@@ -8834,6 +8843,8 @@ static ExprResult
 BuildExpressionFromReflection(Sema &S, const ReflectionValue &R,
                               SourceLocation Loc) {
   switch (R.getKind()) {
+  case ReflectionValue::RK_null:
+    return CXXReflectExpr::Create(S.Context, Loc, Loc);
   case ReflectionValue::RK_type:
     return CXXReflectExpr::Create(S.Context, Loc, Loc, R.getAsType());
   case ReflectionValue::RK_expr_result:

@@ -2263,8 +2263,17 @@ bool Lexer::LexRawStringLiteral(Token &Result, const char *CurPtr,
 
   unsigned PrefixLen = 0;
 
-  while (PrefixLen != 16 && isRawStringDelimBody(CurPtr[PrefixLen]))
+  while (PrefixLen != 16 && isRawStringDelimBody(CurPtr[PrefixLen])) {
     ++PrefixLen;
+    if (!isLexingRawMode() &&
+        llvm::is_contained({'$', '@', '`'}, CurPtr[PrefixLen])) {
+      const char *Pos = &CurPtr[PrefixLen];
+      Diag(Pos, LangOpts.CPlusPlus26
+                    ? diag::warn_cxx26_compat_raw_string_literal_character_set
+                    : diag::ext_cxx26_raw_string_literal_character_set)
+          << StringRef(Pos, 1);
+    }
+  }
 
   // If the last character was not a '(', then we didn't lex a valid delimiter.
   if (CurPtr[PrefixLen] != '(') {
@@ -4679,4 +4688,83 @@ bool Lexer::LexDependencyDirectiveTokenWhileSkipping(Token &Result) {
 
   convertDependencyDirectiveToken(DDTok, Result);
   return false;
+}
+
+bool Lexer::validateAndRewriteIdentifier(std::string &In) {
+  SmallVector<llvm::UTF32, 30> RewriteUTF32;
+
+  static const llvm::sys::UnicodeCharRange DigitRanges[] = {
+    {0x0030, 0x0039}
+  };
+  static llvm::sys::UnicodeCharRange NondigitRanges[] = {
+    {0x0041, 0x005A}, {0x005F, 0x005F}, {0x0061, 0x007A}
+  };
+  static const llvm::sys::UnicodeCharSet DigitChars(DigitRanges);
+  static const llvm::sys::UnicodeCharSet NondigitChars(NondigitRanges);
+  static const llvm::sys::UnicodeCharSet XIDStartChars(XIDStartRanges);
+  static const llvm::sys::UnicodeCharSet XIDContinueChars(XIDContinueRanges);
+
+  if (In.size() == 0)
+    return false;
+
+  const auto *Cursor = &In[0];
+  const auto *End = Cursor + In.size();
+
+  // Validate leading character.
+  if (*Cursor == '\\') {
+    const char *SlashLoc = Cursor++;
+    std::optional<uint32_t> UCN = tryReadUCN(Cursor, SlashLoc, nullptr);
+    if (!UCN || !XIDStartChars.contains(UCN.value()))
+      return false;
+    RewriteUTF32.push_back(UCN.value());
+  } else {
+    llvm::UTF32 CodePoint;
+
+    if (llvm::conversionOK != llvm::convertUTF8Sequence(
+            reinterpret_cast<const llvm::UTF8 **>(&Cursor),
+            reinterpret_cast<const llvm::UTF8 *>(End), &CodePoint,
+            llvm::ConversionFlags::strictConversion))
+      return false;
+
+    if (!NondigitChars.contains(CodePoint) &&
+        !XIDStartChars.contains(CodePoint))
+        return false;
+    RewriteUTF32.push_back(CodePoint);
+  }
+
+  // Validate remaining characters.
+  while (Cursor < End) {
+    if (*Cursor == '\\') {
+      const char *SlashLoc = Cursor++;
+      std::optional<uint32_t> UCN = tryReadUCN(Cursor, SlashLoc, nullptr);
+      if (!UCN || !(XIDStartChars.contains(UCN.value()) ||
+                    XIDContinueChars.contains(UCN.value())))
+        return false;
+      RewriteUTF32.push_back(UCN.value());
+    } else {
+      llvm::UTF32 CodePoint;
+
+      if (llvm::conversionOK != llvm::convertUTF8Sequence(
+              reinterpret_cast<const llvm::UTF8 **>(&Cursor),
+              reinterpret_cast<const llvm::UTF8 *>(End), &CodePoint,
+              llvm::ConversionFlags::strictConversion))
+          return false;
+
+      if (!DigitChars.contains(CodePoint) &&
+          !NondigitChars.contains(CodePoint) &&
+          !XIDStartChars.contains(CodePoint) &&
+          !XIDContinueChars.contains(CodePoint))
+        return false;
+      RewriteUTF32.push_back(CodePoint);
+    }
+  }
+  assert(Cursor == End);
+
+  std::string Rewrite;
+  Rewrite.reserve(RewriteUTF32.size() * 4);
+  if (!llvm::convertUTF32ToUTF8String(RewriteUTF32, Rewrite))
+    return true;
+  In = Rewrite;
+
+  return true;
 }

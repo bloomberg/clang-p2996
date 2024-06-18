@@ -24,6 +24,7 @@ using alias = type;
 int var;
 void func();
 
+template <typename T> struct IncompleteTCls;
 template <typename T> struct TCls {};
 template <typename T> void TFn();
 template <typename T> concept TConcept = requires { true; };
@@ -100,6 +101,7 @@ static_assert(!is_concept(^func));
 static_assert(!is_base(^func));
 static_assert(!is_value(^func));
 static_assert(!is_object(^func));
+static_assert(is_user_provided(^func));
 
 static_assert(is_type(^alias));
 static_assert(!is_incomplete_type(^alias));
@@ -149,8 +151,24 @@ static_assert(!is_base(^TCls));
 static_assert(!is_value(^TCls));
 static_assert(!is_object(^TCls));
 
+static_assert(is_type(^IncompleteTCls<int>));
+static_assert(is_incomplete_type(^IncompleteTCls<int>));
+static_assert(!is_alias(^IncompleteTCls<int>));
+static_assert(!is_function(^IncompleteTCls<int>));
+static_assert(!is_variable(^IncompleteTCls<int>));
+static_assert(!is_template(^IncompleteTCls<int>));
+static_assert(!is_namespace(^IncompleteTCls<int>));
+static_assert(!is_function_template(^IncompleteTCls<int>));
+static_assert(!is_variable_template(^IncompleteTCls<int>));
+static_assert(!is_class_template(^IncompleteTCls<int>));
+static_assert(!is_alias_template(^IncompleteTCls<int>));
+static_assert(!is_concept(^IncompleteTCls<int>));
+static_assert(!is_base(^IncompleteTCls<int>));
+static_assert(!is_value(^IncompleteTCls<int>));
+static_assert(!is_object(^IncompleteTCls<int>));
+
 static_assert(is_type(^TCls<int>));
-static_assert(is_incomplete_type(^TCls<int>));
+static_assert(!is_incomplete_type(^TCls<int>));
 static_assert(!is_alias(^TCls<int>));
 static_assert(!is_function(^TCls<int>));
 static_assert(!is_variable(^TCls<int>));
@@ -196,6 +214,7 @@ static_assert(!is_concept(^TFn<int>));
 static_assert(!is_base(^TFn<int>));
 static_assert(!is_value(^TFn<int>));
 static_assert(!is_object(^TFn<int>));
+static_assert(is_user_provided(^TFn<int>));
 
 static_assert(!is_type(^TConcept));
 static_assert(!is_incomplete_type(^TConcept));
@@ -213,21 +232,21 @@ static_assert(!is_base(^TConcept));
 static_assert(!is_value(^TConcept));
 static_assert(!is_object(^TConcept));
 
-static_assert(!is_type(^TConcept<int>));
-static_assert(!is_incomplete_type(^TConcept<int>));
-static_assert(!is_alias(^TConcept<int>));
-static_assert(!is_function(^TConcept<int>));
-static_assert(!is_variable(^TConcept<int>));
-static_assert(!is_template(^TConcept<int>));
-static_assert(!is_namespace(^TConcept<int>));
-static_assert(!is_function_template(^TConcept<int>));
-static_assert(!is_variable_template(^TConcept<int>));
-static_assert(!is_class_template(^TConcept<int>));
-static_assert(!is_alias_template(^TConcept<int>));
-static_assert(!is_concept(^TConcept<int>));
-static_assert(!is_base(^TConcept<int>));
-static_assert(is_value(^TConcept<int>));
-static_assert(!is_object(^TConcept<int>));
+static_assert(!is_type(substitute(^TConcept,{^int})));
+static_assert(!is_incomplete_type(substitute(^TConcept, {^int})));
+static_assert(!is_alias(substitute(^TConcept, {^int})));
+static_assert(!is_function(substitute(^TConcept, {^int})));
+static_assert(!is_variable(substitute(^TConcept, {^int})));
+static_assert(!is_template(substitute(^TConcept, {^int})));
+static_assert(!is_namespace(substitute(^TConcept, {^int})));
+static_assert(!is_function_template(substitute(^TConcept, {^int})));
+static_assert(!is_variable_template(substitute(^TConcept, {^int})));
+static_assert(!is_class_template(substitute(^TConcept, {^int})));
+static_assert(!is_alias_template(substitute(^TConcept, {^int})));
+static_assert(!is_concept(substitute(^TConcept, {^int})));
+static_assert(!is_base(substitute(^TConcept, {^int})));
+static_assert(is_value(substitute(^TConcept, {^int})));
+static_assert(!is_object(substitute(^TConcept, {^int})));
 
 static_assert(!is_type(^TVar));
 static_assert(!is_incomplete_type(^TVar));
@@ -278,7 +297,7 @@ static_assert(!is_value(^TClsAlias));
 static_assert(!is_object(^TClsAlias));
 
 static_assert(is_type(^TClsAlias<int>));
-static_assert(is_incomplete_type(^TClsAlias<int>));
+static_assert(!is_incomplete_type(^TClsAlias<int>));
 static_assert(is_alias(^TClsAlias<int>));
 static_assert(!is_function(^TClsAlias<int>));
 static_assert(!is_variable(^TClsAlias<int>));
@@ -413,11 +432,12 @@ struct incomplete_type {};
 static_assert(!is_incomplete_type(^incomplete_type));
 static_assert(!is_incomplete_type(^incomplete_alias));
 
-static_assert(is_incomplete_type(^TCls<int>));
-static_assert(is_incomplete_type(^TClsAlias<int>));
-namespace { [[maybe_unused]] TCls<int> TClsCompletion; };
-static_assert(!is_incomplete_type(^TCls<int>));
-static_assert(!is_incomplete_type(^TClsAlias<int>));
+template <typename T> using IncompleteTClsAlias = IncompleteTCls<T>;
+static_assert(is_incomplete_type(^IncompleteTCls<int>));
+static_assert(is_incomplete_type(^IncompleteTClsAlias<int>));
+template <typename T> struct IncompleteTCls {};
+static_assert(!is_incomplete_type(^IncompleteTCls<int>));
+static_assert(!is_incomplete_type(^IncompleteTClsAlias<int>));
 
 struct Base {};
 struct Derived : Base {};
@@ -463,4 +483,21 @@ static_assert(!is_structured_binding(^var));
 static_assert(!is_structured_binding(std::meta::reflect_value(3)));
 } // namespace test_is_structured_binding_and_related_edge_cases
 
-int main() {}
+                            // =====================
+                            // test_is_user_provided
+                            // =====================
+
+namespace test_is_user_provided {
+struct S1 {};
+struct S2 { S2() = default; };
+struct S3 { S3(); };
+S3::S3() {}
+
+static_assert(!is_user_provided(members_of(^S1, std::meta::is_constructor)[0]));
+static_assert(!is_user_provided(members_of(^S2, std::meta::is_constructor)[0]));
+static_assert(is_user_provided(members_of(^S3, std::meta::is_constructor)[0]));
+
+}  // namespace test_is_user_provided
+
+
+int main() { }
