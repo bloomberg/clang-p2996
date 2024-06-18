@@ -2777,12 +2777,7 @@ bool is_variable(APValue &Result, Sema &S, EvalFn Evaluator, QualType ResultTy,
 
   bool result = false;
   if (R.getReflection().getKind() == ReflectionValue::RK_declaration) {
-    Decl *D = R.getReflectedDecl();
-    if (auto *BD = dyn_cast<BindingDecl>(D)) {
-      result = (BD->getHoldingVar() != nullptr);
-    } else {
-      result = isa<const VarDecl>(D);
-    }
+    result = isa<const VarDecl>(R.getReflectedDecl());
   }
   return SetAndSucceed(Result, makeBool(S.Context, result));
 }

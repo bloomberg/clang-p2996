@@ -15,10 +15,8 @@
 //
 // [reflection]
 
-
 #include <experimental/meta>
 #include <tuple>
-
 
 struct type {};
 using alias = type;
@@ -26,11 +24,16 @@ using alias = type;
 int var;
 void func();
 
-template <typename T> struct TCls {};
-template <typename T> void TFn();
-template <typename T> concept TConcept = requires { true; };
-template <typename T> int TVar;
-template <typename T> using TClsAlias = TCls<T>;
+template <typename T>
+struct TCls {};
+template <typename T>
+void TFn();
+template <typename T>
+concept TConcept = requires { true; };
+template <typename T>
+int TVar;
+template <typename T>
+using TClsAlias = TCls<T>;
 
 namespace ns {}
 namespace ns_alias = ns;
@@ -417,7 +420,9 @@ static_assert(!is_incomplete_type(^incomplete_alias));
 
 static_assert(is_incomplete_type(^TCls<int>));
 static_assert(is_incomplete_type(^TClsAlias<int>));
-namespace { [[maybe_unused]] TCls<int> TClsCompletion; };
+namespace {
+[[maybe_unused]] TCls<int> TClsCompletion;
+};
 static_assert(!is_incomplete_type(^TCls<int>));
 static_assert(!is_incomplete_type(^TClsAlias<int>));
 
@@ -427,8 +432,12 @@ static_assert(!is_base(^Base));
 static_assert(!is_type(bases_of(^Derived)[0]));
 static_assert(is_base(bases_of(^Derived)[0]));
 
+                               // =====================
+                               // test_is_structured_binding_and_related_edge_cases
+                               // =====================
+namespace test_is_structured_binding_and_related_edge_cases {
 static int struct_binding_case1[] = {1, 2, 3};
-auto [x1, y1, z1] = struct_binding_case1;
+auto [x1, y1, z1]                 = struct_binding_case1;
 static_assert(is_structured_binding(^x1));
 static_assert(is_structured_binding(^y1));
 static_assert(is_structured_binding(^z1));
@@ -441,12 +450,14 @@ auto [x2, y2, z2] = struct_binding_case2();
 static_assert(is_structured_binding(^x2));
 static_assert(is_structured_binding(^y2));
 static_assert(is_structured_binding(^z2));
-static_assert(is_variable(^x2));
-static_assert(is_variable(^y2));
-static_assert(is_variable(^z2));
+static_assert(!is_variable(^x2));
+static_assert(!is_variable(^y2));
+static_assert(!is_variable(^z2));
 
-struct StructBinding { int a, b, c; };
-auto struct_binding_case3() { return  StructBinding {1, 2, 3}; }
+struct StructBinding {
+  int a, b, c;
+};
+auto struct_binding_case3() { return StructBinding{1, 2, 3}; }
 auto [x3, y3, z3] = struct_binding_case3();
 static_assert(is_structured_binding(^x3));
 static_assert(is_structured_binding(^y3));
@@ -457,5 +468,6 @@ static_assert(!is_variable(^z3));
 
 static_assert(!is_structured_binding(^var));
 static_assert(!is_structured_binding(std::meta::reflect_value(3)));
+} // namespace test_is_structured_binding_and_related_edge_cases
 
-int main() { }
+int main() {}
