@@ -457,6 +457,9 @@ static_assert(is_structured_binding(^z1));
 static_assert(!is_variable(^x1));
 static_assert(!is_variable(^y1));
 static_assert(!is_variable(^z1));
+static_assert(type_of(^x1) == ^int);
+static_assert(type_of(^y1) == ^int);
+static_assert(type_of(^z1) == ^int);
 
 auto struct_binding_case2() { return std::make_tuple(1, 2, 3); }
 auto [x2, y2, z2] = struct_binding_case2();
@@ -466,6 +469,11 @@ static_assert(is_structured_binding(^z2));
 static_assert(!is_variable(^x2));
 static_assert(!is_variable(^y2));
 static_assert(!is_variable(^z2));
+// "wrapped" type of each element is 'std::tuple_element<I, std::tuple<int,int,int>>::type',
+// where I is index of tuple field
+static_assert(type_of(^x2) == ^int);
+static_assert(type_of(^y2) == ^int);
+static_assert(type_of(^z2) == ^int);
 
 struct StructBinding {
   int a, b, c;
@@ -478,6 +486,9 @@ static_assert(is_structured_binding(^z3));
 static_assert(!is_variable(^x3));
 static_assert(!is_variable(^y3));
 static_assert(!is_variable(^z3));
+static_assert(type_of(^x3) == ^int);
+static_assert(type_of(^y3) == ^int);
+static_assert(type_of(^z3) == ^int);
 
 static_assert(!is_structured_binding(^var));
 static_assert(!is_structured_binding(std::meta::reflect_value(3)));
