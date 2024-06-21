@@ -129,7 +129,8 @@ ExprResult Sema::ActOnCXXReflectExpr(SourceLocation OpLoc,
     ER.Diag = &Diags;
 
     if (!E->EvaluateAsRValue(ER, Context, true)) {
-      Diag(E->getExprLoc(), diag::err_reflect_non_constexpr);
+      Diag(E->getOperand()->getExprLoc(),
+           diag::err_splice_operand_not_constexpr);
       for (PartialDiagnosticAt PD : Diags)
         Diag(PD.first, PD.second);
       return ExprError();
@@ -298,16 +299,9 @@ ParsedTemplateArgument Sema::ActOnTemplateIndeterminateSpliceArgument(
   Expr::EvalResult ER;
   ER.Diag = &Diags;
   if (!Splice->EvaluateAsRValue(ER, Context, true)) {
-    Diag(Splice->getExprLoc(), diag::err_reflect_non_constexpr)
-        << Splice->getSourceRange();
-    for (PartialDiagnosticAt PD : Diags)
-      Diag(PD.first, PD.second);
     return ParsedTemplateArgument();
   }
-  if (ER.Val.getKind() != APValue::Reflection) {
-    // TODO(P2996): Replace with a diagnostic.
-    llvm_unreachable("expected a reflection");
-  }
+  assert(ER.Val.getKind() == APValue::Reflection);
 
   ReflectionValue RV = ER.Val.getReflection();
   if (Splice->getTemplateKWLoc().isValid() &&
@@ -381,32 +375,28 @@ ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc, Expr *E) {
   // Check if this is a reference to a declared entity.
   if (auto *DRE = dyn_cast<DeclRefExpr>(E))
     return BuildCXXReflectExpr(OperatorLoc, DRE->getExprLoc(), DRE->getDecl());
-  else if (auto *SNTTPE = dyn_cast<SubstNonTypeTemplateParmExpr>(E))
-    return BuildCXXReflectExpr(OperatorLoc, SNTTPE->getReplacement());
 
-  // Otherwise it must either be a constant expression or a dependent expression
-  // that cannot be evaluated before tree transform.
-  if (!E->isTypeDependent() && !E->isValueDependent() &&
-      !isa<ConstantExpr>(E)) {
-    // If this is an UnresolvedLookupExpr, the operand might be a specialized
-    // function template (which we can take the reflection of) or an overload
-    // set (which we cannot). Either way, handle this case separately.
-    if (UnresolvedLookupExpr *ULE = dyn_cast<UnresolvedLookupExpr>(E))
-      return BuildCXXReflectExpr(OperatorLoc, ULE);
+  if (auto *SNTTPE = dyn_cast<SubstNonTypeTemplateParmExpr>(E)) {
+    Expr *Replacement = SNTTPE->getReplacement();
+    if (SNTTPE->isLValue()) {
+      if (auto *CE = dyn_cast<ConstantExpr>(Replacement))
+        return CXXReflectExpr::Create(Context, OperatorLoc, Replacement);
 
-    SmallVector<PartialDiagnosticAt, 4> Diags;
-    Expr::EvalResult ER;
-    ER.Diag = &Diags;
-
-    if (!E->EvaluateAsConstantExpr(ER, Context)) {
-      Diag(E->getExprLoc(), diag::err_reflect_non_constexpr);
-      for (PartialDiagnosticAt PD : Diags)
-        Diag(PD.first, PD.second);
-      return ExprError();
+      return BuildCXXReflectExpr(OperatorLoc, Replacement);
     }
-    E = ConstantExpr::Create(Context, const_cast<Expr *>(E), ER.Val);
+
+    return CXXReflectExpr::Create(Context, OperatorLoc, Replacement);
   }
-  return CXXReflectExpr::Create(Context, OperatorLoc, E);
+
+  if (auto *ULE = dyn_cast<UnresolvedLookupExpr>(E)) {
+    return BuildCXXReflectExpr(OperatorLoc, ULE);
+  }
+
+  if (auto *DSDRE = dyn_cast<DependentScopeDeclRefExpr>(E))
+    return CXXReflectExpr::Create(Context, OperatorLoc, DSDRE);
+
+  Diag(E->getExprLoc(), diag::err_reflect_general_expression);
+  return ExprError();
 }
 
 ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,

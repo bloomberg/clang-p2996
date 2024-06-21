@@ -120,7 +120,7 @@ template <auto Expected>
 consteval bool CheckValueIs(std::meta::info R) {
   return extract<decltype(Expected)>(R) == Expected;
 }
-static_assert(CheckValueIs<42>(^42));
+static_assert(CheckValueIs<42>(std::meta::reflect_value(42)));
 static_assert(CheckValueIs<EnumCls::A>(^EnumCls::A));
 static_assert(CheckValueIs<Enum::A>(^Enum::A));
 static_assert(CheckValueIs<42>(^ConstVar));
@@ -134,8 +134,10 @@ static_assert(CheckValueIs<42>([]() {
 }()));
 
 [[maybe_unused]] TCls<3> ignored;
-static_assert(CheckValueIs<3>(static_data_members_of(substitute(^TCls,
-                                                                {^3}))[0]));
+static_assert(
+    CheckValueIs<3>(
+        static_data_members_of(substitute(^TCls,
+                                          {std::meta::reflect_value(3)}))[0]));
 }  // namespace extract_results
 
                                   // =========
@@ -191,7 +193,7 @@ namespace extract_ref_semantics {
   consteval const int &returnsRef() { return constGlobal; }
 
   void nonConstFn() {
-    constexpr auto r = ^returnsRef();
+    constexpr auto r = std::meta::reflect_object(returnsRef());
     static_assert(extract<const int &>(r) == 2);
   }
 }  // namespace extract_ref_semantics
@@ -269,15 +271,18 @@ static_assert([:rvfirst:].first == 1);
 
 int main() {
   // RUN: grep "call-lambda-value: 1" %t.stdout
-  extract<void(*)(int)>(^[](int id) {
-    std::println("call-lambda-value: {}", id);
-  })(1);
+  extract<void(*)(int)>(
+        std::meta::reflect_value(
+            [](int id) {
+              std::println("call-lambda-value: {}", id);
+            }))(1);
 
   // RUN: grep "call-generic-lambda-value: 2 (int)" %t.stdout
-  extract<void(*)(int)>(^[](auto id) {
-    std::println("call-generic-lambda-value: {} ({})", id,
-                 name_of<std::string_view>(type_of(^id)));
-  })(2);
+  extract<void(*)(int)>(std::meta::reflect_value(
+        [](auto id) {
+          std::println("call-generic-lambda-value: {} ({})", id,
+                       name_of<std::string_view>(type_of(^id)));
+        }))(2);
 
   constexpr auto l = [](int id) {
     std::println("call-lambda-var: {}", id);

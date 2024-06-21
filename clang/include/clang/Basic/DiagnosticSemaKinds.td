@@ -3076,8 +3076,8 @@ def err_placeholder_constraints_not_satisfied : Error<
 
 // Reflection
 def err_meta_type_constexpr : Error<"meta type variables must be constexpr">;
-def err_reflect_non_constexpr : Error<
-  "expression operand of reflection operator must be a constant expression">;
+def err_reflect_general_expression : Error<
+  "reflection operand must be a named entity">;
 def err_reflect_overload_set : Error<
   "cannot take the reflection of an overload set">;
 def err_template_arg_bad_reflection_kind : Error<

@@ -25,9 +25,6 @@ constexpr info info_infoint = ^decltype(^int);
 constexpr int i = 42;
 constexpr info info_i = ^i;
 
-// Reflecting literals
-constexpr info info_42 = ^42;
-
 // Reflecting templates
 template <typename T>
 void TemplateFunc();
@@ -98,14 +95,6 @@ consteval info foo() {
     return ^T;
 }
 constexpr info info_tmplparam = foo<int>();
-
-// Reflecting values of a non-structural type
-struct Nonstructural {
-    constexpr Nonstructural(int i) : mem(i) {}
-private:
-    int mem;
-};
-constexpr info info_nonstructural = ^Nonstructural{42};
 
 namespace ns {}
 constexpr info info_ns = ^ns;

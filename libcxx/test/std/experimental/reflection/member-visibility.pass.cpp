@@ -171,4 +171,29 @@ void FriendFnOfAccess() {
   static_assert(is_accessible(bases_of(^Access)[2]));  // PrivateBase
 }
 
+                            // =====================
+                            // alt_accessibility_api
+                            // =====================
+
+static_assert(std::meta::access_context() == ^::);
+namespace alt_accessibility_api {
+static_assert(std::meta::access_context() == ^::alt_accessibility_api);
+
+void fn() {
+  static_assert(std::meta::access_context() == ^fn);
+  [] {
+    constexpr auto l = std::meta::access_context();
+    static_assert(is_function(l));
+    static_assert(l != ^fn);
+  }();
+}
+
+static_assert(!is_accessible(members_of(^Access, std::meta::is_private)[0]));
+static_assert(is_accessible(members_of(^Access, std::meta::is_private)[0],
+                            ^FriendFnOfAccess));
+static_assert(is_accessible(members_of(^Access, std::meta::is_private)[0],
+                            ^Access));
+
+}  // namespace alt_accessibility_api
+
 int main() { }

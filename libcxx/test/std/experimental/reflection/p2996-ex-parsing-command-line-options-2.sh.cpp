@@ -73,7 +73,7 @@ consteval auto spec_to_opts(std::meta::info opts,
   for (auto member : nonstatic_data_members_of(spec)) {
     auto new_type = template_arguments_of(type_of(member))[0];
     new_members.push_back(
-        data_member_spec(new_type, {.name=name_of<std::string_view>(member)}));
+        data_member_spec(new_type, {.name=name_of(member)}));
   }
   return define_class(opts, new_members);
 }

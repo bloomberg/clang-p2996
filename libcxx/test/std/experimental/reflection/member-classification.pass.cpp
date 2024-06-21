@@ -72,8 +72,8 @@ static_assert(is_namespace_member(^class_or_namespace_members));
 static_assert(!is_class_member(^::));
 static_assert(!is_namespace_member(^::));
 
-static_assert(!is_class_member(^4));
-static_assert(!is_namespace_member(^4));
+static_assert(!is_class_member(std::meta::reflect_value(4)));
+static_assert(!is_namespace_member(std::meta::reflect_value(4)));
 }  // namespace class_or_namespace_members
 
                         // ============================
@@ -106,14 +106,14 @@ void fn();
 namespace inner {}
 template <typename T> void TFn();
 
-static_assert(!is_nonstatic_data_member(^3));
+static_assert(!is_nonstatic_data_member(std::meta::reflect_value(3)));
 static_assert(!is_nonstatic_data_member(^int));
 static_assert(!is_nonstatic_data_member(^TFn));
 static_assert(!is_nonstatic_data_member(^TFn<int>));
 static_assert(!is_nonstatic_data_member(^::));
 static_assert(!is_nonstatic_data_member(^inner));
 
-static_assert(!is_static_member(^3));
+static_assert(!is_static_member(std::meta::reflect_value(3)));
 static_assert(!is_static_member(^int));
 static_assert(!is_static_member(^TFn));
 static_assert(!is_static_member(^TFn<int>));
@@ -156,7 +156,7 @@ static_assert(is_virtual(^Derived::virt_no_override));
 static_assert(is_virtual(^Derived::virt_implicit_override));
 static_assert(is_virtual(^Derived::virt_explicit_override));
 static_assert(is_virtual(^Derived::pure_virt));
-static_assert(!is_virtual(^3));
+static_assert(!is_virtual(std::meta::reflect_value(3)));
 static_assert(!is_virtual(^int));
 static_assert(!is_virtual(^TFn));
 static_assert(!is_virtual(^TFn<int>));
@@ -173,7 +173,7 @@ static_assert(!is_override(^Derived::virt_no_override));
 static_assert(is_override(^Derived::virt_implicit_override));
 static_assert(is_override(^Derived::virt_explicit_override));
 static_assert(is_override(^Derived::pure_virt));
-static_assert(!is_pure_virtual(^3));
+static_assert(!is_pure_virtual(std::meta::reflect_value(3)));
 static_assert(!is_pure_virtual(^int));
 static_assert(!is_pure_virtual(^TFn));
 static_assert(!is_pure_virtual(^TFn<int>));
@@ -190,7 +190,7 @@ static_assert(!is_override(^Derived::virt_no_override));
 static_assert(is_override(^Derived::virt_implicit_override));
 static_assert(is_override(^Derived::virt_explicit_override));
 static_assert(is_override(^Derived::pure_virt));
-static_assert(!is_override(^3));
+static_assert(!is_override(std::meta::reflect_value(3)));
 static_assert(!is_override(^int));
 static_assert(!is_override(^TFn));
 static_assert(!is_override(^TFn<int>));
@@ -251,7 +251,7 @@ int x;
 void fn();
 namespace inner {}
 template <typename T> void TFn();
-static_assert(!is_special_member(^3));
+static_assert(!is_special_member(std::meta::reflect_value(3)));
 static_assert(!is_special_member(^int));
 static_assert(!is_special_member(^TFn));
 static_assert(!is_special_member(^TFn<int>));
@@ -298,13 +298,13 @@ int x;
 void fn();
 namespace inner {}
 template <typename T> void TFn();
-static_assert(!is_deleted(^3));
+static_assert(!is_deleted(std::meta::reflect_value(3)));
 static_assert(!is_deleted(^int));
 static_assert(!is_deleted(^TFn));
 static_assert(!is_deleted(^TFn<int>));
 static_assert(!is_deleted(^::));
 static_assert(!is_deleted(^inner));
-static_assert(!is_defaulted(^3));
+static_assert(!is_defaulted(std::meta::reflect_value(3)));
 static_assert(!is_defaulted(^int));
 static_assert(!is_defaulted(^TFn));
 static_assert(!is_defaulted(^TFn<int>));
@@ -351,7 +351,7 @@ int x;
 void fn();
 namespace inner {}
 template <typename T> void TFn();
-static_assert(!is_explicit(^3));
+static_assert(!is_explicit(std::meta::reflect_value(3)));
 static_assert(!is_explicit(^int));
 static_assert(!is_explicit(^TFn));
 static_assert(!is_explicit(^TFn<int>));
@@ -576,7 +576,7 @@ static_assert(!is_bit_field(^S::k));
 
 static_assert(!is_bit_field(^S));
 static_assert(!is_bit_field(^int));
-static_assert(!is_bit_field(^4));
+static_assert(!is_bit_field(std::meta::reflect_value(4)));
 static_assert(!is_bit_field(^std::meta::extract));
 }  // namespace bitfield_members
 

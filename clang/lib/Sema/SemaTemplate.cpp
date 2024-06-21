@@ -8843,6 +8843,8 @@ static ExprResult
 BuildExpressionFromReflection(Sema &S, const ReflectionValue &R,
                               SourceLocation Loc) {
   switch (R.getKind()) {
+  case ReflectionValue::RK_null:
+    return CXXReflectExpr::Create(S.Context, Loc, Loc);
   case ReflectionValue::RK_type:
     return CXXReflectExpr::Create(S.Context, Loc, Loc, R.getAsType());
   case ReflectionValue::RK_expr_result:

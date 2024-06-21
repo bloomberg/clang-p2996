@@ -28,10 +28,6 @@
 
 
 namespace std::meta {
-    consteval auto type_remove_cvref(info type) -> info {
-        return substitute(^std::remove_cvref_t, {type});
-    }
-
     consteval auto type_tuple_size(info type) -> size_t {
         return extract<size_t>(substitute(^std::tuple_size_v, {type}));
     }

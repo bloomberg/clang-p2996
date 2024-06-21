@@ -54,7 +54,10 @@ static_assert(!has_template_arguments(^fn));
 static_assert(!has_template_arguments(^Alias));
 static_assert(!has_template_arguments(^Typedef));
 static_assert(!has_template_arguments(^NSAlias));
-static_assert(!has_template_arguments(^Concept<int, 9, std::vector>));
+static_assert(
+    !has_template_arguments(
+        substitute(^Concept,
+                   {^int, std::meta::reflect_value(9), ^std::vector})));
 }  // namespace non_templates
 
                              // ==================
@@ -116,7 +119,8 @@ static_assert(has_template_arguments(^WithDependentArgument<int, 5>));
 static_assert(
       template_arguments_of(^WithDependentArgument<int, 5>).size() == 2);
 static_assert(template_arguments_of(^WithDependentArgument<int, 5>)[0] == ^int);
-static_assert(template_arguments_of(^WithDependentArgument<int, 5>)[1] == ^5);
+static_assert(template_arguments_of(^WithDependentArgument<int, 5>)[1] ==
+              std::meta::reflect_value(5));
 }  // namespace special_cases
 
                                // ===============
@@ -184,6 +188,96 @@ static_assert(template_arguments_of(^WithReflection<^int>).size() == 1);
 static_assert(template_arguments_of(^WithReflection<^int>)[0] == ^int);
 }  // namespace non_auto_non_types
 
+                           // =======================
+                           // properties_of_non_types
+                           // =======================
+
+namespace properties_of_non_types {
+template <int P> void fn_int_value() {
+  static_assert(is_value(^P));
+  static_assert(type_of(^P) == ^int);
+  static_assert(name_of(^P) == u8"");
+  static_assert([:^P:] == 1);
+}
+
+template <const int &P> void fn_int_ref() {
+  static_assert(is_object(^P));
+  static_assert(is_variable(^P));
+  static_assert(type_of(^P) == ^const int);
+  static_assert(name_of(^P) == u8"k");
+  static_assert([:^P:] == 2);
+}
+
+template <const int &P> void fn_int_subobject_ref() {
+  static_assert(is_object(^P));
+  static_assert(!is_variable(^P));
+  static_assert(type_of(^P) == ^const int);
+  static_assert(name_of(^P) == u8"");
+  static_assert([:^P:] == 3);
+}
+
+struct S { int m; };
+
+template <S P> void fn_cls_value() {
+  static_assert(is_object(^P));
+  static_assert(!is_variable(^P));  // template-parameter-object
+  static_assert(type_of(^P) == ^const S);
+  static_assert(name_of(^P) == u8"");
+  static_assert([:^P:].m == 5);
+}
+
+template <S &P> void fn_cls_ref() {
+  static_assert(is_object(^P));
+  static_assert(is_variable(^P));
+  static_assert(type_of(^P) == ^S);
+  static_assert(name_of(^P) == u8"s");
+}
+
+template <void(&P)()> void fn_fn_ref_param() {
+  static_assert(is_function(^P));
+  static_assert(type_of(^P) == ^void());
+  static_assert(name_of(^P) == u8"instantiations");
+}
+
+template <void(*P)()> void fn_fn_ptr_param() {
+  static_assert(is_value(^P));
+  static_assert(!is_function(^P));
+  static_assert(type_of(^P) == ^void(*)());
+  static_assert(name_of(^P) == u8"");
+}
+
+void instantiations() {
+  fn_int_value<1>();
+
+  static constexpr int k = 2;
+  fn_int_ref<k>();
+
+  static constexpr std::pair<int, int> p {3, 4};
+  fn_int_subobject_ref<p.first>();
+
+  fn_cls_value<{5}>();
+
+  static S s;
+  fn_cls_ref<s>();
+
+  fn_fn_ref_param<instantiations>();
+  fn_fn_ptr_param<instantiations>();
+}
+}  // namespace properties_of_non_types
+
+                       // ==============================
+                       // subobject_reflection_arguments
+                       // ==============================
+
+namespace subobject_reflection_arguments {
+template <int &> void fn();
+
+int p[2];
+static_assert(template_arguments_of(^fn<p[1]>)[0] ==
+              std::meta::reflect_object(p[1]));
+
+}  // namespace subobject_reflection_arguments
+
                    // =======================================
                    // bb_clang_p2996_issue_41_regression_test
                    // =======================================
@@ -212,6 +306,5 @@ void fn() {
     fn<members_of(^S, std::meta::is_destructor)[0]>();
 }
 }  // namespace bb_clang_p2996_issue_54_regression_test
-
 
 int main() { }
