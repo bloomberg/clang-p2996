@@ -476,10 +476,11 @@ static_assert(type_of(^y2) == ^int);
 static_assert(type_of(^z2) == ^int);
 
 struct StructBinding {
-  const int a, b, c;
+  int a, b;
+  volatile double c;
 };
-auto struct_binding_case3() { return StructBinding{1, 2, 3}; }
-auto [x3, y3, z3] = struct_binding_case3();
+auto struct_binding_case3() { return StructBinding{1, 2, 3.14}; }
+const auto [x3, y3, z3] = struct_binding_case3();
 static_assert(is_structured_binding(^x3));
 static_assert(is_structured_binding(^y3));
 static_assert(is_structured_binding(^z3));
@@ -488,7 +489,7 @@ static_assert(!is_variable(^y3));
 static_assert(!is_variable(^z3));
 static_assert(type_of(^x3) == ^const int);
 static_assert(type_of(^y3) == ^const int);
-static_assert(type_of(^z3) == ^const int);
+static_assert(type_of(^z3) == ^const volatile double);
 
 static_assert(!is_structured_binding(^var));
 static_assert(!is_structured_binding(std::meta::reflect_value(3)));
