@@ -476,7 +476,7 @@ static_assert(type_of(^y2) == ^int);
 static_assert(type_of(^z2) == ^int);
 
 struct StructBinding {
-  int a, b, c;
+  const int a, b, c;
 };
 auto struct_binding_case3() { return StructBinding{1, 2, 3}; }
 auto [x3, y3, z3] = struct_binding_case3();
@@ -486,9 +486,9 @@ static_assert(is_structured_binding(^z3));
 static_assert(!is_variable(^x3));
 static_assert(!is_variable(^y3));
 static_assert(!is_variable(^z3));
-static_assert(type_of(^x3) == ^int);
-static_assert(type_of(^y3) == ^int);
-static_assert(type_of(^z3) == ^int);
+static_assert(type_of(^x3) == ^const int);
+static_assert(type_of(^y3) == ^const int);
+static_assert(type_of(^z3) == ^const int);
 
 static_assert(!is_structured_binding(^var));
 static_assert(!is_structured_binding(std::meta::reflect_value(3)));

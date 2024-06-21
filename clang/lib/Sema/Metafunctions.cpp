@@ -1559,7 +1559,7 @@ bool type_of(APValue &Result, Sema &S, EvalFn Evaluator, QualType ResultTy,
     ValueDecl *VD = cast<ValueDecl>(R.getReflectedDecl());
 
     bool UnwrapAliases = isa<ParmVarDecl>(VD) || isa<BindingDecl>(VD);
-    bool DropCV = isa<ParmVarDecl>(VD);// todo: do I need to modify it?
+    bool DropCV = isa<ParmVarDecl>(VD);
     QualType QT = desugarType(VD->getType(), UnwrapAliases, DropCV,
                               /*DropRefs=*/false);
     return SetAndSucceed(Result, makeReflection(QT));
