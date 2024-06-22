@@ -491,6 +491,24 @@ static_assert(type_of(^x3) == ^const int);
 static_assert(type_of(^y3) == ^const int);
 static_assert(type_of(^z3) == ^const volatile double);
 
+auto p = std::pair{1, 2};
+auto& [x4, y4] = p;
+static_assert(is_structured_binding(^x4));
+static_assert(is_structured_binding(^y4));
+static_assert(!is_variable(^x4));
+static_assert(!is_variable(^y4));
+static_assert(type_of(^x4) == ^int);
+static_assert(type_of(^y4) == ^int);
+
+int a = 1, b = 2;
+const auto& [x5, y5] = std::tie(a, b); // x and y are of type int&
+static_assert(is_structured_binding(^x5));
+static_assert(is_structured_binding(^y5));
+static_assert(!is_variable(^x5));
+static_assert(!is_variable(^y5));
+static_assert(type_of(^x5) == ^int&);
+static_assert(type_of(^y5) == ^int&);
+
 static_assert(!is_structured_binding(^var));
 static_assert(!is_structured_binding(std::meta::reflect_value(3)));
 } // namespace test_is_structured_binding_and_related_edge_cases
