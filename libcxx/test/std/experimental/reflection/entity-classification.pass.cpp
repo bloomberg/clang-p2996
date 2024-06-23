@@ -476,11 +476,12 @@ static_assert(type_of(^y2) == ^int);
 static_assert(type_of(^z2) == ^int);
 
 struct StructBinding {
-  int a, b;
+  const int a;
+  int b;
   volatile double c;
 };
 auto struct_binding_case3() { return StructBinding{1, 2, 3.14}; }
-const auto [x3, y3, z3] = struct_binding_case3();
+auto [x3, y3, z3] = struct_binding_case3();
 static_assert(is_structured_binding(^x3));
 static_assert(is_structured_binding(^y3));
 static_assert(is_structured_binding(^z3));
@@ -488,20 +489,26 @@ static_assert(!is_variable(^x3));
 static_assert(!is_variable(^y3));
 static_assert(!is_variable(^z3));
 static_assert(type_of(^x3) == ^const int);
-static_assert(type_of(^y3) == ^const int);
-static_assert(type_of(^z3) == ^const volatile double);
+static_assert(type_of(^y3) == ^int);
+static_assert(type_of(^z3) == ^volatile double);
 
-auto p = std::pair{1, 2};
+constexpr auto p = std::pair{1, 2};
 auto& [x4, y4] = p;
 static_assert(is_structured_binding(^x4));
 static_assert(is_structured_binding(^y4));
 static_assert(!is_variable(^x4));
 static_assert(!is_variable(^y4));
-static_assert(type_of(^x4) == ^int);
-static_assert(type_of(^y4) == ^int);
+static_assert(type_of(^x4) == ^const int);
+static_assert(type_of(^y4) == ^const int);
+static_assert(extract<int>(^x4) == x4);
+static_assert(extract<int&>(^x4) == x4);
+static_assert(&extract<int&>(^x4) == &x4);
+static_assert(extract<int>(^y4) == y4);
+static_assert(extract<int&>(^y4) == y4);
+static_assert(&extract<int&>(^y4) == &y4);
 
 int a = 1, b = 2;
-const auto& [x5, y5] = std::tie(a, b); // x and y are of type int&
+const auto& [x5, y5] = std::tie(a, b); // x5 and y5 are of type int&
 static_assert(is_structured_binding(^x5));
 static_assert(is_structured_binding(^y5));
 static_assert(!is_variable(^x5));

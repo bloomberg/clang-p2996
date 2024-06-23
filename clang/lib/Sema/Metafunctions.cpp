@@ -2145,12 +2145,12 @@ bool extract(APValue &Result, Sema &S, EvalFn Evaluator, QualType ResultTy,
         Synthesized = ExtractLValueExpr::Create(S.Context, Range, ResultTy,
                                                 Decl);
       }
-    } else if (ReturnsLValue) {
-      // Only variables may be returned as LValues.
+    } else if (ReturnsLValue && !isa<BindingDecl>(Decl)) {
+      // Only variables and structured binding may be returned as LValues.
       return true;
     } else {
       // We have a reflection of a non-variable entity (either a field,
-      // function, enumerator, or lambda).
+      // function, enumerator, structured binding, or lambda).
       NestedNameSpecifierLocBuilder NNSLocBuilder;
       if (auto *ParentClsDecl = dyn_cast_or_null<CXXRecordDecl>(
               Decl->getDeclContext())) {
@@ -2185,6 +2185,7 @@ bool extract(APValue &Result, Sema &S, EvalFn Evaluator, QualType ResultTy,
                                               Range.getEnd(), Synthesized);
         if (ER.isInvalid())
           return true;
+
         Synthesized = ER.get();
       }
     }
