@@ -1623,15 +1623,15 @@ consteval auto type_is_nothrow_invocable_r(info type_result, info type,
 }
 
 consteval auto type_remove_const(info type) -> info {
-  return dealias(substitute(^remove_const_t, {type}));
+  return detail::__workaround_expand_compiler_builtins(dealias(substitute(^remove_const_t, {type})));
 }
 
 consteval auto type_remove_volatile(info type) -> info {
-  return dealias(substitute(^remove_volatile_t, {type}));
+  return detail::__workaround_expand_compiler_builtins(dealias(substitute(^remove_volatile_t, {type})));
 }
 
 consteval auto type_remove_cv(info type) -> info {
-  return dealias(substitute(^remove_cv_t, {type}));
+  return detail::__workaround_expand_compiler_builtins(dealias(substitute(^remove_cv_t, {type})));
 }
 
 consteval auto type_add_const(info type) -> info {
@@ -1647,39 +1647,39 @@ consteval auto type_add_cv(info type) -> info {
 }
 
 consteval auto type_remove_reference(info type) -> info {
-  return dealias(substitute(^remove_reference_t, {type}));
+  return detail::__workaround_expand_compiler_builtins(dealias(substitute(^remove_reference_t, {type})));
 }
 
 consteval auto type_add_lvalue_reference(info type) -> info {
-  return dealias(substitute(^add_lvalue_reference_t, {type}));
+  return detail::__workaround_expand_compiler_builtins(dealias(substitute(^add_lvalue_reference_t, {type})));
 }
 
 consteval auto type_add_rvalue_reference(info type) -> info {
-  return dealias(substitute(^add_rvalue_reference_t, {type}));
+  return detail::__workaround_expand_compiler_builtins(dealias(substitute(^add_rvalue_reference_t, {type})));
 }
 
 consteval auto type_make_signed(info type) -> info {
-  return dealias(substitute(^make_signed_t, {type}));
+  return detail::__workaround_expand_compiler_builtins(dealias(substitute(^make_signed_t, {type})));
 }
 
 consteval auto type_make_unsigned(info type) -> info {
-  return dealias(substitute(^make_unsigned_t, {type}));
+  return detail::__workaround_expand_compiler_builtins(dealias(substitute(^make_unsigned_t, {type})));
 }
 
 consteval auto type_remove_extent(info type) -> info {
-  return dealias(substitute(^remove_extent_t, {type}));
+  return detail::__workaround_expand_compiler_builtins(dealias(substitute(^remove_extent_t, {type})));
 }
 
 consteval auto type_remove_all_extents(info type) -> info {
-  return dealias(substitute(^remove_all_extents_t, {type}));
+  return detail::__workaround_expand_compiler_builtins(dealias(substitute(^remove_all_extents_t, {type})));
 }
 
 consteval auto type_remove_pointer(info type) -> info {
-  return dealias(substitute(^remove_pointer_t, {type}));
+  return detail::__workaround_expand_compiler_builtins(dealias(substitute(^remove_pointer_t, {type})));
 }
 
 consteval auto type_add_pointer(info type) -> info {
-  return dealias(substitute(^add_pointer_t, {type}));
+  return detail::__workaround_expand_compiler_builtins(dealias(substitute(^add_pointer_t, {type})));
 }
 
 consteval auto type_remove_cvref(info type) -> info {
@@ -1687,7 +1687,7 @@ consteval auto type_remove_cvref(info type) -> info {
 }
 
 consteval auto type_decay(info type) -> info {
-  return dealias(substitute(^decay_t, {type}));
+  return detail::__workaround_expand_compiler_builtins(dealias(substitute(^decay_t, {type})));
 }
 
 template <reflection_range R = span<info const>>
@@ -1701,7 +1701,7 @@ consteval auto type_common_reference(R &&type_args) -> info {
 }
 
 consteval auto type_underlying_type(info type) -> info {
-  return dealias(substitute(^underlying_type_t, {type}));
+  return detail::__workaround_expand_compiler_builtins(dealias(substitute(^underlying_type_t, {type})));
 }
 
 template <reflection_range R = span<info const>>
