@@ -1419,7 +1419,8 @@ consteval auto type_is_move_constructible(info r) -> bool {
 }
 
 consteval auto type_is_assignable(info dst, info src) -> bool {
-  return test_trait(^is_assignable_v, {dst, src});
+  std::vector<info> targs{dst, src};
+  return test_trait(^is_assignable_v, targs);
 }
 
 consteval auto type_is_copy_assignable(info r) -> bool {
@@ -1431,7 +1432,8 @@ consteval auto type_is_move_assignable(info r) -> bool {
 }
 
 consteval auto type_is_swappable_with(info dst, info src) -> bool {
-  return test_trait(^is_swappable_with_v, {dst, src});
+  std::vector<info> targs{dst, src};
+  return test_trait(^is_swappable_with_v, targs);
 }
 
 consteval auto type_is_swappable(info r) -> bool {
@@ -1463,7 +1465,8 @@ consteval auto type_is_trivially_move_constructible(info r) -> bool {
 }
 
 consteval auto type_is_trivially_assignable(info dst, info src) -> bool {
-  return test_trait(^is_trivially_assignable_v, {dst, src});
+  std::vector<info> targs{dst, src};
+  return test_trait(^is_trivially_assignable_v, targs);
 }
 
 consteval auto type_is_trivially_copy_assignable(info r) -> bool {
@@ -1499,7 +1502,8 @@ consteval auto type_is_nothrow_move_constructible(info r) -> bool {
 }
 
 consteval auto type_is_nothrow_assignable(info dst, info src) -> bool {
-  return test_trait(^is_nothrow_assignable_v, {dst, src});
+  std::vector<info> targs{dst, src};
+  return test_trait(^is_nothrow_assignable_v, targs);
 }
 
 consteval auto type_is_nothrow_copy_assignable(info r) -> bool {
@@ -1511,7 +1515,8 @@ consteval auto type_is_nothrow_move_assignable(info r) -> bool {
 }
 
 consteval auto type_is_nothrow_swappable_with(info dst, info src) -> bool {
-  return test_trait(^is_nothrow_swappable_with_v, {dst, src});
+  std::vector<info> targs{dst, src};
+  return test_trait(^is_nothrow_swappable_with_v, targs);
 }
 
 consteval auto type_is_nothrow_swappable(info r) -> bool {
@@ -1546,32 +1551,38 @@ consteval auto type_has_unique_object_representations(info r) -> bool {
 }*/
 
 consteval auto type_alignment_of(info r) -> size_t {
-  return extract<size_t>(substitute(^alignment_of_v, {r}));
+  std::vector<info> targs{r};
+  return extract<size_t>(substitute(^alignment_of_v, targs));
 }
 
 consteval auto type_rank(info r) -> size_t {
-  return extract<size_t>(substitute(^rank_v, {r}));
+  std::vector<info> targs{r};
+  return extract<size_t>(substitute(^rank_v, targs));
 }
 
 consteval auto type_extent(info r, unsigned i = 0) -> size_t {
-  return extract<size_t>(substitute(^extent_v,
-                                    {r, std::meta::reflect_value(i)}));
+  std::vector<info> targs{r, std::meta::reflect_value(i)};
+  return extract<size_t>(substitute(^extent_v, targs));
 }
 
 consteval auto type_is_same(info r, info s) -> bool {
-  return test_trait(^is_same_v, {r, s});
+  std::vector<info> targs{r, s};
+  return test_trait(^is_same_v, targs);
 }
 
 consteval auto type_is_base_of(info r, info s) -> bool {
-  return test_trait(^is_base_of_v, {r, s});
+  std::vector<info> targs{r, s};
+  return test_trait(^is_base_of_v, targs);
 }
 
 consteval auto type_is_convertible(info r, info s) -> bool {
-  return test_trait(^is_convertible_v, {r, s});
+  std::vector<info> targs{r, s};
+  return test_trait(^is_convertible_v, targs);
 }
 
 consteval auto type_is_nothrow_convertible(info r, info s) -> bool {
-  return test_trait(^is_nothrow_convertible_v, {r, s});
+  std::vector<info> targs{r, s};
+  return test_trait(^is_nothrow_convertible_v, targs);
 }
 
 // TODO(P2996): Not yet implemented in libc++.
@@ -1621,71 +1632,88 @@ consteval auto type_is_nothrow_invocable_r(info type_result, info type,
 }
 
 consteval auto type_remove_const(info type) -> info {
-  return dealias(substitute(^remove_const_t, {type}));
+  std::vector<info> targs{type};
+  return dealias(substitute(^remove_const_t, targs));
 }
 
 consteval auto type_remove_volatile(info type) -> info {
-  return dealias(substitute(^remove_volatile_t, {type}));
+  std::vector<info> targs{type};
+  return dealias(substitute(^remove_volatile_t, targs));
 }
 
 consteval auto type_remove_cv(info type) -> info {
-  return dealias(substitute(^remove_cv_t, {type}));
+  std::vector<info> targs{type};
+  return dealias(substitute(^remove_cv_t, targs));
 }
 
 consteval auto type_add_const(info type) -> info {
-  return dealias(substitute(^add_const_t, {type}));
+  std::vector<info> targs{type};
+  return dealias(substitute(^add_const_t, targs));
 }
 
 consteval auto type_add_volatile(info type) -> info {
-  return dealias(substitute(^add_volatile_t, {type}));
+  std::vector<info> targs{type};
+  return dealias(substitute(^add_volatile_t, targs));
 }
 
 consteval auto type_add_cv(info type) -> info {
-  return dealias(substitute(^add_cv_t, {type}));
+  std::vector<info> targs{type};
+  return dealias(substitute(^add_cv_t, targs));
 }
 
 consteval auto type_remove_reference(info type) -> info {
-  return dealias(substitute(^remove_reference_t, {type}));
+  std::vector<info> targs{type};
+  return dealias(substitute(^remove_reference_t, targs));
 }
 
 consteval auto type_add_lvalue_reference(info type) -> info {
-  return dealias(substitute(^add_lvalue_reference_t, {type}));
+  std::vector<info> targs{type};
+  return dealias(substitute(^add_lvalue_reference_t, targs));
 }
 
 consteval auto type_add_rvalue_reference(info type) -> info {
-  return dealias(substitute(^add_rvalue_reference_t, {type}));
+  std::vector<info> targs{type};
+  return dealias(substitute(^add_rvalue_reference_t, targs));
 }
 
 consteval auto type_make_signed(info type) -> info {
-  return dealias(substitute(^make_signed_t, {type}));
+  std::vector<info> targs{type};
+  return dealias(substitute(^make_signed_t, targs));
 }
 
 consteval auto type_make_unsigned(info type) -> info {
-  return dealias(substitute(^make_unsigned_t, {type}));
+  std::vector<info> targs{type};
+  return dealias(substitute(^make_unsigned_t, targs));
 }
 
 consteval auto type_remove_extent(info type) -> info {
-  return dealias(substitute(^remove_extent_t, {type}));
+  std::vector<info> targs{type};
+  return dealias(substitute(^remove_extent_t, targs));
 }
 
 consteval auto type_remove_all_extents(info type) -> info {
-  return dealias(substitute(^remove_all_extents_t, {type}));
+  std::vector<info> targs{type};
+  return dealias(substitute(^remove_all_extents_t, targs));
 }
 
 consteval auto type_remove_pointer(info type) -> info {
-  return dealias(substitute(^remove_pointer_t, {type}));
+  std::vector<info> targs{type};
+  return dealias(substitute(^remove_pointer_t, targs));
 }
 
 consteval auto type_add_pointer(info type) -> info {
-  return dealias(substitute(^add_pointer_t, {type}));
+  std::vector<info> targs{type};
+  return dealias(substitute(^add_pointer_t, targs));
 }
 
 consteval auto type_remove_cvref(info type) -> info {
-  return dealias(substitute(^remove_cvref_t, {type}));
+  std::vector<info> targs{type};
+  return dealias(substitute(^remove_cvref_t, targs));
 }
 
 consteval auto type_decay(info type) -> info {
-  return dealias(substitute(^decay_t, {type}));
+  std::vector<info> targs{type};
+  return dealias(substitute(^decay_t, targs));
 }
 
 template <reflection_range R = span<info const>>
@@ -1699,7 +1727,8 @@ consteval auto type_common_reference(R &&type_args) -> info {
 }
 
 consteval auto type_underlying_type(info type) -> info {
-  return dealias(substitute(^underlying_type_t, {type}));
+  std::vector<info> targs{type};
+  return dealias(substitute(^underlying_type_t, targs));
 }
 
 template <reflection_range R = span<info const>>
@@ -1711,11 +1740,13 @@ consteval auto type_invoke_result(info type, R &&type_args) -> info {
 }
 
 consteval auto type_unwrap_reference(info type) -> info {
-  return dealias(substitute(^unwrap_reference_t, {type}));
+  std::vector<info> targs{type};
+  return dealias(substitute(^unwrap_reference_t, targs));
 }
 
 consteval auto type_unwrap_ref_decay(info type) -> info {
-  return dealias(substitute(^unwrap_ref_decay_t, {type}));
+  std::vector<info> targs{type};
+  return dealias(substitute(^unwrap_ref_decay_t, targs));
 }
 
 // Proposed alternative P2996 accessibility API
