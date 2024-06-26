@@ -472,6 +472,8 @@ enum : unsigned {
   __metafn_return_type_of,
 };
 
+consteval auto __workaround_expand_compiler_builtins(info type) -> info;
+
 }  // namespace detail
 
 namespace __range_of_infos {
@@ -1681,7 +1683,7 @@ consteval auto type_add_pointer(info type) -> info {
 }
 
 consteval auto type_remove_cvref(info type) -> info {
-  return dealias(substitute(^remove_cvref_t, {type}));
+  return detail::__workaround_expand_compiler_builtins(dealias(substitute(^remove_cvref_t, {type})));
 }
 
 consteval auto type_decay(info type) -> info {
@@ -1882,6 +1884,13 @@ consteval auto accessible_subobjects_of(access_pair p) -> vector<info> {
   return subobjects;
 }
 
+namespace detail {
+template <class T> struct __wrap_workaround { using type = T; };
+consteval auto __workaround_expand_compiler_builtins(info type) -> info {
+  return dealias(members_of(substitute(^__wrap_workaround, {type}))[0]);
+}
+
+}  // namespace detail
 
 #if __has_feature(parameter_reflection)
 
