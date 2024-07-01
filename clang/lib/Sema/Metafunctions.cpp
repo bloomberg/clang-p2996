@@ -1108,42 +1108,19 @@ bool isAccessible(Sema &S, DeclContext *AccessDC, NamedDecl *D) {
   return Result;
 }
 
-static auto extractPointeeTypeForFunctionsAndMethods(const QualType QT) {
-  const Type* T = QT.getTypePtr();
-  
-  if (T->isFunctionPointerType() || T->isMemberFunctionPointerType())
-    return T->getPointeeType().getTypePtr();
-  else 
-    return T;
-}
-
 static bool isFunctionOrLambdaNoexcept(const QualType QT) {
-  constexpr auto isExceptionSpecNoexcept = [](
-    const ExceptionSpecificationType EST) {
-    switch (EST) {
-    case EST_BasicNoexcept:
-    case EST_NoexceptTrue:
-      return true;
-    default:
-      return false;
-    }
-  };
-
-  const Type* T = extractPointeeTypeForFunctionsAndMethods(QT);
+  const Type* T = QT.getTypePtr();
 
   if (T->isFunctionProtoType()) {
     // This covers (virtual) methods & functions
     const auto *FPT = T->getAs<FunctionProtoType>();
 
-    return isExceptionSpecNoexcept(FPT->getExceptionSpecType());
-  } else if (T->isRecordType()) {
-    // This branch is for lambdas only
-    const auto RT = T->getAs<RecordType>();
-    const auto RecordD = cast<CXXRecordDecl>(RT->getDecl());
-    
-    if (RecordD && RecordD->isLambda() && !RecordD->isGenericLambda()) {
-      const auto EST = RecordD->getLambdaCallOperator()->getExceptionSpecType();
-      return isExceptionSpecNoexcept(EST);
+    switch (FPT->getExceptionSpecType()) {
+    case EST_BasicNoexcept:
+    case EST_NoexceptTrue:
+      return true;
+    default:
+      return false;
     }
   }
 
@@ -2703,17 +2680,12 @@ bool is_noexcept(APValue &Result, Sema &S, EvalFn Evaluator, QualType ResultTy,
 
   switch (R.getReflection().getKind()) {
   case ReflectionValue::RK_null:
+  case ReflectionValue::RK_expr_result:
   case ReflectionValue::RK_template:
   case ReflectionValue::RK_namespace:
   case ReflectionValue::RK_base_specifier:
   case ReflectionValue::RK_data_member_spec:
     return SetAndSucceed(Result, makeBool(S.Context, false));
-  case ReflectionValue::RK_expr_result: {
-    const auto ER = R.getReflectedExprResult();
-    const auto result = isFunctionOrLambdaNoexcept(ER->getType());
-
-    return SetAndSucceed(Result, makeBool(S.Context, result));
-  }
   case ReflectionValue::RK_type: {
     const QualType QT = R.getReflectedType();
     const auto result = isFunctionOrLambdaNoexcept(QT);
