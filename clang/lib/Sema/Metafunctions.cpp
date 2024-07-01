@@ -1108,7 +1108,7 @@ bool isAccessible(Sema &S, DeclContext *AccessDC, NamedDecl *D) {
   return Result;
 }
 
-static bool isFunctionOrLambdaNoexcept(const QualType QT) {
+static bool isFunctionOrMethodNoexcept(const QualType QT) {
   const Type* T = QT.getTypePtr();
 
   if (T->isFunctionProtoType()) {
@@ -2688,13 +2688,13 @@ bool is_noexcept(APValue &Result, Sema &S, EvalFn Evaluator, QualType ResultTy,
     return SetAndSucceed(Result, makeBool(S.Context, false));
   case ReflectionValue::RK_type: {
     const QualType QT = R.getReflectedType();
-    const auto result = isFunctionOrLambdaNoexcept(QT);
+    const auto result = isFunctionOrMethodNoexcept(QT);
 
     return SetAndSucceed(Result, makeBool(S.Context, result));
   }
   case ReflectionValue::RK_declaration: {
     const ValueDecl *D = R.getReflectedDecl();
-    const auto result = isFunctionOrLambdaNoexcept(D->getType());
+    const auto result = isFunctionOrMethodNoexcept(D->getType());
     
     return SetAndSucceed(Result, makeBool(S.Context, result));
   }
