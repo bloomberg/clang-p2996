@@ -221,6 +221,14 @@ static_assert(type_of(value_of(^ref)) == ^int);
 constexpr std::pair<std::pair<int, bool>, int> p = {{1, true}, 2};
 static_assert(type_of(value_of(std::meta::reflect_object(p.first))) ==
               ^const std::pair<int, bool>);
+
+constexpr int g = 3;
+consteval std::meta::info fn() {
+    const int &r = g;
+    static_assert([:value_of(^r):] == 3);
+    return value_of(^r);
+}
+static_assert([:fn():] == 3);
 }  // namespace value_of_types
 
                              // ===================
@@ -269,6 +277,31 @@ static_assert(rvfirst == std::meta::reflect_value(std::make_pair(1, true)));
 static_assert([:rvfirst:].first == 1);
 }  // namespace values_from_objects
 
+                   // =======================================
+                   // bb_clang_p2996_issue_67_regression_test
+                   // =======================================
+
+namespace bb_clang_p2996_issue_67_regression_test {
+template<class T> struct TCls {};
+
+template <std::size_t Count, std::meta::info... Rs>
+struct Cls
+{
+    static void fn()
+    {
+        [] <auto... Idxs> (std::index_sequence<Idxs...>) consteval {
+            (void) (Rs...[Idxs], ...);
+        }(std::make_index_sequence<Count>());
+    }
+};
+
+void odr_use()
+{
+    Cls<1, std::meta::reflect_value(0)>::fn();
+}
+}  // namespace bb_clang_p2996_issue_67_regression_test
+
+
 int main() {
   // RUN: grep "call-lambda-value: 1" %t.stdout
   extract<void(*)(int)>(
@@ -281,7 +314,7 @@ int main() {
   extract<void(*)(int)>(std::meta::reflect_value(
         [](auto id) {
           std::println("call-generic-lambda-value: {} ({})", id,
-                       name_of<std::string_view>(type_of(^id)));
+                       name_of(type_of(^id)));
         }))(2);
 
   constexpr auto l = [](int id) {
@@ -290,7 +323,7 @@ int main() {
 
   constexpr auto g = [](auto id) {
     std::println("call-generic-lambda-var: {} ({})", id,
-                 name_of<std::string_view>(type_of(^id)));
+                 name_of(type_of(^id)));
   };
 
   // RUN: grep "call-lambda-var: 1" %t.stdout

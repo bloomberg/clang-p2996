@@ -21,6 +21,8 @@ constexpr info info_alias = ^alias;
 
 constexpr info info_infoint = ^decltype(^int);
 
+constexpr info abominable = ^void() const & noexcept;
+
 // Reflecting variables
 constexpr int i = 42;
 constexpr info info_i = ^i;

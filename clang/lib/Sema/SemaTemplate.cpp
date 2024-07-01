@@ -1950,7 +1950,7 @@ DeclResult Sema::CheckClassTemplate(
   // We may have found the injected-class-name of a class template,
   // class template partial specialization, or class template specialization.
   // In these cases, grab the template that is being defined or specialized.
-  if (!PrevClassTemplate && PrevDecl && isa<CXXRecordDecl>(PrevDecl) &&
+  if (!PrevClassTemplate && isa_and_nonnull<CXXRecordDecl>(PrevDecl) &&
       cast<CXXRecordDecl>(PrevDecl)->isInjectedClassName()) {
     PrevDecl = cast<CXXRecordDecl>(PrevDecl->getDeclContext());
     PrevClassTemplate
@@ -2527,6 +2527,9 @@ struct ConvertConstructorToDeductionGuideTransform {
       TSI = SemaRef.SubstType(TSI, OuterInstantiationArgs, Loc,
                               DeductionGuideName);
 
+    if (!TSI)
+      return nullptr;
+
     FunctionProtoTypeLoc FPTL =
         TSI->getTypeLoc().castAs<FunctionProtoTypeLoc>();
 
@@ -2537,6 +2540,9 @@ struct ConvertConstructorToDeductionGuideTransform {
       if (NestedPattern)
         TSI = SemaRef.SubstType(TSI, OuterInstantiationArgs, Loc,
                                 DeclarationName());
+      if (!TSI)
+        return nullptr;
+
       ParmVarDecl *NewParam =
           ParmVarDecl::Create(SemaRef.Context, DC, Loc, Loc, nullptr,
                               TSI->getType(), TSI, SC_None, nullptr);
@@ -3184,10 +3190,6 @@ BuildDeductionGuideForTypeAlias(Sema &SemaRef,
     Expr *RequiresClause = buildAssociatedConstraints(
         SemaRef, F, AliasTemplate, DeduceResults, IsDeducible);
 
-    // FIXME: implement the is_deducible constraint per C++
-    // [over.match.class.deduct]p3.3:
-    //    ... and a constraint that is satisfied if and only if the arguments
-    //    of A are deducible (see below) from the return type.
     auto *FPrimeTemplateParamList = TemplateParameterList::Create(
         Context, AliasTemplate->getTemplateParameters()->getTemplateLoc(),
         AliasTemplate->getTemplateParameters()->getLAngleLoc(),
@@ -8842,25 +8844,13 @@ static Expr *BuildExpressionFromIntegralTemplateArgumentValue(
 static ExprResult
 BuildExpressionFromReflection(Sema &S, const ReflectionValue &R,
                               SourceLocation Loc) {
-  switch (R.getKind()) {
-  case ReflectionValue::RK_null:
-    return CXXReflectExpr::Create(S.Context, Loc, Loc);
-  case ReflectionValue::RK_type:
-    return CXXReflectExpr::Create(S.Context, Loc, Loc, R.getAsType());
-  case ReflectionValue::RK_expr_result:
-    return CXXReflectExpr::Create(S.Context, Loc, R.getAsExprResult());
-  case ReflectionValue::RK_declaration:
-    return CXXReflectExpr::Create(S.Context, Loc, Loc, R.getAsDecl());
-  case ReflectionValue::RK_template:
-    return CXXReflectExpr::Create(S.Context, Loc, Loc, R.getAsTemplate());
-  case ReflectionValue::RK_namespace:
-    return CXXReflectExpr::Create(S.Context, Loc, Loc, R.getAsNamespace());
-  case ReflectionValue::RK_base_specifier:
-    return CXXReflectExpr::Create(S.Context, Loc, Loc, R.getAsBaseSpecifier());
-  case ReflectionValue::RK_data_member_spec:
-    return CXXReflectExpr::Create(S.Context, Loc, Loc, R.getAsDataMemberSpec());
-  }
-  llvm_unreachable("unknown reflection kind");
+  ConstantExpr *CE =
+      ConstantExpr::CreateEmpty(S.Context, ConstantResultStorageKind::APValue);
+  CE->setType(S.Context.MetaInfoTy);
+  CE->setValueKind(VK_PRValue);
+  CE->SetResult(APValue(R.getKind(), R.getOpaqueValue()), S.Context);
+
+  return CE;
 }
 
 /// Construct a new expression that refers to the given reflection template

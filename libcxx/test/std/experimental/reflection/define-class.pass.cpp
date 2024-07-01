@@ -85,8 +85,10 @@ static_assert(is_type(define_class(^C, {
               })));
 static_assert(!is_incomplete_type(^C));
 static_assert(nonstatic_data_members_of(^C).size() == 2);
-static_assert(members_of(^C, std::meta::is_nonstatic_data_member,
-                         std::meta::is_private).size() == 2);
+static_assert(
+        (members_of(^C) |
+            std::views::filter(std::meta::is_nonstatic_data_member) |
+            std::ranges::to<std::vector>()).size() == 2);
 
 C c;
 }  // namespace class_completion
@@ -105,8 +107,10 @@ static_assert(is_type(define_class(^U, {
 static_assert(!is_incomplete_type(^U));
 static_assert(size_of(^U) == size_of(^U::count));
 static_assert(nonstatic_data_members_of(^U).size() == 2);
-static_assert(members_of(^U, std::meta::is_nonstatic_data_member,
-                         std::meta::is_public).size() == 2);
+static_assert(
+        (members_of(^U) |
+            std::views::filter(std::meta::is_nonstatic_data_member) |
+            std::ranges::to<std::vector>()).size() == 2);
 
 U u = {13};
 }  // namespace union_completion
@@ -254,17 +258,17 @@ class Kühl { };
 
 class Cls1;
 static_assert(
-    is_type(define_class(^Cls1, {data_member_spec(^int,
-                                                  {.name=name_of(^Kühl)})})));
-static_assert(name_of(nonstatic_data_members_of(^Cls1)[0]) == u8"Kühl");
+    is_type(define_class(^Cls1,
+                         {data_member_spec(^int, {.name=u8name_of(^Kühl)})})));
+static_assert(u8name_of(nonstatic_data_members_of(^Cls1)[0]) == u8"Kühl");
 
 class Cls2;
 
-constexpr std::string_view sv = name_of<std::string_view>(^Kühl);
+constexpr std::string_view sv = name_of(^Kühl);
 static_assert(sv == "K\\u{00FC}hl");
 static_assert(is_type(define_class(^Cls2,
                                    {data_member_spec(^int, {.name=sv})})));
-static_assert(name_of(nonstatic_data_members_of(^Cls2)[0]) == u8"Kühl");
+static_assert(u8name_of(nonstatic_data_members_of(^Cls2)[0]) == u8"Kühl");
 
 }  // namespace utf8_name_of_roundtrip
 

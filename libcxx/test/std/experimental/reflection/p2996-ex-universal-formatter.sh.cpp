@@ -50,7 +50,7 @@ struct universal_formatter {
 
   template <typename T>
   auto format(T const& t, auto& ctx) const {
-    auto out = std::format_to(ctx.out(), "{}{{", name_of<std::string_view>(^T));
+    auto out = std::format_to(ctx.out(), "{}{{", name_of(^T));
 
     auto delim = [first=true, &out]() mutable {
       if (!first) {
@@ -68,8 +68,7 @@ struct universal_formatter {
 
     [: expand(nonstatic_data_members_of(^T)) :] >> [&]<auto mem>{
       delim();
-      out = std::format_to(out, ".{}={}", name_of<std::string_view>(mem),
-                           t.[:mem:]);
+      out = std::format_to(out, ".{}={}", name_of(mem), t.[:mem:]);
     };
 
     *out++ = '}';

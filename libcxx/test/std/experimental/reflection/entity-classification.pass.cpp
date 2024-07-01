@@ -15,14 +15,14 @@
 //
 // [reflection]
 
-
 #include <experimental/meta>
-
+#include <tuple>
 
 struct type {};
 using alias = type;
 
 int var;
+int &ref = var;
 void func();
 
 template <typename T> struct IncompleteTCls;
@@ -54,6 +54,7 @@ static_assert(!is_concept(null_reflection));
 static_assert(!is_base(null_reflection));
 static_assert(!is_value(null_reflection));
 static_assert(!is_object(null_reflection));
+static_assert(!is_user_provided(null_reflection));
 
 static_assert(!is_type(std::meta::reflect_value(3)));
 static_assert(!is_incomplete_type(std::meta::reflect_value(3)));
@@ -135,6 +136,22 @@ static_assert(!is_concept(^var));
 static_assert(!is_base(^var));
 static_assert(!is_value(^var));
 static_assert(is_object(^var));
+
+static_assert(!is_type(^ref));
+static_assert(!is_incomplete_type(^ref));
+static_assert(!is_alias(^ref));
+static_assert(!is_function(^ref));
+static_assert(is_variable(^ref));
+static_assert(!is_template(^ref));
+static_assert(!is_namespace(^ref));
+static_assert(!is_function_template(^ref));
+static_assert(!is_variable_template(^ref));
+static_assert(!is_class_template(^ref));
+static_assert(!is_alias_template(^ref));
+static_assert(!is_concept(^ref));
+static_assert(!is_base(^ref));
+static_assert(!is_value(^ref));
+static_assert(!is_object(^ref));
 
 static_assert(!is_type(^TCls));
 static_assert(!is_incomplete_type(^TCls));
@@ -446,6 +463,81 @@ static_assert(!is_base(^Base));
 static_assert(!is_type(bases_of(^Derived)[0]));
 static_assert(is_base(bases_of(^Derived)[0]));
 
+                               // =====================
+                               // test_is_structured_binding_and_related_edge_cases
+                               // =====================
+namespace test_is_structured_binding_and_related_edge_cases {
+static int struct_binding_case1[] = {1, 2, 3};
+auto [x1, y1, z1]                 = struct_binding_case1;
+static_assert(is_structured_binding(^x1));
+static_assert(is_structured_binding(^y1));
+static_assert(is_structured_binding(^z1));
+static_assert(!is_variable(^x1));
+static_assert(!is_variable(^y1));
+static_assert(!is_variable(^z1));
+static_assert(type_of(^x1) == ^int);
+static_assert(type_of(^y1) == ^int);
+static_assert(type_of(^z1) == ^int);
+
+auto struct_binding_case2() { return std::make_tuple(1, 2, 3); }
+auto [x2, y2, z2] = struct_binding_case2();
+static_assert(is_structured_binding(^x2));
+static_assert(is_structured_binding(^y2));
+static_assert(is_structured_binding(^z2));
+static_assert(!is_variable(^x2));
+static_assert(!is_variable(^y2));
+static_assert(!is_variable(^z2));
+// "wrapped" type of each element is 'std::tuple_element<I, std::tuple<int,int,int>>::type',
+// where I is index of tuple field
+static_assert(type_of(^x2) == ^int);
+static_assert(type_of(^y2) == ^int);
+static_assert(type_of(^z2) == ^int);
+
+struct StructBinding {
+  const int a;
+  int b;
+  volatile double c;
+};
+auto struct_binding_case3() { return StructBinding{1, 2, 3.14}; }
+auto [x3, y3, z3] = struct_binding_case3();
+static_assert(is_structured_binding(^x3));
+static_assert(is_structured_binding(^y3));
+static_assert(is_structured_binding(^z3));
+static_assert(!is_variable(^x3));
+static_assert(!is_variable(^y3));
+static_assert(!is_variable(^z3));
+static_assert(type_of(^x3) == ^const int);
+static_assert(type_of(^y3) == ^int);
+static_assert(type_of(^z3) == ^volatile double);
+
+constexpr auto p = std::pair{1, 2};
+auto& [x4, y4] = p;
+static_assert(is_structured_binding(^x4));
+static_assert(is_structured_binding(^y4));
+static_assert(!is_variable(^x4));
+static_assert(!is_variable(^y4));
+static_assert(type_of(^x4) == ^const int);
+static_assert(type_of(^y4) == ^const int);
+static_assert(extract<int>(^x4) == x4);
+static_assert(extract<int&>(^x4) == x4);
+static_assert(&extract<int&>(^x4) == &x4);
+static_assert(extract<int>(^y4) == y4);
+static_assert(extract<int&>(^y4) == y4);
+static_assert(&extract<int&>(^y4) == &y4);
+
+int a = 1, b = 2;
+const auto& [x5, y5] = std::tie(a, b); // x5 and y5 are of type int&
+static_assert(is_structured_binding(^x5));
+static_assert(is_structured_binding(^y5));
+static_assert(!is_variable(^x5));
+static_assert(!is_variable(^y5));
+static_assert(type_of(^x5) == ^int&);
+static_assert(type_of(^y5) == ^int&);
+
+static_assert(!is_structured_binding(^var));
+static_assert(!is_structured_binding(std::meta::reflect_value(3)));
+} // namespace test_is_structured_binding_and_related_edge_cases
+
                             // =====================
                             // test_is_user_provided
                             // =====================
@@ -456,9 +548,19 @@ struct S2 { S2() = default; };
 struct S3 { S3(); };
 S3::S3() {}
 
-static_assert(!is_user_provided(members_of(^S1, std::meta::is_constructor)[0]));
-static_assert(!is_user_provided(members_of(^S2, std::meta::is_constructor)[0]));
-static_assert(is_user_provided(members_of(^S3, std::meta::is_constructor)[0]));
+static_assert(
+    (members_of(^S1) | std::views::filter(std::meta::is_constructor) |
+                       std::views::filter(std::meta::is_user_provided) |
+                       std::ranges::to<std::vector>()).size() == 0);
+static_assert(
+    (members_of(^S2) | std::views::filter(std::meta::is_constructor) |
+                       std::views::filter(std::meta::is_user_provided) |
+                       std::ranges::to<std::vector>()).size() == 0);
+static_assert(
+    (members_of(^S3) | std::views::filter(std::meta::is_constructor) |
+                       std::views::filter(std::meta::is_user_provided) |
+                       std::ranges::to<std::vector>()).size() == 1);
+
 
 }  // namespace test_is_user_provided
 

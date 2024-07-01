@@ -5481,7 +5481,8 @@ TypeSourceInfo *Sema::ReplaceAutoTypeSourceInfo(TypeSourceInfo *TypeWithAuto,
       .TransformType(TypeWithAuto);
 }
 
-void Sema::DiagnoseAutoDeductionFailure(VarDecl *VDecl, Expr *Init) {
+void Sema::DiagnoseAutoDeductionFailure(const VarDecl *VDecl,
+                                        const Expr *Init) {
   // If we're deducing to infer the type of the operand of a reflect expression,
   // elide the diagnostic to allow a more relevant error further up the stack.
   if (isReflectionContext())

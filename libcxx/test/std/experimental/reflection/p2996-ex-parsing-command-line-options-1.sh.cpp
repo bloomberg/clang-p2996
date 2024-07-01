@@ -58,8 +58,7 @@ auto parse_options(std::span<std::string_view const> args) -> Opts {
   [: expand(nonstatic_data_members_of(^Opts)) :] >> [&]<auto dm>{
     auto it = std::find_if(args.begin(), args.end(),
       [](std::string_view arg){
-        return arg.starts_with("--") &&
-               arg.substr(2) == name_of<std::string_view>(dm);
+        return arg.starts_with("--") && arg.substr(2) == name_of(dm);
       });
 
     if (it == args.end()) {
@@ -75,7 +74,7 @@ auto parse_options(std::span<std::string_view const> args) -> Opts {
     iss << it[1];
     if (iss >> opts.[:dm:]; !iss) {
       std::cerr << "Failed to parse option " << *it << " into a "
-                << name_of<std::string_view>(^T) << '\n';
+                << name_of(^T) << '\n';
       std::exit(EXIT_FAILURE);
     }
   };

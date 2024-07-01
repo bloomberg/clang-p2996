@@ -57,8 +57,14 @@ consteval std::meta::info enrich(std::meta::info r) {
   // Because we control the type, we know that the constructor taking info is
   // the first constructor. The copy/move constructors are added at the }, so
   // will be the last ones in the list.
-  std::array ctors = {members_of(^Choices, std::meta::is_constructor)[0]...,
-                      members_of(^unmatched, std::meta::is_constructor)[0]};
+  std::array ctors = {
+      (members_of(^Choices) |
+           std::views::filter(std::meta::is_constructor) |
+           std::views::filter(std::meta::is_user_provided)).front()...,
+      (members_of(^unmatched) |
+           std::views::filter(std::meta::is_constructor) |
+           std::views::filter(std::meta::is_user_provided)).front()
+  };
   std::array checks = {^Choices::check..., ^unmatched::check};
 
   for (auto [check, ctor] : std::views::zip(checks, ctors))

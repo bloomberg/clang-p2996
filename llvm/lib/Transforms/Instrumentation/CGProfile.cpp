@@ -14,6 +14,7 @@
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/MDBuilder.h"
+#include "llvm/IR/Module.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/ProfileData/InstrProf.h"
 #include "llvm/Transforms/Instrumentation.h"
@@ -78,14 +79,14 @@ static bool runCGProfilePass(Module &M, FunctionAnalysisManager &FAM,
         if (!CB)
           continue;
         if (CB->isIndirectCall()) {
-          InstrProfValueData ValueData[8];
           uint32_t ActualNumValueData;
           uint64_t TotalC;
-          if (!getValueProfDataFromInst(*CB, IPVK_IndirectCallTarget, 8,
-                                        ValueData, ActualNumValueData, TotalC))
+          auto ValueData = getValueProfDataFromInst(
+              *CB, IPVK_IndirectCallTarget, 8, ActualNumValueData, TotalC);
+          if (!ValueData)
             continue;
-          for (const auto &VD :
-               ArrayRef<InstrProfValueData>(ValueData, ActualNumValueData)) {
+          for (const auto &VD : ArrayRef<InstrProfValueData>(
+                   ValueData.get(), ActualNumValueData)) {
             UpdateCounts(TTI, &F, Symtab.getFunction(VD.Value), VD.Count);
           }
           continue;

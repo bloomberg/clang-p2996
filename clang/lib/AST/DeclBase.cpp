@@ -82,7 +82,7 @@ void *Decl::operator new(std::size_t Size, const ASTContext &Context,
 
   uint64_t *PrefixPtr = (uint64_t *)Result - 1;
 
-  *PrefixPtr = ID.get();
+  *PrefixPtr = ID.getRawValue();
 
   // We leave the upper 16 bits to store the module IDs. 48 bits should be
   // sufficient to store a declaration ID.
@@ -693,7 +693,7 @@ static AvailabilityResult CheckAvailability(ASTContext &Context,
     IdentifierInfo *IIEnv = A->getEnvironment();
     StringRef TargetEnv =
         Context.getTargetInfo().getTriple().getEnvironmentName();
-    StringRef EnvName = AvailabilityAttr::getPrettyEnviromentName(
+    StringRef EnvName = llvm::Triple::getEnvironmentTypeName(
         Context.getTargetInfo().getTriple().getEnvironment());
     // Matching environment or no environment on attribute
     if (!IIEnv || (!TargetEnv.empty() && IIEnv->getName() == TargetEnv)) {
@@ -1119,7 +1119,7 @@ bool Decl::isInExportDeclContext() const {
   while (DC && !isa<ExportDecl>(DC))
     DC = DC->getLexicalParent();
 
-  return DC && isa<ExportDecl>(DC);
+  return isa_and_nonnull<ExportDecl>(DC);
 }
 
 bool Decl::isInAnotherModuleUnit() const {
@@ -1129,6 +1129,15 @@ bool Decl::isInAnotherModuleUnit() const {
     return false;
 
   return M != getASTContext().getCurrentNamedModule();
+}
+
+bool Decl::isInCurrentModuleUnit() const {
+  auto *M = getOwningModule();
+
+  if (!M || !M->isNamedModule())
+    return false;
+
+  return M == getASTContext().getCurrentNamedModule();
 }
 
 bool Decl::shouldEmitInExternalSource() const {

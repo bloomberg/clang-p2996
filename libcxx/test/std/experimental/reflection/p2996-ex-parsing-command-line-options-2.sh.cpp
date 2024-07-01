@@ -113,9 +113,9 @@ struct Clap {
       auto it = std::find_if(cmdline.begin(), cmdline.end(),
           [&](std::string_view arg){
             return (cur.use_short && arg.size() == 2 && arg[0] == '-' &&
-                   arg[1] == name_of<std::string_view>(sm)[0])
+                   arg[1] == name_of(sm)[0])
                 || (cur.use_long && arg.starts_with("--") &&
-                    arg.substr(2) == name_of<std::string_view>(sm));
+                    arg.substr(2) == name_of(sm));
           });
 
       if (it == cmdline.end()) {
@@ -133,13 +133,12 @@ struct Clap {
           opts.[:om:] = *cur.initializer;
           return;
         } else {
-          std::cerr << "Missing required option "
-                    << name_of<std::string_view>(sm) << '\n';
+          std::cerr << "Missing required option " << name_of(sm) << '\n';
           std::exit(EXIT_FAILURE);
         }
       } else if (it + 1 == cmdline.end()) {
-        std::cout << "Option " << *it << " for "
-                  << name_of<std::string_view>(sm) << " is missing a value\n";
+        std::cout << "Option " << *it << " for " << name_of(sm)
+                  << " is missing a value\n";
         std::exit(EXIT_FAILURE);
       }
 
@@ -148,8 +147,7 @@ struct Clap {
       iss << it[1];
       if (iss >> opts.[:om:]; !iss) {
         std::cerr << "Failed to parse " << it[1] << " into option "
-                  << name_of<std::string_view>(sm) << " of type "
-                  << name_of<std::string_view>(type_of(om)) << '\n';
+                  << name_of(sm) << " of type " << name_of(type_of(om)) << '\n';
         std::exit(EXIT_FAILURE);
       }
     };

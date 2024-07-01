@@ -80,6 +80,10 @@ namespace linkage {
 int global;
 static int s_global;
 
+namespace { struct internal_linkage_type; }
+struct external_linkage_type;
+using Alias = external_linkage_type;
+
 std::pair<int, int> p1;
 static std::pair<int, int> p2;
 
@@ -94,6 +98,21 @@ static_assert(has_linkage(^s_global));
 static_assert(has_internal_linkage(^s_global));
 static_assert(!has_module_linkage(^s_global));
 static_assert(!has_external_linkage(^s_global));
+
+static_assert(has_linkage(^internal_linkage_type));
+static_assert(has_internal_linkage(^internal_linkage_type));
+static_assert(!has_module_linkage(^internal_linkage_type));
+static_assert(!has_external_linkage(^internal_linkage_type));
+
+static_assert(has_linkage(^external_linkage_type));
+static_assert(!has_internal_linkage(^external_linkage_type));
+static_assert(!has_module_linkage(^external_linkage_type));
+static_assert(has_external_linkage(^external_linkage_type));
+
+static_assert(has_linkage(^Alias));
+static_assert(!has_internal_linkage(^Alias));
+static_assert(!has_module_linkage(^Alias));
+static_assert(has_external_linkage(^Alias));
 
 static_assert(has_linkage(^fn));
 static_assert(!has_internal_linkage(^fn));
@@ -156,6 +175,7 @@ export module test_module;
 namespace linkage {
 int module_global;
 void module_fn();
+struct module_linkage_type;
 
 static_assert(has_linkage(^module_global));
 static_assert(!has_internal_linkage(^module_global));
@@ -166,6 +186,12 @@ static_assert(has_linkage(^module_fn));
 static_assert(!has_internal_linkage(^module_fn));
 static_assert(has_module_linkage(^module_fn));
 static_assert(!has_external_linkage(^module_fn));
+
+static_assert(has_linkage(^module_linkage_type));
+static_assert(!has_internal_linkage(^module_linkage_type));
+static_assert(has_module_linkage(^module_linkage_type));
+static_assert(!has_external_linkage(^module_linkage_type));
+
 }  // namespace linkage
 
 int main() {}

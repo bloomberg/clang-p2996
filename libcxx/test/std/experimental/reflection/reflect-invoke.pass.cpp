@@ -173,8 +173,12 @@ struct Cls {
 };
 
 constexpr auto ctor = [] (size_t idx) {
-  return members_of(^Cls, std::meta::is_constructor,
-                    [](auto R) { return !is_defaulted(R); })[idx];
+  return (members_of(^Cls) |
+      std::views::filter(std::meta::is_constructor) |
+      std::views::filter([](auto R) {
+        return !is_defaulted(R);
+      }) |
+      std::ranges::to<std::vector>())[idx];
 };
 
 // Non-template constructor.
@@ -204,7 +208,7 @@ constexpr auto r = reflect_invoke(^fn, {});
 static_assert(is_object(r) && !is_value(r));
 static_assert(type_of(r) == ^const int);
 static_assert(is_variable(r));
-static_assert(name_of(r) == u8"K");
+static_assert(name_of(r) == "K");
 static_assert(r != std::meta::reflect_value(0));
 
 constexpr auto v = value_of(r);
@@ -212,6 +216,13 @@ static_assert(is_value(v) && !is_object(v));
 static_assert(type_of(v) == ^int);
 static_assert(!is_variable(v));
 static_assert(v == std::meta::reflect_value(0));
+
+consteval int &second(std::pair<int, int> &p) {
+  return p.second;
+}
+
+std::pair<int, int> p;
+static_assert(&[:reflect_invoke(^second, {^p}):] == &p.second);
 
 }  // namespace returning_references
 

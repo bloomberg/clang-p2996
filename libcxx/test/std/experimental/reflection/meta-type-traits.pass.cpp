@@ -133,35 +133,66 @@ static_assert(type_is_nothrow_invocable(type_of(^fn), {^bool, ^char}));
 static_assert(type_is_nothrow_invocable_r(^int, type_of(^fn), {^bool, ^char}));
 
 static_assert(type_remove_const(^const int) == ^int);
+static_assert(name_of(type_remove_const(^const int)) == name_of(^int));
 static_assert(type_remove_volatile(^volatile int) == ^int);
+static_assert(name_of(type_remove_volatile(^volatile int)) == name_of(^int));
 static_assert(type_remove_cv(^const volatile int) == ^int);
+static_assert(name_of(type_remove_cv(^const volatile int)) == name_of(^int));
 static_assert(type_add_const(^int) == ^const int);
+static_assert(name_of(type_add_const(^int)) == name_of(^const int));
 static_assert(type_add_volatile(^int) == ^volatile int);
+static_assert(name_of(type_add_volatile(^int)) == name_of(^volatile int));
 static_assert(type_add_cv(^int) == ^const volatile int);
+static_assert(name_of(type_add_cv(^int)) == name_of(^const volatile int));
 
 static_assert(type_remove_reference(^int&&) == ^int);
+static_assert(name_of(type_remove_reference(^int&&)) == name_of(^int));
 static_assert(type_add_lvalue_reference(^int) == ^int&);
+static_assert(name_of(type_add_lvalue_reference(^int)) == name_of(^int&));
 static_assert(type_add_rvalue_reference(^int) == ^int&&);
+static_assert(name_of(type_add_rvalue_reference(^int)) == name_of(^int&&));
 
 static_assert(type_make_signed(^unsigned) == ^int);
+static_assert(name_of(type_make_signed(^unsigned)) == name_of(^int));
 static_assert(type_make_unsigned(^int) == ^unsigned);
+static_assert(name_of(type_make_unsigned(^int)) == name_of(^unsigned));
 
 static_assert(type_remove_extent(^int[2][3]) == ^int[3]);
+static_assert(name_of(type_remove_extent(^int[2][3])) == name_of(^int[3]));
 static_assert(type_remove_all_extents(^int[2][3]) == ^int);
+static_assert(name_of(type_remove_all_extents(^int[2][3])) == name_of(^int));
 
 static_assert(type_remove_pointer(^int **) == ^int *);
+static_assert(name_of(type_remove_pointer(^int **)) == name_of(^int *));
 static_assert(type_add_pointer(^int *) == ^int **);
+static_assert(name_of(type_add_pointer(^int *)) == name_of(^int **));
 
 static_assert(type_remove_cvref(^const volatile int &&) == ^int);
+static_assert(name_of(type_remove_cvref(^const volatile int &&)) ==
+              name_of(^int));
 static_assert(type_decay(^int[]) == ^int *);
+static_assert(name_of(type_decay(^int[])) == name_of(^int *));
 static_assert(std::meta::type_common_type({^int, ^short, ^bool}) == ^int);
+static_assert(name_of(std::meta::type_common_type({^int, ^short, ^bool})) ==
+              name_of(^int));
 static_assert(std::meta::type_common_reference({^int &,
                                                 ^const int &}) == ^const int &);
+static_assert(name_of(std::meta::type_common_reference({^int &,
+                                                        ^const int &})) ==
+              name_of(^const int &));
 static_assert(type_underlying_type(^E) == ^short);
+static_assert(name_of(type_underlying_type(^E)) == name_of(^short));
 static_assert(type_invoke_result(type_of(^fn), {^bool, ^char}) == ^int);
+static_assert(name_of(type_invoke_result(type_of(^fn), {^bool, ^char})) ==
+              name_of(^int));
 static_assert(type_unwrap_reference(^std::reference_wrapper<int>) == ^int &);
+static_assert(name_of(type_unwrap_reference(^std::reference_wrapper<int>)) ==
+              name_of(^int &));
 static_assert(type_unwrap_ref_decay(^std::reference_wrapper<const int>) ==
                                     ^const int &);
+static_assert(
+    name_of(type_unwrap_ref_decay(^std::reference_wrapper<const int>)) ==
+    name_of(^const int &));
 
 
 int main() { }

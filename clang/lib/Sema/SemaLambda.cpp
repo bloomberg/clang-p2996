@@ -2392,7 +2392,7 @@ Sema::LambdaScopeForCallOperatorInstantiationRAII::
       Pattern =
           dyn_cast<FunctionDecl>(getLambdaAwareParentOfDeclContext(Pattern));
 
-      if (!FD || !Pattern)
+      if (!ParentFD || !Pattern)
         break;
 
       SemaRef.addInstantiatedParametersToScope(ParentFD, Pattern, Scope, MLTAL);

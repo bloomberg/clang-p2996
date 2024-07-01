@@ -20,7 +20,7 @@
 
 struct S { unsigned i:2, j:6; };
 
-consteval auto member_named(std::u8string_view name) {
+consteval auto member_named(std::string_view name) {
   for (std::meta::info field : nonstatic_data_members_of(^S)) {
     if (name_of(field) == name) return field;
   }
@@ -29,5 +29,5 @@ consteval auto member_named(std::u8string_view name) {
 
 int main() {
   S s{0, 0};
-  s.[:member_named(u8"j"):] = 42;  // Same as: s.j = 42;
+  s.[:member_named("j"):] = 42;  // Same as: s.j = 42;
 }

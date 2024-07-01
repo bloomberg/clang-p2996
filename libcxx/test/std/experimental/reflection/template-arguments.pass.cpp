@@ -196,7 +196,7 @@ namespace properties_of_non_types {
 template <int P> void fn_int_value() {
   static_assert(is_value(^P));
   static_assert(type_of(^P) == ^int);
-  static_assert(name_of(^P) == u8"");
+  static_assert(name_of(^P) == "");
   static_assert([:^P:] == 1);
 }
 
@@ -204,7 +204,7 @@ template <const int &P> void fn_int_ref() {
   static_assert(is_object(^P));
   static_assert(is_variable(^P));
   static_assert(type_of(^P) == ^const int);
-  static_assert(name_of(^P) == u8"k");
+  static_assert(name_of(^P) == "k");
   static_assert([:^P:] == 2);
 }
 
@@ -212,7 +212,7 @@ template <const int &P> void fn_int_subobject_ref() {
   static_assert(is_object(^P));
   static_assert(!is_variable(^P));
   static_assert(type_of(^P) == ^const int);
-  static_assert(name_of(^P) == u8"");
+  static_assert(name_of(^P) == "");
   static_assert([:^P:] == 3);
 }
 
@@ -222,7 +222,7 @@ template <S P> void fn_cls_value() {
   static_assert(is_object(^P));
   static_assert(!is_variable(^P));  // template-parameter-object
   static_assert(type_of(^P) == ^const S);
-  static_assert(name_of(^P) == u8"");
+  static_assert(name_of(^P) == "");
   static_assert([:^P:].m == 5);
 }
 
@@ -230,20 +230,20 @@ template <S &P> void fn_cls_ref() {
   static_assert(is_object(^P));
   static_assert(is_variable(^P));
   static_assert(type_of(^P) == ^S);
-  static_assert(name_of(^P) == u8"s");
+  static_assert(name_of(^P) == "s");
 }
 
 template <void(&P)()> void fn_fn_ref_param() {
   static_assert(is_function(^P));
   static_assert(type_of(^P) == ^void());
-  static_assert(name_of(^P) == u8"instantiations");
+  static_assert(name_of(^P) == "instantiations");
 }
 
 template <void(*P)()> void fn_fn_ptr_param() {
   static_assert(is_value(^P));
   static_assert(!is_function(^P));
   static_assert(type_of(^P) == ^void(*)());
-  static_assert(name_of(^P) == u8"");
+  static_assert(name_of(^P) == "");
 }
 
 void instantiations() {
@@ -302,8 +302,10 @@ template <auto R> void fn() { }
 
 void fn() {
     class S { S(); ~S(); };
-    fn<members_of(^S, std::meta::is_constructor)[0]>();
-    fn<members_of(^S, std::meta::is_destructor)[0]>();
+    fn<(members_of(^S) |
+            std::views::filter(std::meta::is_constructor)).front()>();
+    fn<(members_of(^S) |
+            std::views::filter(std::meta::is_destructor)).front()>();
 }
 }  // namespace bb_clang_p2996_issue_54_regression_test
 

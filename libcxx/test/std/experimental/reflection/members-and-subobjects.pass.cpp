@@ -30,8 +30,11 @@
 namespace class_members {
 struct Empty {};
 static_assert(members_of(^Empty).size() == 6);
-static_assert(members_of(^Empty, std::meta::is_defaulted).size() == 6);
-static_assert(members_of(^Empty, std::meta::is_special_member).size() == 6);
+static_assert(
+    (members_of(^Empty) |
+        std::views::filter(std::meta::is_defaulted) |
+        std::views::filter(std::meta::is_special_member) |
+        std::ranges::to<std::vector>()).size() == 6);
 
 struct NotAMember {};
 struct Cls : NotAMember {
@@ -60,20 +63,39 @@ static_assert(members_of(^Cls).size() == 13);
 static_assert(nonstatic_data_members_of(^Cls) ==
               std::vector{^Cls::mem1, ^Cls::mem2});
 static_assert(static_data_members_of(^Cls) == std::vector{^Cls::smem});
-static_assert(members_of(^Cls, std::meta::is_constructor).size() == 2);
-static_assert(members_of(^Cls, std::meta::is_destructor).size() == 1);
-static_assert(members_of(^Cls, std::meta::is_type) == std::vector{^Cls::Inner,
-                                                                  ^Cls::Alias});
-static_assert(members_of(^Cls, std::meta::is_template) ==
-              std::vector{^Cls::TMemFn});
-static_assert(members_of(^Cls, std::meta::is_function,
-                         std::meta::is_static_member) ==
-              std::vector{^Cls::sfn});
-static_assert(members_of(^Cls, std::meta::is_function,
-                         [](auto R) { return !is_static_member(R) &&
-                                             !is_special_member(R); }) ==
-              std::vector{^Cls::memfn1, ^Cls::memfn2});
-static_assert(members_of(^Cls, std::meta::is_alias)[0] == ^Cls::Alias);
+static_assert(
+    (members_of(^Cls) |
+         std::views::filter(std::meta::is_constructor) |
+         std::ranges::to<std::vector>()).size() == 2);
+static_assert(
+    (members_of(^Cls) |
+         std::views::filter(std::meta::is_destructor) |
+         std::ranges::to<std::vector>()).size() == 1);
+static_assert(
+    (members_of(^Cls) | std::views::filter(std::meta::is_type) |
+                        std::ranges::to<std::vector>()) ==
+    std::vector{^Cls::Inner, ^Cls::Alias});
+static_assert(
+    (members_of(^Cls) | std::views::filter(std::meta::is_template) |
+                        std::ranges::to<std::vector>()) ==
+    std::vector{^Cls::TMemFn});
+static_assert(
+    (members_of(^Cls) | std::views::filter(std::meta::is_function) |
+                        std::views::filter(std::meta::is_static_member) |
+                        std::ranges::to<std::vector>()) ==
+    std::vector{^Cls::sfn});
+static_assert(
+    (members_of(^Cls) | std::views::filter(std::meta::is_function) |
+                        std::views::filter([](auto R) {
+                          return !is_static_member(R) &&
+                                 !is_special_member(R);
+                        }) |
+                        std::ranges::to<std::vector>()) ==
+    std::vector{^Cls::memfn1, ^Cls::memfn2});
+static_assert(
+    (members_of(^Cls) | std::views::filter(std::meta::is_alias) |
+                        std::ranges::to<std::vector>()) ==
+    std::vector{^Cls::Alias});
 
 template <typename T>
 struct TCls {
@@ -96,15 +118,17 @@ void usage_example() {
   // RUN: grep "obj=<20, 1.4>" %t.stdout
   std::println(R"(obj=<{}, {}>)", obj.memfn1(), obj.memfn2());
 
-  constexpr auto getSz = []() consteval {
-    return members_of(^Cls, std::meta::is_type).size();
-  };
+  static_assert((members_of(^Cls) |
+                     std::views::filter(std::meta::is_type) |
+                     std::ranges::to<std::vector>()).size() == 2);
 
-  static_assert(2 == getSz());
-  static_assert(^Cls::Inner == members_of(^Cls, std::meta::is_type)[0]);
+  static_assert((members_of(^Cls) |
+                     std::views::filter(std::meta::is_type)).front() ==
+                ^Cls::Inner);
 
   constexpr auto getInnerObj = []() consteval {
-    constexpr auto inner = members_of(^Cls, std::meta::is_type)[0];
+    constexpr auto inner =
+        (members_of(^Cls) | std::views::filter(std::meta::is_type)).front();
     constexpr auto innerFirst = nonstatic_data_members_of(inner)[0];
 
     Cls::Inner ic {};
@@ -145,10 +169,13 @@ static_assert(members_of(^myns) ==
               std::vector{^myns::var, ^myns::fn, ^myns::Cls, ^myns::Alias,
                           ^myns::TCls, ^myns::TFn, ^myns::TVar, ^myns::TAlias,
                           ^myns::Concept});
-static_assert(members_of(^myns, std::meta::is_template) ==
+static_assert((members_of(^myns) | std::views::filter(std::meta::is_template) |
+                                   std::ranges::to<std::vector>()) ==
               std::vector{^myns::TCls, ^myns::TFn, ^myns::TVar, ^myns::TAlias,
                           ^myns::Concept});
-static_assert(members_of(^myns, std::meta::is_template, std::meta::is_alias) ==
+static_assert((members_of(^myns) | std::views::filter(std::meta::is_template) |
+                                   std::views::filter(std::meta::is_alias) |
+                                   std::ranges::to<std::vector>()) ==
               std::vector{^myns::TAlias});
 }  // namespace_members
 
@@ -166,9 +193,9 @@ public:
   int mem2 = 0;
 };
 
-static_assert(name_of(members_of(^Cls)[0]) == u8"mem1");
-static_assert(name_of(members_of(^Cls)[1]) == u8"memfn");
-static_assert(name_of(members_of(^Cls)[2]) == u8"mem2");
+static_assert(name_of(members_of(^Cls)[0]) == "mem1");
+static_assert(name_of(members_of(^Cls)[1]) == "memfn");
+static_assert(name_of(members_of(^Cls)[2]) == "mem2");
 
 // Ensure these can be spliced.
 constexpr Cls obj;
