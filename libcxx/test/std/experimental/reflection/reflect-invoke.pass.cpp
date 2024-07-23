@@ -62,8 +62,6 @@ static_assert([:reflect_invoke(^Cls::fn, {std::meta::reflect_value(4)}):] == 16)
 // With reflection of constexpr variable as an argument.
 static constexpr int five = 5;
 static_assert([:reflect_invoke(^fn1, {^five}):] == 47);
-
-// TODO(P2996): Support nonstatic member functions.
 }  // namespace basic_functions
 
                               // =================
@@ -240,5 +238,46 @@ static_assert(
                          }) |
                          std::views::transform(std::meta::reflect_value<int>)));
 }  // namespace with_non_contiguous_ranges
+
+namespace non_static_member_functions {
+
+class Number {
+public:
+  constexpr Number(int v) : value(v) {}
+
+  consteval int plus(int a) const { return plus_impl(a); }
+
+  consteval int get_value() const { return value; }
+
+  template <typename T>
+  consteval T multiply(T x) const {
+    return value * x;
+  }
+
+private:
+  consteval int plus_impl(int a) const {
+    return value + a;
+  }
+
+  const int value;
+};
+
+constexpr Number num{42};
+constexpr auto num_ref = &num;
+
+static_assert(std::meta::reflect_value(84) ==
+              reflect_invoke(^Number::plus,
+                             {^num, std::meta::reflect_value(42)}));
+static_assert(std::meta::reflect_value(42) ==
+              reflect_invoke(^Number::get_value, {^num}));
+
+static_assert(std::meta::reflect_value(42) ==
+              reflect_invoke(^Number::get_value, {^num_ref}));
+
+/* TODO: fix failing test
+static_assert(std::meta::reflect_value(84) ==
+              reflect_invoke(^Number::multiply, {^int},
+                             {^num, std::meta::reflect_value(2)}));*/
+} // namespace non_static_member_functions
 
 int main() { }
