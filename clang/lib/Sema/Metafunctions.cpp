@@ -4595,71 +4595,72 @@ bool reflect_invoke(APValue &Result, Sema &S, EvalFn Evaluator,
   ExprResult ER;
   {
     EnterExpressionEvaluationContext Context(
-            S, Sema::ExpressionEvaluationContext::ConstantEvaluated);
-  
-  auto *DRE = dyn_cast<DeclRefExpr>(FnRefExpr);
-  if (DRE && dyn_cast<CXXConstructorDecl>(DRE->getDecl())) {
-    auto *CtorD = cast<CXXConstructorDecl>(DRE->getDecl());
-    ER = S.BuildCXXConstructExpr(
+        S, Sema::ExpressionEvaluationContext::ConstantEvaluated);
+
+    auto *DRE = dyn_cast<DeclRefExpr>(FnRefExpr);
+    if (DRE && dyn_cast<CXXConstructorDecl>(DRE->getDecl())) {
+      auto *CtorD = cast<CXXConstructorDecl>(DRE->getDecl());
+      ER = S.BuildCXXConstructExpr(
           Range.getBegin(), QualType(CtorD->getParent()->getTypeForDecl(), 0),
           CtorD, false, ArgExprs, false, false, false, false,
           CXXConstructionKind::Complete, Range);
-  } else if (DRE && dyn_cast<CXXMethodDecl>(DRE->getDecl())) {
-    auto *MD = cast<CXXMethodDecl>(DRE->getDecl());
-    if (MD->isStatic()) {
+    } else if (DRE && dyn_cast<CXXMethodDecl>(DRE->getDecl())) {
+      auto *MD = cast<CXXMethodDecl>(DRE->getDecl());
+      if (MD->isStatic()) {
+        ER = S.ActOnCallExpr(S.getCurScope(), FnRefExpr, Range.getBegin(),
+                             ArgExprs, Range.getEnd(), /*ExecConfig=*/nullptr);
+      } else {
+        // todo: add diagnostic notes
+        if (ArgExprs.size() < 1) {
+          // need to have object as a first argument
+          return true;
+        }
+
+        auto ObjExpr = ArgExprs[0];
+        auto ObjType = ObjExpr->getType();
+
+        if (ObjType->isPointerType()) {
+          ObjType = ObjType->getPointeeType();
+        }
+
+        if (!ObjType->getAsCXXRecordDecl()) {
+          // first argument is not an object
+          return true;
+        }
+
+        // todo: add check if method belongs to class
+
+        SourceLocation ObjLoc = ObjExpr->getExprLoc();
+        UnqualifiedId Name;
+        Name.setIdentifier(MD->getIdentifier(), ObjLoc);
+
+        CXXScopeSpec SS;
+        // Use an empty SourceLocation for TemplateKWLoc if no template
+        // arguments
+        SourceLocation TemplateKWLoc;
+        // todo: improve for template member functions if needed
+
+        ExprResult MemberAccessResult = S.ActOnMemberAccessExpr(
+            S.getCurScope(), S.MakeFullExpr(ObjExpr).get(), ObjLoc,
+            ObjExpr->getType()->isPointerType() ? tok::arrow : tok::period, SS,
+            TemplateKWLoc, Name, nullptr);
+
+        if (MemberAccessResult.isInvalid()) {
+          return true;
+        }
+
+        // exclude first argument because it's an object
+        SmallVector<Expr *, 4> MethodArgExprs(ArgExprs.begin() + 1,
+                                              ArgExprs.end());
+        ER = S.ActOnCallExpr(S.getCurScope(), MemberAccessResult.get(),
+                             Range.getBegin(), MethodArgExprs, Range.getEnd(),
+                             /*ExecConfig=*/nullptr);
+      }
+    } else {
       ER = S.ActOnCallExpr(S.getCurScope(), FnRefExpr, Range.getBegin(),
                            ArgExprs, Range.getEnd(), /*ExecConfig=*/nullptr);
-    } else {
-      // todo: add diagnostic notes
-      if (ArgExprs.size() < 1) {
-        // need to have object as a first argument
-        return true;
-      }
-
-      auto ObjExpr = ArgExprs[0];
-      auto ObjType = ObjExpr->getType();
-
-      if (ObjType->isPointerType()) {
-        ObjType = ObjType->getPointeeType();
-      }
-
-      if (!ObjType->getAsCXXRecordDecl()) {
-        // first argument is not an object
-        return true;
-      }
-
-      // todo: add check if method belongs to class
-
-      SourceLocation ObjLoc = ObjExpr->getExprLoc();
-      UnqualifiedId Name;
-      Name.setIdentifier(MD->getIdentifier(), ObjLoc);
-
-      CXXScopeSpec SS;
-      // Use an empty SourceLocation for TemplateKWLoc if no template arguments
-      SourceLocation TemplateKWLoc;
-      // todo: improve for template member functions if needed
-
-      ExprResult MemberAccessResult = S.ActOnMemberAccessExpr(
-          S.getCurScope(), S.MakeFullExpr(ObjExpr).get(), ObjLoc,
-          ObjExpr->getType()->isPointerType() ? tok::arrow : tok::period, SS,
-          TemplateKWLoc, Name, nullptr);
-
-      if (MemberAccessResult.isInvalid()) {
-        return true;
-      }
-
-      // exclude first argument because it's an object
-      SmallVector<Expr *, 4> MethodArgExprs(ArgExprs.begin() + 1,
-                                            ArgExprs.end());
-      ER = S.ActOnCallExpr(S.getCurScope(), MemberAccessResult.get(),
-                           Range.getBegin(), MethodArgExprs, Range.getEnd(),
-                           /*ExecConfig=*/nullptr);
     }
-  } else {
-    ER = S.ActOnCallExpr(S.getCurScope(), FnRefExpr, Range.getBegin(), ArgExprs,
-                         Range.getEnd(), /*ExecConfig=*/nullptr);
   }
- }
 
   if (ER.isInvalid())
     return Diagnoser(Range.getBegin(), diag::metafn_invalid_call_expr) << Range;
