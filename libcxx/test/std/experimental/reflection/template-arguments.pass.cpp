@@ -191,7 +191,8 @@ static_assert([:template_arguments_of(^WithRef<I>)[0]:] == I);
 static_assert(!has_template_arguments(^WithReflection));
 static_assert(has_template_arguments(^WithReflection<^int>));
 static_assert(template_arguments_of(^WithReflection<^int>).size() == 1);
-static_assert(template_arguments_of(^WithReflection<^int>)[0] == ^int);
+static_assert(template_arguments_of(^WithReflection<^int>)[0] ==
+              std::meta::reflect_value(^int));
 
 void instantiations() {
   [[maybe_unused]] WithReflection<std::meta::reflect_value(nullptr)> wr;

@@ -1373,8 +1373,8 @@ CanThrowResult Sema::canThrow(const Stmt *S) {
   case Expr::CXXPseudoDestructorExprClass:
   case Expr::CXXReflectExprClass:
   case Expr::CXXMetafunctionExprClass:
-  case Expr::CXXIndeterminateSpliceExprClass:
-  case Expr::CXXExprSpliceExprClass:
+  case Expr::CXXSpliceSpecifierExprClass:
+  case Expr::CXXSpliceExprClass:
   case Expr::StackLocationExprClass:
   case Expr::ExtractLValueExprClass:
   case Expr::CXXScalarValueInitExprClass:
@@ -1478,6 +1478,8 @@ CanThrowResult Sema::canThrow(const Stmt *S) {
   case Stmt::OMPSimdDirectiveClass:
   case Stmt::OMPTileDirectiveClass:
   case Stmt::OMPUnrollDirectiveClass:
+  case Stmt::OMPReverseDirectiveClass:
+  case Stmt::OMPInterchangeDirectiveClass:
   case Stmt::OMPSingleDirectiveClass:
   case Stmt::OMPTargetDataDirectiveClass:
   case Stmt::OMPTargetDirectiveClass:

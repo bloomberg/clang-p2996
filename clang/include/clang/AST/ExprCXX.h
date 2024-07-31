@@ -47,6 +47,7 @@
 #include "llvm/ADT/PointerUnion.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/iterator_range.h"
+#include "llvm/Support/AlignOf.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/TrailingObjects.h"
@@ -3054,7 +3055,7 @@ public:
     E = E->IgnoreParens();
     if (isa<UnaryOperator>(E)) {
       assert(cast<UnaryOperator>(E)->getOpcode() == UO_AddrOf);
-      E = cast<UnaryOperator>(E)->getSubExpr()->IgnoreExprSplices();
+      E = cast<UnaryOperator>(E)->getSubExpr()->IgnoreSplices();
       auto *Ovl = cast<OverloadExpr>(E->IgnoreParens());
 
       Result.HasFormOfMemberPointer = (E == Ovl && Ovl->getQualifier());
@@ -3062,7 +3063,7 @@ public:
       Result.IsAddressOfOperandWithParen = HasParen;
       Result.Expression = Ovl;
     } else {
-      Result.Expression = cast<OverloadExpr>(E->IgnoreExprSplices());
+      Result.Expression = cast<OverloadExpr>(E->IgnoreSplices());
     }
 
     return Result;
@@ -3681,9 +3682,9 @@ public:
 /// an implicit access if a qualifier is provided.
 class CXXDependentScopeMemberExpr final
     : public Expr,
-      private llvm::TrailingObjects<
-          CXXDependentScopeMemberExpr, NestedNameSpecifierLoc, DeclAccessPair,
-          ASTTemplateKWAndArgsInfo, TemplateArgumentLoc> {
+      private llvm::TrailingObjects<CXXDependentScopeMemberExpr,
+                                    ASTTemplateKWAndArgsInfo,
+                                    TemplateArgumentLoc, NamedDecl *> {
   friend class ASTStmtReader;
   friend class ASTStmtWriter;
   friend TrailingObjects;
@@ -3696,14 +3697,16 @@ class CXXDependentScopeMemberExpr final
   /// implicit accesses.
   QualType BaseType;
 
+  /// The nested-name-specifier that precedes the member name, if any.
+  /// FIXME: This could be in principle store as a trailing object.
+  /// However the performance impact of doing so should be investigated first.
+  NestedNameSpecifierLoc QualifierLoc;
+
   /// The member to which this member expression refers, which
   /// can be name, overloaded operator, or destructor.
   ///
   /// FIXME: could also be a template-id
   DeclarationNameInfo MemberNameInfo;
-
-  /// The location of the '->' or '.' operator.
-  SourceLocation OperatorLoc;
 
   // CXXDependentScopeMemberExpr is followed by several trailing objects,
   // some of which optional. They are in order:
@@ -3724,16 +3727,8 @@ class CXXDependentScopeMemberExpr final
     return CXXDependentScopeMemberExprBits.HasTemplateKWAndArgsInfo;
   }
 
-  unsigned getNumUnqualifiedLookups() const {
-    return CXXDependentScopeMemberExprBits.NumUnqualifiedLookups;
-  }
-
-  unsigned numTrailingObjects(OverloadToken<NestedNameSpecifierLoc>) const {
-    return hasQualifier();
-  }
-
-  unsigned numTrailingObjects(OverloadToken<DeclAccessPair>) const {
-    return getNumUnqualifiedLookups();
+  bool hasFirstQualifierFoundInScope() const {
+    return CXXDependentScopeMemberExprBits.HasFirstQualifierFoundInScope;
   }
 
   unsigned numTrailingObjects(OverloadToken<ASTTemplateKWAndArgsInfo>) const {
@@ -3744,32 +3739,33 @@ class CXXDependentScopeMemberExpr final
     return getNumTemplateArgs();
   }
 
+  unsigned numTrailingObjects(OverloadToken<NamedDecl *>) const {
+    return hasFirstQualifierFoundInScope();
+  }
+
   CXXDependentScopeMemberExpr(const ASTContext &Ctx, Expr *Base,
                               QualType BaseType, bool IsArrow,
                               SourceLocation OperatorLoc,
                               NestedNameSpecifierLoc QualifierLoc,
                               SourceLocation TemplateKWLoc,
-                              ArrayRef<DeclAccessPair> UnqualifiedLookups,
+                              NamedDecl *FirstQualifierFoundInScope,
                               DeclarationNameInfo MemberNameInfo,
                               const TemplateArgumentListInfo *TemplateArgs);
 
-  CXXDependentScopeMemberExpr(EmptyShell Empty, bool HasQualifier,
-                              unsigned NumUnqualifiedLookups,
-                              bool HasTemplateKWAndArgsInfo);
+  CXXDependentScopeMemberExpr(EmptyShell Empty, bool HasTemplateKWAndArgsInfo,
+                              bool HasFirstQualifierFoundInScope);
 
 public:
   static CXXDependentScopeMemberExpr *
   Create(const ASTContext &Ctx, Expr *Base, QualType BaseType, bool IsArrow,
          SourceLocation OperatorLoc, NestedNameSpecifierLoc QualifierLoc,
-         SourceLocation TemplateKWLoc,
-         ArrayRef<DeclAccessPair> UnqualifiedLookups,
+         SourceLocation TemplateKWLoc, NamedDecl *FirstQualifierFoundInScope,
          DeclarationNameInfo MemberNameInfo,
          const TemplateArgumentListInfo *TemplateArgs);
 
   static CXXDependentScopeMemberExpr *
-  CreateEmpty(const ASTContext &Ctx, bool HasQualifier,
-              unsigned NumUnqualifiedLookups, bool HasTemplateKWAndArgsInfo,
-              unsigned NumTemplateArgs);
+  CreateEmpty(const ASTContext &Ctx, bool HasTemplateKWAndArgsInfo,
+              unsigned NumTemplateArgs, bool HasFirstQualifierFoundInScope);
 
   /// True if this is an implicit access, i.e. one in which the
   /// member being accessed was not written in the source.  The source
@@ -3794,35 +3790,34 @@ public:
   bool isArrow() const { return CXXDependentScopeMemberExprBits.IsArrow; }
 
   /// Retrieve the location of the '->' or '.' operator.
-  SourceLocation getOperatorLoc() const { return OperatorLoc; }
-
-  /// Determines whether this member expression had a nested-name-specifier
-  /// prior to the name of the member, e.g., x->Base::foo.
-  bool hasQualifier() const {
-    return CXXDependentScopeMemberExprBits.HasQualifier;
+  SourceLocation getOperatorLoc() const {
+    return CXXDependentScopeMemberExprBits.OperatorLoc;
   }
 
-  /// If the member name was qualified, retrieves the nested-name-specifier
-  /// that precedes the member name, with source-location information.
-  NestedNameSpecifierLoc getQualifierLoc() const {
-    if (!hasQualifier())
-      return NestedNameSpecifierLoc();
-    return *getTrailingObjects<NestedNameSpecifierLoc>();
-  }
-
-  /// If the member name was qualified, retrieves the
-  /// nested-name-specifier that precedes the member name. Otherwise, returns
-  /// NULL.
+  /// Retrieve the nested-name-specifier that qualifies the member name.
   NestedNameSpecifier *getQualifier() const {
-    return getQualifierLoc().getNestedNameSpecifier();
+    return QualifierLoc.getNestedNameSpecifier();
   }
 
-  /// Retrieve the declarations found by unqualified lookup for the first
-  /// component name of the nested-name-specifier, if any.
-  ArrayRef<DeclAccessPair> unqualified_lookups() const {
-    if (!getNumUnqualifiedLookups())
-      return std::nullopt;
-    return {getTrailingObjects<DeclAccessPair>(), getNumUnqualifiedLookups()};
+  /// Retrieve the nested-name-specifier that qualifies the member
+  /// name, with source location information.
+  NestedNameSpecifierLoc getQualifierLoc() const { return QualifierLoc; }
+
+  /// Retrieve the first part of the nested-name-specifier that was
+  /// found in the scope of the member access expression when the member access
+  /// was initially parsed.
+  ///
+  /// This function only returns a useful result when member access expression
+  /// uses a qualified member name, e.g., "x.Base::f". Here, the declaration
+  /// returned by this function describes what was found by unqualified name
+  /// lookup for the identifier "Base" within the scope of the member access
+  /// expression itself. At template instantiation time, this information is
+  /// combined with the results of name lookup into the type of the object
+  /// expression itself (the class type of x).
+  NamedDecl *getFirstQualifierFoundInScope() const {
+    if (!hasFirstQualifierFoundInScope())
+      return nullptr;
+    return *getTrailingObjects<NamedDecl *>();
   }
 
   /// Retrieve the name of the member that this expression refers to.
@@ -4864,15 +4859,7 @@ public:
   CXXFoldExpr(QualType T, UnresolvedLookupExpr *Callee,
               SourceLocation LParenLoc, Expr *LHS, BinaryOperatorKind Opcode,
               SourceLocation EllipsisLoc, Expr *RHS, SourceLocation RParenLoc,
-              std::optional<unsigned> NumExpansions)
-      : Expr(CXXFoldExprClass, T, VK_PRValue, OK_Ordinary),
-        LParenLoc(LParenLoc), EllipsisLoc(EllipsisLoc), RParenLoc(RParenLoc),
-        NumExpansions(NumExpansions ? *NumExpansions + 1 : 0), Opcode(Opcode) {
-    SubExprs[SubExpr::Callee] = Callee;
-    SubExprs[SubExpr::LHS] = LHS;
-    SubExprs[SubExpr::RHS] = RHS;
-    setDependence(computeDependence(this));
-  }
+              std::optional<unsigned> NumExpansions);
 
   CXXFoldExpr(EmptyShell Empty) : Expr(CXXFoldExprClass, Empty) {}
 
@@ -5334,53 +5321,54 @@ public:
 /// Represents a C++2c reflect expression (P2996). The operand of the expression
 /// is either a type, an expression, a template-name, or a namespace.
 class CXXReflectExpr : public Expr {
+  enum class OperandKind {
+    Reflection,
+    DependentExpr
+  };
+
   // The operand of the expression.
-  ReflectionValue Ref;
+  OperandKind Kind;
+  llvm::AlignedCharArrayUnion<ReflectionValue, Expr *> Operand;
 
   // Source locations.
-  SourceLocation OpLoc;
-  SourceLocation ArgLoc;
+  SourceLocation OperatorLoc;
+  SourceRange OperandRange;
 
-  CXXReflectExpr(const ASTContext &C, QualType T);
-  CXXReflectExpr(const ASTContext &C, QualType T, QualType Arg);
-  CXXReflectExpr(const ASTContext &C, QualType T, Expr *Arg);
-  CXXReflectExpr(const ASTContext &C, QualType T, Decl *Arg, bool IsNamespace);
-  CXXReflectExpr(const ASTContext &C, QualType T, TemplateName Arg);
-  CXXReflectExpr(const ASTContext &C, QualType T, CXXBaseSpecifier *Arg);
-  CXXReflectExpr(const ASTContext &C, QualType T, TagDataMemberSpec *Arg);
+  CXXReflectExpr(const ASTContext &C, QualType ExprTy, ReflectionValue RV);
+  CXXReflectExpr(const ASTContext &C, QualType ExprTy, Expr *DepSubExpr);
 
 public:
   static CXXReflectExpr *Create(ASTContext &C, SourceLocation OperatorLoc,
-                                SourceLocation OperandLoc);
+                                SourceRange OperandRange, ReflectionValue RV);
   static CXXReflectExpr *Create(ASTContext &C, SourceLocation OperatorLoc,
-                                SourceLocation ArgLoc, QualType Operand);
-  static CXXReflectExpr *Create(ASTContext &C, SourceLocation OperatorLoc,
-                                Expr *Operand);
-  static CXXReflectExpr *Create(ASTContext &C, SourceLocation OperatorLoc,
-                                SourceLocation OperandLoc, Decl *Operand);
-  static CXXReflectExpr *Create(ASTContext &C, SourceLocation OperatorLoc,
-                                SourceLocation OperandLoc,
-                                const TemplateName Operand);
-  static CXXReflectExpr *Create(ASTContext &C, SourceLocation OperatorLoc,
-                                SourceLocation OperandLoc,
-                                CXXBaseSpecifier *Operand);
-  static CXXReflectExpr *Create(ASTContext &C, SourceLocation OperatorLoc,
-                                SourceLocation OperandLoc,
-                                TagDataMemberSpec *Arg);
+                                Expr *DepSubExpr);
 
   /// Returns the operand of the reflection expression.
-  const ReflectionValue &getOperand() const { return Ref; }
+  ReflectionValue getReflection() const {
+    return *(const ReflectionValue *)(const char *)&Operand;
+  }
+  Expr *getDependentSubExpr() const {
+    return *(Expr **)const_cast<char *>((const char *)&Operand);
+  }
+  bool hasDependentSubExpr() const {
+    return Kind == OperandKind::DependentExpr;
+  }
 
-  SourceLocation getBeginLoc() const LLVM_READONLY { return OpLoc; }
-  SourceLocation getEndLoc() const LLVM_READONLY { return ArgLoc; }
+  SourceLocation getBeginLoc() const LLVM_READONLY { return OperatorLoc; }
+  SourceLocation getEndLoc() const LLVM_READONLY {
+    return OperandRange.getEnd();
+  }
+  SourceRange getSourceRange() const {
+    return SourceRange(getBeginLoc(), getEndLoc());
+  }
 
   /// Returns location of the '^'-operator.
-  SourceLocation getOperatorLoc() const { return OpLoc; }
-  SourceLocation getArgLoc() const { return ArgLoc; }
+  SourceLocation getOperatorLoc() const { return OperatorLoc; }
+  SourceRange getOperandRange() const { return OperandRange; }
 
   /// Sets the location of the '^'-operator.
-  void setOperatorLoc(SourceLocation L) { OpLoc = L; }
-  void setArgLoc(SourceLocation L) { ArgLoc = L; }
+  void setOperatorLoc(SourceLocation L) { OperatorLoc = L; }
+  void setOperandRange(SourceRange R) { OperandRange = R; }
 
   child_range children() {
     return child_range(child_iterator(), child_iterator());
@@ -5508,31 +5496,24 @@ public:
   }
 };
 
-/// Represents a C++2c splice "expression". Strictly speaking, it may be a mild
-/// abuse of terminology to classify a splice as an expression, since it can
-/// yield a type, namespace, or template-id in addition to a value. That said,
-/// the -operand- of a splice is an expression (which always evaluates to a
-/// type context-convertible to 'std::meta::info'), and 'Expr' provides a
-/// convenient existing means of storing the SourceLocation of the splice
-/// operands alongside the operand. We therefore consider a "[:R:]" a "splice
-/// expression", and treat a "splice" as an operation occupying the same source
-/// range as the splice expression.
-class CXXIndeterminateSpliceExpr : public Expr {
+/// Represents a C++2c "splice specifier". At some point, this should probably
+/// be refactored into a non-Expr class, and removed from 'ExprCXX.h'.
+class CXXSpliceSpecifierExpr : public Expr {
   SourceLocation TemplateKWLoc;
   SourceLocation LSpliceLoc;
   Expr *Operand;
   SourceLocation RSpliceLoc;
 
-  CXXIndeterminateSpliceExpr(QualType ResultTy, SourceLocation TemplateKWLoc,
-                             SourceLocation LSpliceLoc, Expr *Operand,
-                             SourceLocation RSpliceLoc);
+  CXXSpliceSpecifierExpr(QualType ResultTy, SourceLocation TemplateKWLoc,
+                         SourceLocation LSpliceLoc, Expr *Operand,
+                         SourceLocation RSpliceLoc);
 
 public:
-  static CXXIndeterminateSpliceExpr *Create(ASTContext &C,
-                                            SourceLocation TemplateKWLoc,
-                                            SourceLocation LSpliceLoc,
-                                            Expr *Operand,
-                                            SourceLocation RSpliceLoc);
+  static CXXSpliceSpecifierExpr *Create(ASTContext &C,
+                                        SourceLocation TemplateKWLoc,
+                                        SourceLocation LSpliceLoc,
+                                        Expr *Operand,
+                                        SourceLocation RSpliceLoc);
 
   Expr *getOperand() const {
     return Operand;
@@ -5577,7 +5558,7 @@ public:
   }
 
   static bool classof(const Stmt *T) {
-    return T->getStmtClass() == CXXIndeterminateSpliceExprClass;
+    return T->getStmtClass() == CXXSpliceSpecifierExprClass;
   }
 };
 
@@ -5658,9 +5639,9 @@ public:
   }
 };
 
-class CXXExprSpliceExpr final
+class CXXSpliceExpr final
     : public Expr,
-      private llvm::TrailingObjects<CXXExprSpliceExpr, ASTTemplateKWAndArgsInfo,
+      private llvm::TrailingObjects<CXXSpliceExpr, ASTTemplateKWAndArgsInfo,
                                     TemplateArgumentLoc> {
   friend TrailingObjects;
 
@@ -5669,17 +5650,17 @@ class CXXExprSpliceExpr final
   SourceLocation RSpliceLoc;
   bool AllowMemberReference;
 
-  CXXExprSpliceExpr(QualType ResultTy, ExprValueKind ValueKind,
-                    SourceLocation TemplateKWLoc, SourceLocation LSpliceLoc,
-                    Expr *Operand, SourceLocation RSpliceLoc,
-                    const TemplateArgumentListInfo *TemplateArgs,
-                    bool AllowMemberReference);
+  CXXSpliceExpr(QualType ResultTy, ExprValueKind ValueKind,
+                SourceLocation TemplateKWLoc, SourceLocation LSpliceLoc,
+                Expr *Operand, SourceLocation RSpliceLoc,
+                const TemplateArgumentListInfo *TemplateArgs,
+                bool AllowMemberReference);
 
   inline ASTTemplateKWAndArgsInfo *getTrailingASTTemplateKWAndArgsInfo() {
     return getTrailingObjects<ASTTemplateKWAndArgsInfo>();
   }
   const ASTTemplateKWAndArgsInfo *getTrailingASTTemplateKWAndArgsInfo() const {
-    return const_cast<CXXExprSpliceExpr *>(this)
+    return const_cast<CXXSpliceExpr *>(this)
         ->getTrailingASTTemplateKWAndArgsInfo();
   }
 
@@ -5687,12 +5668,12 @@ class CXXExprSpliceExpr final
     return getTrailingObjects<TemplateArgumentLoc>();
   }
   const TemplateArgumentLoc *getTrailingTemplateArgumentLoc() const {
-    return const_cast<CXXExprSpliceExpr *>(this)
+    return const_cast<CXXSpliceExpr *>(this)
         ->getTrailingTemplateArgumentLoc();
   }
 
   bool hasTemplateKWAndArgsInfo() const {
-    return ExprSpliceExprBits.HasTemplateKWAndArgsInfo;
+    return SpliceExprBits.HasTemplateKWAndArgsInfo;
   }
 
   unsigned numTrailingObjects(OverloadToken<ASTTemplateKWAndArgsInfo>) const {
@@ -5705,7 +5686,7 @@ class CXXExprSpliceExpr final
 
 
 public:
-  static CXXExprSpliceExpr *Create(ASTContext &C, ExprValueKind ValueKind,
+  static CXXSpliceExpr *Create(ASTContext &C, ExprValueKind ValueKind,
                                    SourceLocation TemplateKWLoc,
                                    SourceLocation LSpliceLoc, Expr *Operand,
                                    SourceLocation RSpliceLoc,
@@ -5727,7 +5708,7 @@ public:
   bool hasExplicitTemplateArgs() const { return getLAngleLoc().isValid(); }
 
   TemplateArgumentLoc const *getTemplateArgs() const {
-    return const_cast<CXXExprSpliceExpr *>(this)
+    return const_cast<CXXSpliceExpr *>(this)
         ->getTrailingObjects<TemplateArgumentLoc>();
   }
 
@@ -5805,7 +5786,7 @@ public:
   }
 
   static bool classof(const Stmt *T) {
-    return T->getStmtClass() == CXXExprSpliceExprClass;
+    return T->getStmtClass() == CXXSpliceExprClass;
   }
 };
 
@@ -5821,13 +5802,12 @@ class CXXDependentMemberSpliceExpr : public Expr {
 
   CXXDependentMemberSpliceExpr(QualType ResultTy, Expr *Base,
                                SourceLocation OpLoc, bool IsArrow,
-                               CXXExprSpliceExpr *RHS);
+                               CXXSpliceExpr *RHS);
 
 public:
   static CXXDependentMemberSpliceExpr *Create(ASTContext &C, Expr *Base,
                                               SourceLocation OpLoc,
-                                              bool IsArrow,
-                                              CXXExprSpliceExpr *RHS);
+                                              bool IsArrow, CXXSpliceExpr *RHS);
 
   Expr *getBase() const {
     return cast<Expr>(SubExprs[0]);
@@ -5841,8 +5821,8 @@ public:
     return IsArrow;
   }
 
-  CXXExprSpliceExpr *getRHS() const {
-    return cast<CXXExprSpliceExpr>(SubExprs[1]);
+  CXXSpliceExpr *getRHS() const {
+    return cast<CXXSpliceExpr>(SubExprs[1]);
   }
 
   SourceLocation getBeginLoc() const {

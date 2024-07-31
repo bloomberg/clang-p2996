@@ -576,7 +576,7 @@ static bool IsStructurallyEquivalent(StructuralEquivalenceContext &Context,
     return IsStructurallyEquivalent(Context,
                                     NNS1->getAsRecordDecl(),
                                     NNS2->getAsRecordDecl());
-  case NestedNameSpecifier::IndeterminateSplice:
+  case NestedNameSpecifier::Splice:
     llvm::report_fatal_error("unimplemented: IsStructurallyEquivalent");
   }
   return false;
@@ -681,11 +681,8 @@ static bool IsStructurallyEquivalent(StructuralEquivalenceContext &Context,
     return llvm::APSInt::isSameValue(Arg1.getAsIntegral(),
                                      Arg2.getAsIntegral());
 
-  case TemplateArgument::Reflection:
-    return Arg1.getAsReflection() == Arg2.getAsReflection();
-
-  case TemplateArgument::IndeterminateSplice:
-    return Arg1.getAsIndeterminateSplice() == Arg2.getAsIndeterminateSplice();
+  case TemplateArgument::SpliceSpecifier:
+    return Arg1.getAsSpliceSpecifier() == Arg2.getAsSpliceSpecifier();
 
   case TemplateArgument::Declaration:
     return IsStructurallyEquivalent(Context, Arg1.getAsDecl(), Arg2.getAsDecl());

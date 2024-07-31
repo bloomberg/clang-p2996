@@ -597,10 +597,11 @@ private:
   void mangleMemberExprBase(const Expr *base, bool isArrow);
   void mangleMemberExpr(const Expr *base, bool isArrow,
                         NestedNameSpecifier *qualifier,
-                        ArrayRef<DeclAccessPair> UnqualifiedLookups,
+                        NamedDecl *firstQualifierLookup,
                         DeclarationName name,
                         const TemplateArgumentLoc *TemplateArgs,
-                        unsigned NumTemplateArgs, unsigned knownArity);
+                        unsigned NumTemplateArgs,
+                        unsigned knownArity);
   void mangleCastExpression(const Expr *E, StringRef CastEncoding);
   void mangleInitListElements(const InitListExpr *InitList);
   void mangleRequirement(SourceLocation RequiresExprLoc,
@@ -964,7 +965,7 @@ bool CXXNameMangler::isStd(const NamespaceDecl *NS) {
   if (!Context.getEffectiveParentContext(NS)->isTranslationUnit())
     return false;
 
-  const IdentifierInfo *II = NS->getOriginalNamespace()->getIdentifier();
+  const IdentifierInfo *II = NS->getFirstDecl()->getIdentifier();
   return II && II->isStr("std");
 }
 
@@ -1416,7 +1417,7 @@ void CXXNameMangler::mangleUnresolvedPrefix(NestedNameSpecifier *qualifier,
     mangleSourceName(qualifier->getAsIdentifier());
     // An Identifier has no type information, so we can't emit abi tags for it.
     break;
-  case NestedNameSpecifier::IndeterminateSplice:
+  case NestedNameSpecifier::Splice:
     llvm_unreachable("should not get this far");
   }
 
@@ -2199,8 +2200,11 @@ void CXXNameMangler::manglePrefix(NestedNameSpecifier *qualifier) {
       addSubstitution(qualifier);
     return;
   }
-  case NestedNameSpecifier::IndeterminateSplice:
-    llvm_unreachable("should not get this far");
+  case NestedNameSpecifier::Splice:
+    Out << "s";
+    mangleExpression(qualifier->getAsSpliceExpr()->getOperand());
+    Out << "E";
+    return;
   }
 
   llvm_unreachable("unexpected nested name specifier");
@@ -2267,8 +2271,8 @@ void CXXNameMangler::mangleTemplatePrefix(TemplateName Template) {
 
   if (Dependent->isIdentifier())
     mangleSourceName(Dependent->getIdentifier());
-  else if (Dependent->isIndeterminateSplice())
-    mangleExpression(Dependent->getIndeterminateSplice());
+  else if (Dependent->isSpliceSpecifier())
+    mangleExpression(Dependent->getSpliceSpecifier());
   else
     mangleOperatorName(Dependent->getOperator(), UnknownArity);
 
@@ -4544,11 +4548,14 @@ void CXXNameMangler::mangleMemberExprBase(const Expr *Base, bool IsArrow) {
 }
 
 /// Mangles a member expression.
-void CXXNameMangler::mangleMemberExpr(
-    const Expr *base, bool isArrow, NestedNameSpecifier *qualifier,
-    ArrayRef<DeclAccessPair> UnqualifiedLookups, DeclarationName member,
-    const TemplateArgumentLoc *TemplateArgs, unsigned NumTemplateArgs,
-    unsigned arity) {
+void CXXNameMangler::mangleMemberExpr(const Expr *base,
+                                      bool isArrow,
+                                      NestedNameSpecifier *qualifier,
+                                      NamedDecl *firstQualifierLookup,
+                                      DeclarationName member,
+                                      const TemplateArgumentLoc *TemplateArgs,
+                                      unsigned NumTemplateArgs,
+                                      unsigned arity) {
   // <expression> ::= dt <expression> <unresolved-name>
   //              ::= pt <expression> <unresolved-name>
   if (base)
@@ -4688,12 +4695,13 @@ void CXXNameMangler::mangleReflection(const ReflectionValue &R) {
     Context.mangleCanonicalTypeName(QT, Out, false);
     break;
   }
-  case ReflectionValue::RK_expr_result:
-    Out << 'e';
-    if (R.getAsExprResult()->getType()->isNullPtrType())
-      mangleNullPointer(R.getAsExprResult()->getType());
-    else
-      mangleExpression(R.getAsExprResult());
+  case ReflectionValue::RK_object:
+    Out << 'o';
+    mangleValueInTemplateArg(R.getResultType(), R.getAsObject(), false, true);
+    break;
+  case ReflectionValue::RK_value:
+    Out << "v";
+    mangleValueInTemplateArg(R.getResultType(), R.getAsValue(), false, true);
     break;
   case ReflectionValue::RK_declaration: {
     Out << 'd';
@@ -4861,7 +4869,7 @@ recurse:
   case Expr::CXXInheritedCtorInitExprClass:
   case Expr::CXXParenListInitExprClass:
   case Expr::CXXMetafunctionExprClass:
-  case Expr::CXXExprSpliceExprClass:
+  case Expr::CXXSpliceExprClass:
   case Expr::CXXDependentMemberSpliceExprClass:
   case Expr::StackLocationExprClass:
   case Expr::ExtractLValueExprClass:
@@ -4870,12 +4878,17 @@ recurse:
   case Expr::CXXExpansionSelectExprClass:
     llvm_unreachable("unexpected statement kind");
 
-  case Expr::CXXReflectExprClass:
-    mangleReflection(cast<CXXReflectExpr>(E)->getOperand());
+  case Expr::CXXReflectExprClass: {
+    const CXXReflectExpr *RE = cast<CXXReflectExpr>(E);
+    if (RE->hasDependentSubExpr())
+      mangleExpression(RE->getDependentSubExpr());
+    else
+      mangleReflection(RE->getReflection());
     break;
+  }
 
-  case Expr::CXXIndeterminateSpliceExprClass:
-    E = cast<CXXIndeterminateSpliceExpr>(E)->getOperand();
+  case Expr::CXXSpliceSpecifierExprClass:
+    E = cast<CXXSpliceSpecifierExpr>(E)->getOperand();
     goto recurse;
 
   case Expr::ConstantExprClass:
@@ -5142,9 +5155,11 @@ recurse:
   case Expr::MemberExprClass: {
     NotPrimaryExpr();
     const MemberExpr *ME = cast<MemberExpr>(E);
-    mangleMemberExpr(ME->getBase(), ME->isArrow(), ME->getQualifier(),
-                     std::nullopt, ME->getMemberDecl()->getDeclName(),
-                     ME->getTemplateArgs(), ME->getNumTemplateArgs(), Arity);
+    mangleMemberExpr(ME->getBase(), ME->isArrow(),
+                     ME->getQualifier(), nullptr,
+                     ME->getMemberDecl()->getDeclName(),
+                     ME->getTemplateArgs(), ME->getNumTemplateArgs(),
+                     Arity);
     break;
   }
 
@@ -5152,9 +5167,10 @@ recurse:
     NotPrimaryExpr();
     const UnresolvedMemberExpr *ME = cast<UnresolvedMemberExpr>(E);
     mangleMemberExpr(ME->isImplicitAccess() ? nullptr : ME->getBase(),
-                     ME->isArrow(), ME->getQualifier(), std::nullopt,
-                     ME->getMemberName(), ME->getTemplateArgs(),
-                     ME->getNumTemplateArgs(), Arity);
+                     ME->isArrow(), ME->getQualifier(), nullptr,
+                     ME->getMemberName(),
+                     ME->getTemplateArgs(), ME->getNumTemplateArgs(),
+                     Arity);
     break;
   }
 
@@ -5164,8 +5180,10 @@ recurse:
       = cast<CXXDependentScopeMemberExpr>(E);
     mangleMemberExpr(ME->isImplicitAccess() ? nullptr : ME->getBase(),
                      ME->isArrow(), ME->getQualifier(),
-                     ME->unqualified_lookups(), ME->getMember(),
-                     ME->getTemplateArgs(), ME->getNumTemplateArgs(), Arity);
+                     ME->getFirstQualifierFoundInScope(),
+                     ME->getMember(),
+                     ME->getTemplateArgs(), ME->getNumTemplateArgs(),
+                     Arity);
     break;
   }
 
@@ -5329,6 +5347,14 @@ recurse:
           Diags.getCustomDiagID(DiagnosticsEngine::Error,
                                 "cannot yet mangle __datasizeof expression");
       Diags.Report(DiagID);
+      return;
+    }
+    case UETT_PtrAuthTypeDiscriminator: {
+      DiagnosticsEngine &Diags = Context.getDiags();
+      unsigned DiagID = Diags.getCustomDiagID(
+          DiagnosticsEngine::Error,
+          "cannot yet mangle __builtin_ptrauth_type_discriminator expression");
+      Diags.Report(E->getExprLoc(), DiagID);
       return;
     }
     case UETT_VecStep: {
@@ -6223,10 +6249,6 @@ void CXXNameMangler::mangleTemplateArg(TemplateArgument A, bool NeedExactType) {
   case TemplateArgument::Integral:
     mangleIntegerLiteral(A.getIntegralType(), A.getAsIntegral());
     break;
-  case TemplateArgument::Reflection: {
-    mangleReflection(A.getAsReflection());
-    break;
-  }
   case TemplateArgument::Declaration: {
     //  <expr-primary> ::= L <mangled-name> E # external name
     ValueDecl *D = A.getAsDecl();
@@ -6634,7 +6656,7 @@ void CXXNameMangler::mangleValueInTemplateArg(QualType T, const APValue &V,
 
   case APValue::LValue: {
     // Proposed in https://github.com/itanium-cxx-abi/cxx-abi/issues/47.
-    assert((T->isPointerType() || T->isReferenceType()) &&
+    assert((T->isPointerType() || T->isReferenceType() || V.isNullPointer()) &&
            "unexpected type for LValue template arg");
 
     if (V.isNullPointer()) {

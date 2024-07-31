@@ -2403,6 +2403,10 @@ static bool CheckMemberPointerConstantExpression(EvalInfo &Info,
 /// produce an appropriate diagnostic.
 static bool CheckLiteralType(EvalInfo &Info, const Expr *E,
                              const LValue *This = nullptr) {
+  // The restriction to literal types does not exist in C++23 anymore.
+  if (Info.getLangOpts().CPlusPlus23)
+    return true;
+
   if (!E->isPRValue() || E->getType()->isLiteralType(Info.Ctx))
     return true;
 
@@ -2842,6 +2846,8 @@ static bool handleIntIntBinOp(EvalInfo &Info, const BinaryOperator *E,
       // During constant-folding, a negative shift is an opposite shift. Such
       // a shift is not a constant expression.
       Info.CCEDiag(E, diag::note_constexpr_negative_shift) << RHS;
+      if (!Info.noteUndefinedBehavior())
+        return false;
       RHS = -RHS;
       goto shift_right;
     }
@@ -2852,19 +2858,23 @@ static bool handleIntIntBinOp(EvalInfo &Info, const BinaryOperator *E,
     if (SA != RHS) {
       Info.CCEDiag(E, diag::note_constexpr_large_shift)
         << RHS << E->getType() << LHS.getBitWidth();
+      if (!Info.noteUndefinedBehavior())
+        return false;
     } else if (LHS.isSigned() && !Info.getLangOpts().CPlusPlus20) {
       // C++11 [expr.shift]p2: A signed left shift must have a non-negative
       // operand, and must not overflow the corresponding unsigned type.
       // C++2a [expr.shift]p2: E1 << E2 is the unique value congruent to
       // E1 x 2^E2 module 2^N.
-      if (LHS.isNegative())
+      if (LHS.isNegative()) {
         Info.CCEDiag(E, diag::note_constexpr_lshift_of_negative) << LHS;
-      else if (LHS.countl_zero() < SA)
+        if (!Info.noteUndefinedBehavior())
+          return false;
+      } else if (LHS.countl_zero() < SA) {
         Info.CCEDiag(E, diag::note_constexpr_lshift_discards);
+        if (!Info.noteUndefinedBehavior())
+          return false;
+      }
     }
-    if (Info.EvalStatus.Diag && !Info.EvalStatus.Diag->empty() &&
-        Info.getLangOpts().CPlusPlus11)
-      return false;
     Result = LHS << SA;
     return true;
   }
@@ -2878,6 +2888,8 @@ static bool handleIntIntBinOp(EvalInfo &Info, const BinaryOperator *E,
       // During constant-folding, a negative shift is an opposite shift. Such a
       // shift is not a constant expression.
       Info.CCEDiag(E, diag::note_constexpr_negative_shift) << RHS;
+      if (!Info.noteUndefinedBehavior())
+        return false;
       RHS = -RHS;
       goto shift_left;
     }
@@ -2885,13 +2897,13 @@ static bool handleIntIntBinOp(EvalInfo &Info, const BinaryOperator *E,
     // C++11 [expr.shift]p1: Shift width must be less than the bit width of the
     // shifted type.
     unsigned SA = (unsigned) RHS.getLimitedValue(LHS.getBitWidth()-1);
-    if (SA != RHS)
+    if (SA != RHS) {
       Info.CCEDiag(E, diag::note_constexpr_large_shift)
         << RHS << E->getType() << LHS.getBitWidth();
+      if (!Info.noteUndefinedBehavior())
+        return false;
+    }
 
-    if (Info.EvalStatus.Diag && !Info.EvalStatus.Diag->empty() &&
-        Info.getLangOpts().CPlusPlus11)
-      return false;
     Result = LHS >> SA;
     return true;
   }
@@ -8378,11 +8390,11 @@ public:
   /// Visit a metafunction evaluation (P2996).
   bool VisitCXXMetafunctionExpr(const CXXMetafunctionExpr *E);
 
-  bool VisitCXXIndeterminateSpliceExpr(const CXXIndeterminateSpliceExpr *E) {
+  bool VisitCXXSpliceSpecifierExpr(const CXXSpliceSpecifierExpr *E) {
     return this->Visit(E->getOperand());
   }
 
-  bool VisitCXXExprSpliceExpr(const CXXExprSpliceExpr *E) {
+  bool VisitCXXSpliceExpr(const CXXSpliceExpr *E) {
     return this->Visit(E->getOperand());
   }
 
@@ -8470,8 +8482,9 @@ bool ExprEvaluatorBase<Derived>::VisitStackLocationExpr(
   if (!Frame)
     return Error(E);
 
-  return DerivedSuccess(APValue(ReflectionValue::RK_declaration,
-                                Frame->Callee), E);
+  ReflectionValue RV(ReflectionValue::RK_declaration,
+                     const_cast<FunctionDecl *>(Frame->Callee));
+  return DerivedSuccess(APValue(RV), E);
 }
 
 } // namespace
@@ -10329,7 +10342,7 @@ bool MemberPointerExprEvaluator::VisitCastExpr(const CastExpr *E) {
 bool MemberPointerExprEvaluator::VisitUnaryAddrOf(const UnaryOperator *E) {
   // C++11 [expr.unary.op]p3 has very strict rules on how the address of a
   // member can be formed.
-  Expr *SubExpr = E->getSubExpr()->IgnoreExprSplices();
+  Expr *SubExpr = E->getSubExpr()->IgnoreSplices();
   return Success(cast<DeclRefExpr>(SubExpr)->getDecl());
 }
 
@@ -11635,7 +11648,7 @@ bool ArrayExprEvaluator::VisitCXXConstructExpr(const CXXConstructExpr *E,
 
 bool ArrayExprEvaluator::VisitCXXParenListInitExpr(
     const CXXParenListInitExpr *E) {
-  assert(dyn_cast<ConstantArrayType>(E->getType()) &&
+  assert(E->getType()->isConstantArrayType() &&
          "Expression result is not a constant array type");
 
   return VisitCXXParenListOrInitListExpr(E, E->getInitExprs(),
@@ -13107,19 +13120,35 @@ bool IntExprEvaluator::VisitBuiltinCallExpr(const CallExpr *E,
           Info.Ctx.getTargetInfo().getMaxAtomicInlineWidth();
       if (Size <= Info.Ctx.toCharUnitsFromBits(InlineWidthBits)) {
         if (BuiltinOp == Builtin::BI__c11_atomic_is_lock_free ||
-            Size == CharUnits::One() ||
-            E->getArg(1)->isNullPointerConstant(Info.Ctx,
-                                                Expr::NPC_NeverValueDependent))
-          // OK, we will inline appropriately-aligned operations of this size,
-          // and _Atomic(T) is appropriately-aligned.
+            Size == CharUnits::One())
           return Success(1, E);
 
-        QualType PointeeType = E->getArg(1)->IgnoreImpCasts()->getType()->
-          castAs<PointerType>()->getPointeeType();
-        if (!PointeeType->isIncompleteType() &&
-            Info.Ctx.getTypeAlignInChars(PointeeType) >= Size) {
-          // OK, we will inline operations on this object.
+        // If the pointer argument can be evaluated to a compile-time constant
+        // integer (or nullptr), check if that value is appropriately aligned.
+        const Expr *PtrArg = E->getArg(1);
+        Expr::EvalResult ExprResult;
+        APSInt IntResult;
+        if (PtrArg->EvaluateAsRValue(ExprResult, Info.Ctx) &&
+            ExprResult.Val.toIntegralConstant(IntResult, PtrArg->getType(),
+                                              Info.Ctx) &&
+            IntResult.isAligned(Size.getAsAlign()))
           return Success(1, E);
+
+        // Otherwise, check if the type's alignment against Size.
+        if (auto *ICE = dyn_cast<ImplicitCastExpr>(PtrArg)) {
+          // Drop the potential implicit-cast to 'const volatile void*', getting
+          // the underlying type.
+          if (ICE->getCastKind() == CK_BitCast)
+            PtrArg = ICE->getSubExpr();
+        }
+
+        if (auto PtrTy = PtrArg->getType()->getAs<PointerType>()) {
+          QualType PointeeType = PtrTy->getPointeeType();
+          if (!PointeeType->isIncompleteType() &&
+              Info.Ctx.getTypeAlignInChars(PointeeType) >= Size) {
+            // OK, we will inline operations on this object.
+            return Success(1, E);
+          }
         }
       }
     }
@@ -14209,6 +14238,12 @@ bool IntExprEvaluator::VisitUnaryExprOrTypeTraitExpr(
                      E);
   }
 
+  case UETT_PtrAuthTypeDiscriminator: {
+    if (E->getArgumentType()->isDependentType())
+      return false;
+    return Success(
+        Info.Ctx.getPointerAuthTypeDiscriminator(E->getArgumentType()), E);
+  }
   case UETT_VecStep: {
     QualType Ty = E->getTypeOfArgument();
 
@@ -15892,7 +15927,7 @@ public:
   }
 
   bool ZeroInitialization(const Expr *E) {
-    Result = APValue(ReflectionValue::RK_null, nullptr);
+    Result = APValue(ReflectionValue{});
     return true;
   }
 
@@ -15902,50 +15937,13 @@ public:
 
   bool VisitCXXReflectExpr(const CXXReflectExpr *E);
   bool VisitCXXMetafunctionExpr(const CXXMetafunctionExpr *E);
-  bool VisitCXXIndeterminateSpliceExpr(const CXXIndeterminateSpliceExpr *E);
-  bool VisitCXXExprSpliceExpr(const CXXExprSpliceExpr *E);
+  bool VisitCXXSpliceSpecifierExpr(const CXXSpliceSpecifierExpr *E);
+  bool VisitCXXSpliceExpr(const CXXSpliceExpr *E);
 };
 
 bool ReflectionEvaluator::VisitCXXReflectExpr(const CXXReflectExpr *E) {
-  const ReflectionValue &Ref = E->getOperand();
-  switch (Ref.getKind()) {
-  case ReflectionValue::RK_null: {
-    APValue Result(ReflectionValue::RK_null, nullptr);
-    return Success(Result, E);
-  }
-  case ReflectionValue::RK_type: {
-    APValue Result(ReflectionValue::RK_type, Ref.getAsType().getAsOpaquePtr());
-    return Success(Result, E);
-  }
-  case ReflectionValue::RK_expr_result: {
-    APValue Result(ReflectionValue::RK_expr_result, Ref.getAsExprResult());
-    return Success(Result, E);
-  }
-  case ReflectionValue::RK_declaration: {
-    APValue Result(ReflectionValue::RK_declaration, Ref.getAsDecl());
-    return Success(Result, E);
-  }
-  case ReflectionValue::RK_template: {
-    APValue Result(ReflectionValue::RK_template,
-                   Ref.getAsTemplate().getAsVoidPointer());
-    return Success(Result, E);
-  }
-  case ReflectionValue::RK_namespace: {
-    APValue Result(ReflectionValue::RK_namespace, Ref.getAsNamespace());
-    return Success(Result, E);
-  }
-  case ReflectionValue::RK_base_specifier: {
-    APValue Result(ReflectionValue::RK_base_specifier,
-                   Ref.getAsBaseSpecifier());
-    return Success(Result, E);
-  }
-  case ReflectionValue::RK_data_member_spec: {
-    APValue Result(ReflectionValue::RK_data_member_spec,
-                   Ref.getAsDataMemberSpec());
-    return Success(Result, E);
-  }
-  }
-  llvm_unreachable("invalid reflection");
+  APValue Result(E->getReflection());
+  return Success(Result, E);
 }
 
 bool ReflectionEvaluator::VisitCXXMetafunctionExpr(
@@ -15953,13 +15951,13 @@ bool ReflectionEvaluator::VisitCXXMetafunctionExpr(
   return BaseType::VisitCXXMetafunctionExpr(E);
 }
 
-bool ReflectionEvaluator::VisitCXXIndeterminateSpliceExpr(
-                                          const CXXIndeterminateSpliceExpr *E) {
-  return BaseType::VisitCXXIndeterminateSpliceExpr(E);
+bool ReflectionEvaluator::VisitCXXSpliceSpecifierExpr(
+                                              const CXXSpliceSpecifierExpr *E) {
+  return BaseType::VisitCXXSpliceSpecifierExpr(E);
 }
 
-bool ReflectionEvaluator::VisitCXXExprSpliceExpr(const CXXExprSpliceExpr *E) {
-  return BaseType::VisitCXXExprSpliceExpr(E);
+bool ReflectionEvaluator::VisitCXXSpliceExpr(const CXXSpliceExpr *E) {
+  return BaseType::VisitCXXSpliceExpr(E);
 }
 }  // end anonymous namespace
 
@@ -16761,8 +16759,8 @@ static ICEDiag CheckICE(const Expr* E, const ASTContext &Ctx) {
   case Expr::CXXNoexceptExprClass:
   case Expr::CXXReflectExprClass:
   case Expr::CXXMetafunctionExprClass:
-  case Expr::CXXIndeterminateSpliceExprClass:
-  case Expr::CXXExprSpliceExprClass:
+  case Expr::CXXSpliceSpecifierExprClass:
+  case Expr::CXXSpliceExprClass:
   case Expr::StackLocationExprClass:
   case Expr::ExtractLValueExprClass:
   case Expr::CXXExpansionInitListExprClass:

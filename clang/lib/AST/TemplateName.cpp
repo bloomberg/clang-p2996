@@ -222,7 +222,7 @@ TemplateNameDependence TemplateName::getDependence() const {
       D |= toTemplateNameDependence(NNS->getDependence());
     break;
   case TemplateName::NameKind::DependentTemplate:
-    if (getAsDependentTemplateName()->isIndeterminateSplice())
+    if (getAsDependentTemplateName()->isSpliceSpecifier())
       D |= TemplateNameDependence::DependentInstantiation;
     else
       D |= toTemplateNameDependence(

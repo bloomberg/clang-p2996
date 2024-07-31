@@ -675,6 +675,9 @@ bool CXXRecordDecl::hasSubobjectAtOffsetZeroOfEmptyBaseType(
       if (!IsFirstField && !FD->isZeroSize(Ctx))
         continue;
 
+      if (FD->isInvalidDecl())
+        continue;
+
       //   -- If X is n array type, [visit the element type]
       QualType T = Ctx.getBaseElementType(FD->getType());
       if (auto *RD = T->getAsCXXRecordDecl())
@@ -2941,7 +2944,7 @@ UsingDirectiveDecl *UsingDirectiveDecl::Create(ASTContext &C, DeclContext *DC,
                                                NamedDecl *Used,
                                                DeclContext *CommonAncestor) {
   if (auto *NS = dyn_cast_or_null<NamespaceDecl>(Used))
-    Used = NS->getOriginalNamespace();
+    Used = NS->getFirstDecl();
   return new (C, DC) UsingDirectiveDecl(DC, L, NamespaceLoc, QualifierLoc,
                                         IdentLoc, Used, CommonAncestor);
 }
@@ -2966,16 +2969,9 @@ NamespaceDecl::NamespaceDecl(Kind K, ASTContext &C, DeclContext *DC,
                              NamespaceDecl *PrevDecl, bool Nested)
     : NamedDecl(K, DC, IdLoc, Id), DeclContext(Namespace),
       redeclarable_base(C), LocStart(StartLoc) {
-  unsigned Flags = 0;
-  if (Inline)
-    Flags |= F_Inline;
-  if (Nested)
-    Flags |= F_Nested;
-  AnonOrFirstNamespaceAndFlags = {nullptr, Flags};
+  setInline(Inline);
+  setNested(Nested);
   setPreviousDecl(PrevDecl);
-
-  if (PrevDecl)
-    AnonOrFirstNamespaceAndFlags.setPointer(PrevDecl->getOriginalNamespace());
 }
 
 NamespaceDecl *NamespaceDecl::Create(ASTContext &C, DeclContext *DC,
@@ -2993,22 +2989,6 @@ NamespaceDecl *NamespaceDecl::CreateDeserialized(ASTContext &C,
                                    SourceLocation(), SourceLocation(), nullptr,
                                    nullptr, false);
 }
-
-NamespaceDecl *NamespaceDecl::getOriginalNamespace() {
-  if (isFirstDecl())
-    return this;
-
-  return AnonOrFirstNamespaceAndFlags.getPointer();
-}
-
-const NamespaceDecl *NamespaceDecl::getOriginalNamespace() const {
-  if (isFirstDecl())
-    return this;
-
-  return AnonOrFirstNamespaceAndFlags.getPointer();
-}
-
-bool NamespaceDecl::isOriginalNamespace() const { return isFirstDecl(); }
 
 NamespaceDecl *NamespaceDecl::getNextRedeclarationImpl() {
   return getNextRedeclaration();
@@ -3045,7 +3025,7 @@ NamespaceAliasDecl *NamespaceAliasDecl::Create(ASTContext &C, DeclContext *DC,
                                                NamedDecl *Namespace) {
   // FIXME: Preserve the aliased namespace as written.
   if (auto *NS = dyn_cast_or_null<NamespaceDecl>(Namespace))
-    Namespace = NS->getOriginalNamespace();
+    Namespace = NS->getFirstDecl();
   return new (C, DC) NamespaceAliasDecl(C, DC, UsingLoc, AliasLoc, Alias,
                                         QualifierLoc, IdentLoc, Namespace);
 }
@@ -3061,13 +3041,13 @@ NamespaceAliasDecl *NamespaceAliasDecl::CreateDeserialized(ASTContext &C,
 void DependentNamespaceDecl::anchor() {}
 
 DependentNamespaceDecl::DependentNamespaceDecl(
-      ASTContext &C, DeclContext *DC, CXXIndeterminateSpliceExpr *SpliceExpr)
+      ASTContext &C, DeclContext *DC, CXXSpliceSpecifierExpr *SpliceExpr)
     : NamespaceDecl(DependentNamespace, C, DC, false, SpliceExpr->getBeginLoc(),
                     SpliceExpr->getBeginLoc(), nullptr, nullptr, false),
       SpliceExpr(SpliceExpr) {}
 
 DependentNamespaceDecl *DependentNamespaceDecl::Create(
-      ASTContext &C, DeclContext *DC, CXXIndeterminateSpliceExpr *SpliceExpr) {
+      ASTContext &C, DeclContext *DC, CXXSpliceSpecifierExpr *SpliceExpr) {
   return new (C, DC) DependentNamespaceDecl(C, DC, SpliceExpr);
 }
 

@@ -37,8 +37,7 @@ public:
       DISPATCH(Declaration);
       DISPATCH(NullPtr);
       DISPATCH(Integral);
-      DISPATCH(Reflection);
-      DISPATCH(IndeterminateSplice);
+      DISPATCH(SpliceSpecifier);
       DISPATCH(StructuralValue);
       DISPATCH(Template);
       DISPATCH(TemplateExpansion);
@@ -62,8 +61,7 @@ public:
   VISIT_METHOD(Declaration);
   VISIT_METHOD(NullPtr);
   VISIT_METHOD(Integral);
-  VISIT_METHOD(Reflection);
-  VISIT_METHOD(IndeterminateSplice);
+  VISIT_METHOD(SpliceSpecifier);
   VISIT_METHOD(StructuralValue);
   VISIT_METHOD(Template);
   VISIT_METHOD(TemplateExpansion);

@@ -51,9 +51,8 @@ inline Expr *IgnoreImplicitCastsSingleStep(Expr *E) {
   if (auto *ICE = dyn_cast<ImplicitCastExpr>(E))
     return ICE->getSubExpr();
 
-  if (auto *FE = dyn_cast<FullExpr>(E)) {
-    return FE->getSubExpr() ? FE->getSubExpr() : E;
-  }
+  if (auto *FE = dyn_cast<FullExpr>(E))
+    return FE->getSubExpr();
 
   return E;
 }
@@ -80,7 +79,7 @@ inline Expr *IgnoreCastsSingleStep(Expr *E) {
     return CE->getSubExpr();
 
   if (auto *FE = dyn_cast<FullExpr>(E))
-    return FE->getSubExpr() ? FE->getSubExpr() : E;
+    return FE->getSubExpr();
 
   if (auto *MTE = dyn_cast<MaterializeTemporaryExpr>(E))
     return MTE->getSubExpr();
@@ -150,9 +149,9 @@ inline Expr *IgnoreParensOnlySingleStep(Expr *E) {
   return E;
 }
 
-inline Expr *IgnoreExprSpliceSingleStep(Expr *E) {
-  if (auto *ESE = dyn_cast<CXXExprSpliceExpr>(E))
-    return ESE->getOperand();
+inline Expr *IgnoreSpliceSingleStep(Expr *E) {
+  if (auto *SE = dyn_cast<CXXSpliceExpr>(E))
+    return SE->getOperand();
   return E;
 }
 

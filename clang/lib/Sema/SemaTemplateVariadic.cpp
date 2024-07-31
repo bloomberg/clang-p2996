@@ -106,12 +106,15 @@ namespace {
     // Record occurrences of function and non-type template parameters packs in
     // an expression.
     bool VisitCXXReflectExpr(CXXReflectExpr *E) {
-      if (E->getOperand().getKind() == ReflectionValue::RK_declaration) {
-        ValueDecl *VD = E->getOperand().getAsDecl();
+      if (E->hasDependentSubExpr())
+        return true;
+
+      if (E->getReflection().getKind() == ReflectionValue::RK_declaration) {
+        ValueDecl *VD = E->getReflection().getAsDecl();
         if (VD->isParameterPack())
           addUnexpanded(VD, E->getExprLoc());
-      } else if (E->getOperand().getKind() == ReflectionValue::RK_template) {
-        TemplateName TName = E->getOperand().getAsTemplate();
+      } else if (E->getReflection().getKind() == ReflectionValue::RK_template) {
+        TemplateName TName = E->getReflection().getAsTemplate();
         if (TName.containsUnexpandedParameterPack()) {
           addUnexpanded(TName.getAsTemplateDecl());
         }
@@ -584,6 +587,10 @@ void Sema::collectUnexpandedParameterPacks(
     .TraverseDeclarationNameInfo(NameInfo);
 }
 
+void Sema::collectUnexpandedParameterPacks(
+    Expr *E, SmallVectorImpl<UnexpandedParameterPack> &Unexpanded) {
+  CollectUnexpandedParameterPacksVisitor(Unexpanded).TraverseStmt(E);
+}
 
 ParsedTemplateArgument
 Sema::ActOnPackExpansion(const ParsedTemplateArgument &Arg,
@@ -622,8 +629,8 @@ Sema::ActOnPackExpansion(const ParsedTemplateArgument &Arg,
 
     return Arg.getTemplatePackExpansion(EllipsisLoc);
 
-  case ParsedTemplateArgument::IndeterminateSplice: {
-    ExprResult Result = ActOnPackExpansion(Arg.getAsIndeterminateSplice(),
+  case ParsedTemplateArgument::SpliceSpecifier: {
+    ExprResult Result = ActOnPackExpansion(Arg.getAsSpliceSpecifier(),
                                            EllipsisLoc);
     if (Result.isInvalid())
       return ParsedTemplateArgument();
@@ -1093,11 +1100,11 @@ static bool isParameterPack(Expr *PackExpression) {
   if (auto *D = dyn_cast<DeclRefExpr>(PackExpression); D) {
     ValueDecl *VD = D->getDecl();
     return VD->isParameterPack();
-  } else if (auto *D = dyn_cast<CXXReflectExpr>(PackExpression);
-             D && D->getOperand().getKind() ==
-                    ReflectionValue::RK_declaration) {
-    ValueDecl *VD = D->getOperand().getAsDecl();
-    return VD->isParameterPack();
+  } else if (auto *R = dyn_cast<CXXReflectExpr>(PackExpression)) {
+    if (!R->hasDependentSubExpr() &&
+        R->getReflection().getKind() == ReflectionValue::RK_declaration) {
+      return R->getReflection().getAsDecl()->isParameterPack();
+    }
   }
   return false;
 }
@@ -1193,7 +1200,7 @@ TemplateArgumentLoc Sema::getTemplateArgumentPackExpansionPattern(
     Ellipsis = Expansion->getEllipsisLoc();
     NumExpansions = Expansion->getNumExpansions();
 
-    if (auto *S = dyn_cast<CXXIndeterminateSpliceExpr>(Pattern))
+    if (auto *S = dyn_cast<CXXSpliceSpecifierExpr>(Pattern))
       return TemplateArgumentLoc(S, S);
 
     return TemplateArgumentLoc(Pattern, Pattern);
@@ -1210,13 +1217,12 @@ TemplateArgumentLoc Sema::getTemplateArgumentPackExpansionPattern(
   case TemplateArgument::NullPtr:
   case TemplateArgument::Template:
   case TemplateArgument::Integral:
-  case TemplateArgument::Reflection:
   case TemplateArgument::StructuralValue:
   case TemplateArgument::Pack:
   case TemplateArgument::Null:
     return TemplateArgumentLoc();
 
-  case TemplateArgument::IndeterminateSplice:
+  case TemplateArgument::SpliceSpecifier:
     llvm_unreachable("pack of splices should be Expression type");
   }
 
@@ -1265,7 +1271,6 @@ std::optional<unsigned> Sema::getFullyPackExpandedSize(TemplateArgument Arg) {
   case TemplateArgument::NullPtr:
   case TemplateArgument::TemplateExpansion:
   case TemplateArgument::Integral:
-  case TemplateArgument::Reflection:
   case TemplateArgument::StructuralValue:
   case TemplateArgument::Pack:
   case TemplateArgument::Null:

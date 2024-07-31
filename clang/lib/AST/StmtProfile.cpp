@@ -985,6 +985,15 @@ void StmtProfiler::VisitOMPUnrollDirective(const OMPUnrollDirective *S) {
   VisitOMPLoopTransformationDirective(S);
 }
 
+void StmtProfiler::VisitOMPReverseDirective(const OMPReverseDirective *S) {
+  VisitOMPLoopTransformationDirective(S);
+}
+
+void StmtProfiler::VisitOMPInterchangeDirective(
+    const OMPInterchangeDirective *S) {
+  VisitOMPLoopTransformationDirective(S);
+}
+
 void StmtProfiler::VisitOMPForDirective(const OMPForDirective *S) {
   VisitOMPLoopDirective(S);
 }
@@ -2308,21 +2317,23 @@ void StmtProfiler::VisitOpaqueValueExpr(const OpaqueValueExpr *E) {
 void StmtProfiler::VisitCXXReflectExpr(const CXXReflectExpr *E) {
   VisitExpr(E);
 
-  const ReflectionValue &Operand = E->getOperand();
-  ID.AddInteger(Operand.getKind());
-  ID.AddInteger(reinterpret_cast<std::size_t>(Operand.getOpaqueValue()));
+  if (E->hasDependentSubExpr()) {
+    VisitExpr(E->getDependentSubExpr());
+  } else {
+    E->getReflection().Profile(ID);
+  }
 }
 
 void StmtProfiler::VisitCXXMetafunctionExpr(const CXXMetafunctionExpr *E) {
   VisitExpr(E);
 }
 
-void StmtProfiler::VisitCXXIndeterminateSpliceExpr(
-                                          const CXXIndeterminateSpliceExpr *E) {
+void StmtProfiler::VisitCXXSpliceSpecifierExpr(
+                                              const CXXSpliceSpecifierExpr *E) {
   VisitExpr(E);
 }
 
-void StmtProfiler::VisitCXXExprSpliceExpr(const CXXExprSpliceExpr *E) {
+void StmtProfiler::VisitCXXSpliceExpr(const CXXSpliceExpr *E) {
   VisitExpr(E);
 }
 
@@ -2502,10 +2513,6 @@ void StmtProfiler::VisitTemplateArgument(const TemplateArgument &Arg) {
   case TemplateArgument::Integral:
     VisitType(Arg.getIntegralType());
     Arg.getAsIntegral().Profile(ID);
-    break;
-
-  case TemplateArgument::Reflection:
-    Arg.getAsReflection().Profile(ID);
     break;
 
   case TemplateArgument::StructuralValue:

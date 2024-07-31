@@ -2384,7 +2384,7 @@ APValue SourceLocExpr::EvaluateInContext(const ASTContext &Ctx,
 EmbedExpr::EmbedExpr(const ASTContext &Ctx, SourceLocation Loc,
                      EmbedDataStorage *Data, unsigned Begin,
                      unsigned NumOfElements)
-    : Expr(EmbedExprClass, Ctx.UnsignedCharTy, VK_PRValue, OK_Ordinary),
+    : Expr(EmbedExprClass, Ctx.IntTy, VK_PRValue, OK_Ordinary),
       EmbedKeywordLoc(Loc), Ctx(&Ctx), Data(Data), Begin(Begin),
       NumOfElements(NumOfElements) {
   setDependence(ExprDependence::None);
@@ -3084,8 +3084,8 @@ Expr *Expr::IgnoreParenCasts() {
   return IgnoreExprNodes(this, IgnoreParensSingleStep, IgnoreCastsSingleStep);
 }
 
-Expr *Expr::IgnoreExprSplices() {
-  return IgnoreExprNodes(this, IgnoreExprSpliceSingleStep);
+Expr *Expr::IgnoreSplices() {
+  return IgnoreExprNodes(this, IgnoreSpliceSingleStep);
 }
 
 Expr *Expr::IgnoreConversionOperatorSingleStep() {
@@ -3643,8 +3643,8 @@ bool Expr::HasSideEffects(const ASTContext &Ctx,
   case RequiresExprClass:
   case CXXReflectExprClass:
   case CXXMetafunctionExprClass:
-  case CXXIndeterminateSpliceExprClass:
-  case CXXExprSpliceExprClass:
+  case CXXSpliceSpecifierExprClass:
+  case CXXSpliceExprClass:
   case CXXDependentMemberSpliceExprClass:
   case StackLocationExprClass:
   case ExtractLValueExprClass:

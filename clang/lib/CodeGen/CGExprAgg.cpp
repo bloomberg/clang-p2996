@@ -241,7 +241,7 @@ public:
     Visit(E->getSelectedExpr());
   }
 
-  void VisitCXXExprSpliceExpr(CXXExprSpliceExpr *E) {
+  void VisitCXXSpliceExpr(CXXSpliceExpr *E) {
     Visit(E->getOperand());
   }
 };

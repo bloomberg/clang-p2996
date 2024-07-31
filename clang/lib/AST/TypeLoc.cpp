@@ -592,7 +592,6 @@ void TemplateSpecializationTypeLoc::initializeArgLocs(
       llvm_unreachable("Impossible TemplateArgument");
 
     case TemplateArgument::Integral:
-    case TemplateArgument::Reflection:
     case TemplateArgument::Declaration:
     case TemplateArgument::NullPtr:
     case TemplateArgument::StructuralValue:

@@ -1943,7 +1943,12 @@ CGDebugInfo::getOrCreateMethodType(const CXXMethodDecl *Method,
   if (Method->isStatic())
     return cast_or_null<llvm::DISubroutineType>(
         getOrCreateType(QualType(Func, 0), Unit));
-  return getOrCreateInstanceMethodType(Method->getThisType(), Func, Unit);
+
+  QualType ThisType;
+  if (!Method->hasCXXExplicitFunctionObjectParameter())
+    ThisType = Method->getThisType();
+
+  return getOrCreateInstanceMethodType(ThisType, Func, Unit);
 }
 
 llvm::DISubroutineType *CGDebugInfo::getOrCreateInstanceMethodType(
@@ -1975,27 +1980,31 @@ llvm::DISubroutineType *CGDebugInfo::getOrCreateInstanceMethodType(
   Elts.push_back(Args[0]);
 
   // "this" pointer is always first argument.
-  const CXXRecordDecl *RD = ThisPtr->getPointeeCXXRecordDecl();
-  if (isa<ClassTemplateSpecializationDecl>(RD)) {
-    // Create pointer type directly in this case.
-    const PointerType *ThisPtrTy = cast<PointerType>(ThisPtr);
-    uint64_t Size = CGM.getContext().getTypeSize(ThisPtrTy);
-    auto Align = getTypeAlignIfRequired(ThisPtrTy, CGM.getContext());
-    llvm::DIType *PointeeType =
-        getOrCreateType(ThisPtrTy->getPointeeType(), Unit);
-    llvm::DIType *ThisPtrType =
-        DBuilder.createPointerType(PointeeType, Size, Align);
-    TypeCache[ThisPtr.getAsOpaquePtr()].reset(ThisPtrType);
-    // TODO: This and the artificial type below are misleading, the
-    // types aren't artificial the argument is, but the current
-    // metadata doesn't represent that.
-    ThisPtrType = DBuilder.createObjectPointerType(ThisPtrType);
-    Elts.push_back(ThisPtrType);
-  } else {
-    llvm::DIType *ThisPtrType = getOrCreateType(ThisPtr, Unit);
-    TypeCache[ThisPtr.getAsOpaquePtr()].reset(ThisPtrType);
-    ThisPtrType = DBuilder.createObjectPointerType(ThisPtrType);
-    Elts.push_back(ThisPtrType);
+  // ThisPtr may be null if the member function has an explicit 'this'
+  // parameter.
+  if (!ThisPtr.isNull()) {
+    const CXXRecordDecl *RD = ThisPtr->getPointeeCXXRecordDecl();
+    if (isa<ClassTemplateSpecializationDecl>(RD)) {
+      // Create pointer type directly in this case.
+      const PointerType *ThisPtrTy = cast<PointerType>(ThisPtr);
+      uint64_t Size = CGM.getContext().getTypeSize(ThisPtrTy);
+      auto Align = getTypeAlignIfRequired(ThisPtrTy, CGM.getContext());
+      llvm::DIType *PointeeType =
+          getOrCreateType(ThisPtrTy->getPointeeType(), Unit);
+      llvm::DIType *ThisPtrType =
+          DBuilder.createPointerType(PointeeType, Size, Align);
+      TypeCache[ThisPtr.getAsOpaquePtr()].reset(ThisPtrType);
+      // TODO: This and the artificial type below are misleading, the
+      // types aren't artificial the argument is, but the current
+      // metadata doesn't represent that.
+      ThisPtrType = DBuilder.createObjectPointerType(ThisPtrType);
+      Elts.push_back(ThisPtrType);
+    } else {
+      llvm::DIType *ThisPtrType = getOrCreateType(ThisPtr, Unit);
+      TypeCache[ThisPtr.getAsOpaquePtr()].reset(ThisPtrType);
+      ThisPtrType = DBuilder.createObjectPointerType(ThisPtrType);
+      Elts.push_back(ThisPtrType);
+    }
   }
 
   // Copy rest of the arguments.
@@ -2263,17 +2272,6 @@ CGDebugInfo::CollectTemplateParams(std::optional<TemplateArgs> OArgs,
           TheCU, Name, TTy, defaultParameter,
           llvm::ConstantInt::get(CGM.getLLVMContext(), TA.getAsIntegral())));
     } break;
-    case TemplateArgument::Reflection: {
-      TemplateParams.push_back(
-          DBuilder.createTemplateValueParameter(
-              TheCU, Name,
-              getOrCreateType(CGM.getContext().MetaInfoTy, Unit),
-              defaultParameter,
-              llvm::ConstantInt::get(
-                  llvm::IntegerType::get(CGM.getLLVMContext(), sizeof(uintptr_t)),
-                  reinterpret_cast<uintptr_t>(
-                      TA.getAsReflection().getOpaqueValue()))));
-    } break;
     case TemplateArgument::Declaration: {
       const ValueDecl *D = TA.getAsDecl();
       QualType T = TA.getParamTypeForDecl().getDesugaredType(CGM.getContext());
@@ -2375,7 +2373,7 @@ CGDebugInfo::CollectTemplateParams(std::optional<TemplateArgs> OArgs,
     // And the following should never occur:
     case TemplateArgument::TemplateExpansion:
     case TemplateArgument::Null:
-    case TemplateArgument::IndeterminateSplice:
+    case TemplateArgument::SpliceSpecifier:
       llvm_unreachable(
           "These argument types shouldn't exist in concrete types");
     }
@@ -5537,7 +5535,6 @@ bool CGDebugInfo::HasReconstitutableArgs(
       // probably feasible some day.
       return TA.getAsIntegral().getBitWidth() <= 64 &&
              IsReconstitutableType(TA.getIntegralType());
-    case TemplateArgument::Reflection:
     case TemplateArgument::StructuralValue:
       return false;
     case TemplateArgument::Type:

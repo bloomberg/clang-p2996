@@ -14,7 +14,6 @@
 
 #include "clang/AST/DeclTemplate.h"
 #include "clang/AST/DeclVisitor.h"
-#include "clang/AST/Reflection.h"
 #include "clang/AST/TemplateBase.h"
 #include "clang/AST/Type.h"
 #include "clang/Basic/LLVM.h"
@@ -345,12 +344,6 @@ enum class TemplateSubstitutionKind : char {
                             bool DeducedFromArrayBound)
         : TemplateArgument(Ctx, Value, ValueType),
           DeducedFromArrayBound(DeducedFromArrayBound) {}
-
-    /// Construct an integral non-type template argument that
-    /// has been deduced, possibly from an array bound.
-    DeducedTemplateArgument(ASTContext &Ctx, const ReflectionValue &Value)
-        : TemplateArgument(Ctx, Value),
-          DeducedFromArrayBound(false) {}
 
     /// For a non-type template argument, determine whether the
     /// template argument was deduced from an array bound.

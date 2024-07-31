@@ -272,25 +272,11 @@ checkDeducedTemplateArguments(ASTContext &Context,
     // All other combinations are incompatible.
     return DeducedTemplateArgument();
 
-  case TemplateArgument::Reflection:
-    // If we deduced a constant in one case and either a dependent expression or
-    // declaration in another case, keep the integral constant.
-    // If both are integral constants with the same value, keep that value.
-    if (Y.getKind() == TemplateArgument::Expression ||
-        Y.getKind() == TemplateArgument::Declaration ||
-        (Y.getKind() == TemplateArgument::Reflection &&
-         X.getAsReflection() == Y.getAsReflection()))
-      return X;
-
-    // All other combinations are incompatible.
-    return DeducedTemplateArgument();
-
-  case TemplateArgument::IndeterminateSplice:
+  case TemplateArgument::SpliceSpecifier:
     if (Y.getKind() == TemplateArgument::Type ||
         Y.getKind() == TemplateArgument::Expression ||
         Y.getKind() == TemplateArgument::Declaration ||
-        Y.getKind() == TemplateArgument::Reflection ||
-        Y.getKind() == TemplateArgument::IndeterminateSplice ||
+        Y.getKind() == TemplateArgument::SpliceSpecifier ||
         Y.getKind() == TemplateArgument::Template)
       return X;
 
@@ -353,12 +339,6 @@ checkDeducedTemplateArguments(ASTContext &Context,
       if (Y.wasDeducedFromArrayBound())
         return TemplateArgument(Context, Y.getAsIntegral(),
                                 X.getParamTypeForDecl());
-      return Y;
-    }
-
-    // If we deduced a declaration and a reflection constant, keep the
-    // reflection constant.
-    if (Y.getKind() == TemplateArgument::Reflection) {
       return Y;
     }
 
@@ -983,9 +963,11 @@ private:
 
     // Skip over the pack elements that were expanded into separate arguments.
     // If we partially expanded, this is the number of partial arguments.
+    // FIXME: `&& FixedNumExpansions` is a workaround for UB described in
+    // https://github.com/llvm/llvm-project/issues/100095
     if (IsPartiallyExpanded)
       PackElements += NumPartialPackArgs;
-    else if (IsExpanded)
+    else if (IsExpanded && FixedNumExpansions)
       PackElements += *FixedNumExpansions;
 
     for (auto &Pack : Packs) {
@@ -2506,16 +2488,7 @@ DeduceTemplateArguments(Sema &S, TemplateParameterList *TemplateParams,
     Info.SecondArg = A;
     return TemplateDeductionResult::NonDeducedMismatch;
 
-  case TemplateArgument::Reflection:
-    if (A.getKind() == TemplateArgument::Reflection &&
-        P.getAsReflection() == A.getAsReflection())
-      return TemplateDeductionResult::Success;
-
-    Info.FirstArg = P;
-    Info.SecondArg = A;
-    return TemplateDeductionResult::NonDeducedMismatch;
-
-  case TemplateArgument::IndeterminateSplice:
+  case TemplateArgument::SpliceSpecifier:
     llvm_unreachable("TODO");
 
   case TemplateArgument::StructuralValue:
@@ -2534,8 +2507,7 @@ DeduceTemplateArguments(Sema &S, TemplateParameterList *TemplateParams,
       case TemplateArgument::Integral:
       case TemplateArgument::Expression:
       case TemplateArgument::StructuralValue:
-      case TemplateArgument::Reflection:
-      case TemplateArgument::IndeterminateSplice:
+      case TemplateArgument::SpliceSpecifier:
         return DeduceNonTypeTemplateArgument(
             S, TemplateParams, NTTP, DeducedTemplateArgument(A),
             A.getNonTypeTemplateArgumentType(), Info, Deduced);
@@ -2752,10 +2724,7 @@ static bool isSameTemplateArg(ASTContext &Context,
     case TemplateArgument::Integral:
       return hasSameExtendedValue(X.getAsIntegral(), Y.getAsIntegral());
 
-    case TemplateArgument::Reflection:
-      return X.getAsReflection() == Y.getAsReflection();
-
-    case TemplateArgument::IndeterminateSplice:
+    case TemplateArgument::SpliceSpecifier:
       return false;
 
     case TemplateArgument::StructuralValue:
@@ -2836,13 +2805,7 @@ Sema::getTrivialTemplateArgumentLoc(const TemplateArgument &Arg,
     return TemplateArgumentLoc(TemplateArgument(E), E);
   }
 
-  case TemplateArgument::Reflection: {
-    Expr *E =
-        BuildExpressionFromReflectionTemplateArgument(Arg, Loc).getAs<Expr>();
-    return TemplateArgumentLoc(TemplateArgument(E), E);
-  }
-
-  case TemplateArgument::IndeterminateSplice:
+  case TemplateArgument::SpliceSpecifier:
     llvm_unreachable("TODO: unimplemented");
 
     case TemplateArgument::Template:
@@ -6737,8 +6700,7 @@ MarkUsedTemplateParameters(ASTContext &Ctx,
   switch (TemplateArg.getKind()) {
   case TemplateArgument::Null:
   case TemplateArgument::Integral:
-  case TemplateArgument::Reflection:
-  case TemplateArgument::IndeterminateSplice:
+  case TemplateArgument::SpliceSpecifier:
   case TemplateArgument::Declaration:
   case TemplateArgument::NullPtr:
   case TemplateArgument::StructuralValue:

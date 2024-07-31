@@ -26,7 +26,7 @@
 namespace clang {
 
 class ASTContext;
-class CXXIndeterminateSpliceExpr;
+class CXXSpliceSpecifierExpr;
 class Decl;
 class DependentTemplateName;
 class IdentifierInfo;
@@ -495,7 +495,7 @@ class DependentTemplateName : public llvm::FoldingSetNode {
   enum Kind {
     DTNK_Identifier,
     DTNK_Operator,
-    DTNK_IndeterminateSplice,
+    DTNK_SpliceSpecifier,
   };
 
   /// The nested name specifier that qualifies the template
@@ -521,7 +521,7 @@ class DependentTemplateName : public llvm::FoldingSetNode {
     /// The dependent splice expression.
     ///
     /// Only valid when the NestedNameSpecifier on \c Qualifier is unset.
-    const CXXIndeterminateSpliceExpr *SpliceExpr;
+    const CXXSpliceSpecifierExpr *SpliceExpr;
   };
 
   /// The canonical template name to which this dependent
@@ -554,8 +554,8 @@ class DependentTemplateName : public llvm::FoldingSetNode {
        : Qualifier(Qualifier, DTNK_Operator), Operator(Operator),
          CanonicalTemplateName(Canon) {}
 
-  DependentTemplateName(const CXXIndeterminateSpliceExpr *SpliceExpr)
-       : Qualifier(nullptr, DTNK_IndeterminateSplice), SpliceExpr(SpliceExpr),
+  DependentTemplateName(const CXXSpliceSpecifierExpr *SpliceExpr)
+       : Qualifier(nullptr, DTNK_SpliceSpecifier), SpliceExpr(SpliceExpr),
          CanonicalTemplateName(this) {}
 
 public:
@@ -584,14 +584,13 @@ public:
     return Operator;
   }
 
-  /// Determine whether this template name refers to an indeterminate splice.
-  bool isIndeterminateSplice() const {
-    return Qualifier.getInt() == DTNK_IndeterminateSplice;
+  /// Determine whether this template name refers to a splice specifier.
+  bool isSpliceSpecifier() const {
+    return Qualifier.getInt() == DTNK_SpliceSpecifier;
   }
 
-  const CXXIndeterminateSpliceExpr *getIndeterminateSplice() const {
-    assert(isIndeterminateSplice() &&
-           "Template name isn't an indeterminate splice?");
+  const CXXSpliceSpecifierExpr *getSpliceSpecifier() const {
+    assert(isSpliceSpecifier() && "Template name isn't a splice specifier?");
     return SpliceExpr;
   }
 
@@ -601,7 +600,7 @@ public:
     else if (isOverloadedOperator())
       Profile(ID, getQualifier(), getOperator());
     else
-      Profile(ID, getIndeterminateSplice());
+      Profile(ID, getSpliceSpecifier());
   }
 
   static void Profile(llvm::FoldingSetNodeID &ID, NestedNameSpecifier *NNS,
@@ -619,10 +618,10 @@ public:
   }
 
   static void Profile(llvm::FoldingSetNodeID &ID,
-                      const CXXIndeterminateSpliceExpr *Splice) {
+                      const CXXSpliceSpecifierExpr *Splice) {
     ID.AddPointer(nullptr);
     ID.AddPointer(Splice);
-    ID.AddInteger(DTNK_IndeterminateSplice);
+    ID.AddInteger(DTNK_SpliceSpecifier);
   }
 };
 

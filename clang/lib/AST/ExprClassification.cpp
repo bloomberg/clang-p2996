@@ -207,7 +207,7 @@ static Cl::Kinds ClassifyInternal(ASTContext &Ctx, const Expr *E) {
   case Expr::ConceptSpecializationExprClass:
   case Expr::RequiresExprClass:
   case Expr::CXXReflectExprClass:
-  case Expr::CXXIndeterminateSpliceExprClass:
+  case Expr::CXXSpliceSpecifierExprClass:
   case Expr::StackLocationExprClass:
   case Expr::CXXExpansionInitListExprClass:
   case Expr::CXXExpansionSelectExprClass:
@@ -260,9 +260,9 @@ static Cl::Kinds ClassifyInternal(ASTContext &Ctx, const Expr *E) {
     }
     return Cl::CL_LValue;
 
-  case Expr::CXXExprSpliceExprClass: {
-    const auto *ESE = dyn_cast<CXXExprSpliceExpr>(E);
-    if (const auto *DRE = dyn_cast<DeclRefExpr>(ESE->getOperand())) {
+  case Expr::CXXSpliceExprClass: {
+    const auto *SE = dyn_cast<CXXSpliceExpr>(E);
+    if (const auto *DRE = dyn_cast<DeclRefExpr>(SE->getOperand())) {
       if (auto *MD = dyn_cast<CXXMethodDecl>(DRE->getDecl());
           MD && !MD->isStatic())
         return Cl::CL_MemberFunction;
@@ -270,7 +270,7 @@ static Cl::Kinds ClassifyInternal(ASTContext &Ctx, const Expr *E) {
         return Cl::CL_PRValue;
       return Cl::CL_LValue;
     }
-    return ESE->getOperand()->getValueKind() == VK_LValue ? Cl::CL_LValue :
+    return SE->getOperand()->getValueKind() == VK_LValue ? Cl::CL_LValue :
                                                             Cl::CL_PRValue;
   }
 

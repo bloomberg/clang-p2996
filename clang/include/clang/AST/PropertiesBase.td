@@ -142,8 +142,8 @@ def Selector : PropertyType;
 def SourceLocation : PropertyType;
 def StmtRef : RefPropertyType<"Stmt"> { let ConstWhenWriting = 1; }
   def ExprRef : SubclassPropertyType<"Expr", StmtRef>;
-  def CXXIndeterminateSpliceExprRef :
-      SubclassPropertyType<"CXXIndeterminateSpliceExpr", ExprRef>;
+  def CXXSpliceSpecifierExprRef :
+      SubclassPropertyType<"CXXSpliceSpecifierExpr", ExprRef>;
 def TagDataMemberSpecRef :
     RefPropertyType<"TagDataMemberSpec"> { let ConstWhenWriting = 1; }
 def TemplateArgument : PropertyType;
@@ -281,12 +281,25 @@ let Class = PropertyTypeCase<ReflectionValue, "RK_type"> in {
                            value.getAsOpaquePtr());
   }]>;
 }
-let Class = PropertyTypeCase<ReflectionValue, "RK_expr_result"> in {
-  def : Property<"value", StmtRef> {
-    let Read = [{ node.getAsExprResult() }];
+let Class = PropertyTypeCase<ReflectionValue, "RK_object"> in {
+  def : Property<"value", APValue> {
+    let Read = [{ node.getAsObject() }];
   }
   def : Creator<[{
-    return ReflectionValue(ReflectionValue::RK_expr_result, value);
+    return ReflectionValue(ReflectionValue::RK_object,
+                           new (ctx) APValue(value));
+  }]>;
+}
+let Class = PropertyTypeCase<ReflectionValue, "RK_value"> in {
+  def : Property<"value", APValue> {
+    let Read = [{ node.getAsValue() }];
+  }
+  def : Property<"type", QualType> {
+    let Read = [{ node.getResultType() }];
+  }
+  def : Creator<[{
+    return ReflectionValue(ReflectionValue::RK_value,
+                           new (ctx) APValue(value), type);
   }]>;
 }
 let Class = PropertyTypeCase<ReflectionValue, "RK_declaration"> in {
@@ -893,20 +906,9 @@ let Class = PropertyTypeCase<TemplateArgument, "Integral"> in {
     return TemplateArgument(ctx, value, type, isDefaulted);
   }]>;
 }
-let Class = PropertyTypeCase<TemplateArgument, "Reflection"> in {
-  def : Property<"value", ReflectionValue> {
-    let Read = [{ node.getAsReflection() }];
-  }
-  def : Property<"isDefaulted", Bool> {
-    let Read = [{ node.getIsDefaulted() }];
-  }
-  def : Creator<[{
-    return TemplateArgument(ctx, value, isDefaulted);
-  }]>;
-}
-let Class = PropertyTypeCase<TemplateArgument, "IndeterminateSplice"> in {
-  def : Property<"value", CXXIndeterminateSpliceExprRef> {
-    let Read = [{ node.getAsIndeterminateSplice() }];
+let Class = PropertyTypeCase<TemplateArgument, "SpliceSpecifier"> in {
+  def : Property<"value", CXXSpliceSpecifierExprRef> {
+    let Read = [{ node.getAsSpliceSpecifier() }];
   }
   def : Property<"isDefaulted", Bool> {
     let Read = [{ node.getIsDefaulted() }];

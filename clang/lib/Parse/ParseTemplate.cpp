@@ -1466,10 +1466,10 @@ ParsedTemplateArgument Parser::ParseTemplateTemplateArgument() {
   return Result;
 }
 
-ParsedTemplateArgument Parser::ParseIndeterminateSpliceTemplateArgument() {
+ParsedTemplateArgument Parser::ParseSpliceSpecifierTemplateArgument() {
   CXXScopeSpec SS;
   if (Tok.is(tok::kw_template) && NextToken().is(tok::l_splice)) {
-    if (ParseCXXIndeterminateSplice(ConsumeToken()))
+    if (ParseCXXSpliceSpecifier(ConsumeToken()))
       return ParsedTemplateArgument();
   } else if (ParseOptionalCXXScopeSpecifier(
       SS, /*ObjectType=*/nullptr,
@@ -1482,11 +1482,10 @@ ParsedTemplateArgument Parser::ParseIndeterminateSpliceTemplateArgument() {
 
   ExprResult ER = getExprAnnotation(Tok);
   assert(!ER.isInvalid());
-  CXXIndeterminateSpliceExpr *Splice =
-        cast<CXXIndeterminateSpliceExpr>(ER.get());
+  CXXSpliceSpecifierExpr *Splice = cast<CXXSpliceSpecifierExpr>(ER.get());
   ConsumeAnnotationToken();
 
-  return Actions.ActOnTemplateIndeterminateSpliceArgument(Splice);
+  return Actions.ActOnTemplateSpliceSpecifierArgument(Splice);
 }
 
 /// ParseTemplateArgument - Parse a C++ template argument (C++ [temp.names]).
@@ -1534,12 +1533,12 @@ ParsedTemplateArgument Parser::ParseTemplateArgument() {
     TPA.Revert();
   }
 
-  // Try to parse an indeterminate splice template argument.
+  // Try to parse a splice specifier template argument.
   {
     TentativeParsingAction TPA(*this);
 
     ParsedTemplateArgument SpliceTemplateArgument
-          = ParseIndeterminateSpliceTemplateArgument();
+          = ParseSpliceSpecifierTemplateArgument();
     if (!SpliceTemplateArgument.isInvalid()) {
       TPA.Commit();
       return SpliceTemplateArgument;
@@ -1562,19 +1561,6 @@ ParsedTemplateArgument Parser::ParseTemplateArgument() {
 
   return ParsedTemplateArgument(ParsedTemplateArgument::NonType,
                                 ExprArg.get(), Loc);
-}
-
-void Parser::ExpandEmbedIntoTemplateArgList(TemplateArgList &TemplateArgs) {
-  EmbedAnnotationData *Data =
-      reinterpret_cast<EmbedAnnotationData *>(Tok.getAnnotationValue());
-  SourceLocation StartLoc = ConsumeAnnotationToken();
-  ASTContext &Context = Actions.getASTContext();
-  for (auto Byte : Data->BinaryData) {
-    Expr *E = IntegerLiteral::Create(Context, llvm::APInt(CHAR_BIT, Byte),
-                                     Context.UnsignedCharTy, StartLoc);
-    TemplateArgs.push_back(
-        ParsedTemplateArgument(ParsedTemplateArgument::NonType, E, StartLoc));
-  }
 }
 
 /// ParseTemplateArgumentList - Parse a C++ template-argument-list
@@ -1601,23 +1587,19 @@ bool Parser::ParseTemplateArgumentList(TemplateArgList &TemplateArgs,
 
   do {
     PreferredType.enterFunctionArgument(Tok.getLocation(), RunSignatureHelp);
-    if (Tok.is(tok::annot_embed)) {
-      ExpandEmbedIntoTemplateArgList(TemplateArgs);
-    } else {
-      ParsedTemplateArgument Arg = ParseTemplateArgument();
-      SourceLocation EllipsisLoc;
-      if (TryConsumeToken(tok::ellipsis, EllipsisLoc))
-        Arg = Actions.ActOnPackExpansion(Arg, EllipsisLoc);
+    ParsedTemplateArgument Arg = ParseTemplateArgument();
+    SourceLocation EllipsisLoc;
+    if (TryConsumeToken(tok::ellipsis, EllipsisLoc))
+      Arg = Actions.ActOnPackExpansion(Arg, EllipsisLoc);
 
-      if (Arg.isInvalid()) {
-        if (PP.isCodeCompletionReached() && !CalledSignatureHelp)
-          RunSignatureHelp();
-        return true;
-      }
-
-      // Save this template argument.
-      TemplateArgs.push_back(Arg);
+    if (Arg.isInvalid()) {
+      if (PP.isCodeCompletionReached() && !CalledSignatureHelp)
+        RunSignatureHelp();
+      return true;
     }
+
+    // Save this template argument.
+    TemplateArgs.push_back(Arg);
 
     // If the next token is a comma, consume it and keep reading
     // arguments.

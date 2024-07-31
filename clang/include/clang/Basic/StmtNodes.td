@@ -183,8 +183,8 @@ def RequiresExpr : StmtNode<Expr>;
 // C++2c Reflection expressions
 def CXXReflectExpr : StmtNode<Expr>;
 def CXXMetafunctionExpr : StmtNode<Expr>;
-def CXXIndeterminateSpliceExpr : StmtNode<Expr>;
-def CXXExprSpliceExpr : StmtNode<Expr>;
+def CXXSpliceSpecifierExpr : StmtNode<Expr>;
+def CXXSpliceExpr : StmtNode<Expr>;
 def StackLocationExpr : StmtNode<Expr>;
 def ExtractLValueExpr : StmtNode<Expr>;
 
@@ -249,6 +249,8 @@ def OMPSimdDirective : StmtNode<OMPLoopDirective>;
 def OMPLoopTransformationDirective : StmtNode<OMPLoopBasedDirective, 1>;
 def OMPTileDirective : StmtNode<OMPLoopTransformationDirective>;
 def OMPUnrollDirective : StmtNode<OMPLoopTransformationDirective>;
+def OMPReverseDirective : StmtNode<OMPLoopTransformationDirective>;
+def OMPInterchangeDirective : StmtNode<OMPLoopTransformationDirective>;
 def OMPForDirective : StmtNode<OMPLoopDirective>;
 def OMPForSimdDirective : StmtNode<OMPLoopDirective>;
 def OMPSectionsDirective : StmtNode<OMPExecutableDirective>;

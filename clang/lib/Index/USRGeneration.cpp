@@ -1073,12 +1073,6 @@ void USRGenerator::VisitTemplateArgument(const TemplateArgument &Arg) {
     Out << Arg.getAsIntegral();
     break;
 
-  case TemplateArgument::Reflection:
-    Out << 'R';
-    VisitType(Arg.getReflectionType());
-    Out << "(reflection)";
-    break;
-
   case TemplateArgument::StructuralValue: {
     Out << 'S';
     VisitType(Arg.getStructuralValueType());

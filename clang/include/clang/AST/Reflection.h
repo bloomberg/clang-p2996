@@ -26,7 +26,6 @@ namespace clang {
 class APValue;
 class ASTContext;
 class CXXBaseSpecifier;
-class ConstantExpr;
 class NamespaceDecl;
 class ValueDecl;
 
@@ -38,60 +37,85 @@ class ReflectionValue {
 public:
   /// \brief The kind of construct reflected.
   enum ReflectionKind {
-    /// \brief A null reflection. Corresponds to no object.
+    /// \brief A null reflection.
+    ///
+    /// Corresponds to no object.
     RK_null = 0,
 
-    /// \brief A reflection of a type. Corresponds to an object of type
-    /// QualType.
-    RK_type = 1,
+    /// \brief A reflection of a type.
+    ///
+    /// Corresponds to a QualType.
+    RK_type,
 
-    /// \brief A reflection of the result of an expression. Corresponds to an
-    /// object of type ConstantExpr.
-    RK_expr_result = 2,
+    /// \brief A reflection of an object (i.e., the non-function result of an
+    /// lvalue).
+    ///
+    /// Corresponds to an APValue (plus a QualType).
+    RK_object,
+    
+    /// \brief A reflection of a value (i.e., the result of a prvalue).
+    ///
+    /// Corresponds to an APValue (plus a QualType).
+    RK_value,
 
-    /// \brief A reflection of an expression referencing an entity (e.g.,
-    /// variable, function, member function, etc). Corresponds to an object of
-    /// type Decl.
-    RK_declaration = 3,
+    /// \brief A reflection of a language construct that has a declaration in
+    /// the Clang AST.
+    ///
+    /// Corresponds to a ValueDecl, which could be any of:
+    /// - a variable (i.e., VarDecl),
+    /// - a structured binding (i.e., BindingDecl),
+    /// - a function (i.e., FunctionDecl),
+    /// - an enumerator (i.e., EnumConstantDecl),
+    /// - a non-static data member or unnamed bit-field (i.e., FieldDecl),
+    RK_declaration,
 
     /// \brief A reflection of a template (e.g., class template, variable
     /// template, function template, alias template, concept).
-    RK_template = 4,
-
-    /// \brief A reflection of a namespace. Corresponds to an object of type
-    /// Decl.
     ///
-    /// A namespace could be represented as a TranslationUnitDecl (for the
-    /// global namespace), a NamespaceAliasDecl (for namespace aliases), or a
-    /// NamespaceDecl (for all other namespaces). Somewhat annoyingly, these
-    /// classes have no nearer common ancestor than the base Decl class.
-    RK_namespace = 5,
+    /// Corresponds to a TemplateName.
+    RK_template,
 
-    /// \brief A reflection of a base class specifier. Corresponds to an object
-    /// of type CXXBaseSpecifier.
-    RK_base_specifier = 6,
+    /// \brief A reflection of a namespace.
+    ///
+    /// Corresponds to a Decl, which could be any of:
+    /// - the global namespace (i.e., TranslationUnitDecl),
+    /// - a non-global namespace (i.e., NamespaceDecl),
+    /// - a namespace alias (i.e., NamespaceAliasDecl)
+    ///
+    /// Somewhat annoyingly, these classes have no nearer common ancestor than
+    /// the Decl class.
+    RK_namespace,
+
+    /// \brief A reflection of a base class specifier.
+    ///
+    /// Corresponds to a CXXBaseSpecifier.
+    RK_base_specifier,
 
     /// \brief A reflection of a description of a hypothetical data member
-    /// (static or nonstatic) that might belong to a class or union. Corresponds
-    /// to an object of type TagDataMemberSpec.
+    /// (static or nonstatic) that might belong to a class or union.
     ///
-    /// This is specifically used for 'std::meta::data_member_description' and
-    /// 'std::meta::define_class'. If the surface area of 'define_class' grows
-    /// (i.e., supports additional types of "descriptions", e.g., for member
-    /// functions), it would be nice to find a more generic way to do this. One
-    /// idea is to allow a reflection of a type erased struct, but this seemed
-    /// like a tolerable idea for the time being.
-    RK_data_member_spec = 7,
+    /// Corresponds to a TagDataMemberSpec.
+    ///
+    /// This is specifically used for the 'std::meta::data_member_spec' and
+    /// 'std::meta::define_class' metafunctions. If the surface area of
+    /// 'define_class' grows (i.e., supports additional types of "descriptions",
+    /// e.g., for member functions), it would be nice to find a more generic way
+    /// to do this. One idea is to allow a reflection of a type erased struct,
+    /// but the current design seems tolerable for now.
+    RK_data_member_spec,
   };
 
 private:
   ReflectionKind Kind;
+
   void *Entity;
+  QualType ResultType;
 
 public:
   ReflectionValue();
   ReflectionValue(ReflectionValue const&Rhs);
-  ReflectionValue(ReflectionKind ReflKind, void *Entity);
+  ReflectionValue(ReflectionKind ReflKind, void *Entity,
+                  QualType ResultType = {});
   ReflectionValue &operator=(ReflectionValue const& Rhs);
 
   ReflectionKind getKind() const {
@@ -107,10 +131,16 @@ public:
   /// Returns this as a type operand.
   QualType getAsType() const;
 
-  /// Returns this as an expression.
-  ConstantExpr *getAsExprResult() const {
-    assert(getKind() == RK_expr_result && "not an expression result");
-    return reinterpret_cast<ConstantExpr *>(Entity);
+  /// Returns this as an APValue having an lvalue designating an object.
+  const APValue &getAsObject() const;
+
+  /// Returns this as an APValue representing a value.
+  const APValue &getAsValue() const;
+
+  /// Returns the type of the object or value represented by the reflection.
+  QualType getResultType() const {
+    assert(getKind() == RK_value || getKind() == RK_object);
+    return ResultType;
   }
 
   /// Returns this as a declaration that can hold a value.

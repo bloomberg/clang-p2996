@@ -299,6 +299,18 @@ Retry:
     goto Retry;
   }
 
+  case tok::kw_template: {
+    if (NextToken().is(tok::kw_for))  // C++2c: Expansion statement
+      return ParseForStatement(TrailingElseLoc);
+
+    SourceLocation DeclEnd;
+    ParsedAttributes Attrs(AttrFactory);
+    ParseTemplateDeclarationOrSpecialization(DeclaratorContext::Block, DeclEnd,
+                                             Attrs,
+                                             getAccessSpecifierIfPresent());
+    return StmtError();
+  }
+
   case tok::kw_case:                // C99 6.8.1: labeled-statement
     return ParseCaseStatement(StmtCtx);
   case tok::kw_default:             // C99 6.8.1: labeled-statement
@@ -324,11 +336,6 @@ Retry:
     break;
   case tok::kw_for:                 // C99 6.8.5.3: for-statement
     return ParseForStatement(TrailingElseLoc);
-
-  case tok::kw_template:            // C++2c: Expansion statement
-    if (NextToken().is(tok::kw_for))
-      return ParseForStatement(TrailingElseLoc);
-    return ParseExprStatement(StmtCtx);
 
   case tok::kw_goto:                // C99 6.8.6.1: goto-statement
     Res = ParseGotoStatement();

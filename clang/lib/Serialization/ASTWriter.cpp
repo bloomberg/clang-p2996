@@ -6099,7 +6099,6 @@ void ASTRecordWriter::AddTemplateArgumentLocInfo(
     break;
   case TemplateArgument::Null:
   case TemplateArgument::Integral:
-  case TemplateArgument::Reflection:
   case TemplateArgument::Declaration:
   case TemplateArgument::NullPtr:
   case TemplateArgument::StructuralValue:
@@ -6423,7 +6422,7 @@ void ASTRecordWriter::AddNestedNameSpecifierLoc(NestedNameSpecifierLoc NNS) {
       AddSourceRange(NNS.getLocalSourceRange());
       break;
 
-    case NestedNameSpecifier::IndeterminateSplice:
+    case NestedNameSpecifier::Splice:
       AddSourceRange(NNS.getLocalSourceRange());
       break;
     }
@@ -6554,9 +6553,6 @@ void ASTRecordWriter::AddCXXDefinitionData(const CXXRecordDecl *D) {
 
   BitsPacker DefinitionBits;
 
-  bool ShouldSkipCheckingODR = shouldSkipCheckingODR(D);
-  DefinitionBits.addBit(ShouldSkipCheckingODR);
-
 #define FIELD(Name, Width, Merge)                                              \
   if (!DefinitionBits.canWriteNextNBits(Width)) {                              \
     Record->push_back(DefinitionBits);                                         \
@@ -6569,11 +6565,9 @@ void ASTRecordWriter::AddCXXDefinitionData(const CXXRecordDecl *D) {
 
   Record->push_back(DefinitionBits);
 
-  // We only perform ODR checks for decls not in GMF.
-  if (!ShouldSkipCheckingODR)
-    // getODRHash will compute the ODRHash if it has not been previously
-    // computed.
-    Record->push_back(D->getODRHash());
+  // getODRHash will compute the ODRHash if it has not been previously
+  // computed.
+  Record->push_back(D->getODRHash());
 
   bool ModulesDebugInfo =
       Writer->Context->getLangOpts().ModulesDebugInfo && !D->isDependentType();

@@ -937,10 +937,10 @@ public:
 
   /// Skip past any expressions splices which might surround this expression
   /// until reaching a fixed point. Skips:
-  /// * CXXExprSpliceExpr
-  Expr *IgnoreExprSplices() LLVM_READONLY;
-  const Expr *IgnoreExprSplices() const {
-    return const_cast<Expr *>(this)->IgnoreExprSplices();
+  /// * CXXSpliceExpr
+  Expr *IgnoreSplices() LLVM_READONLY;
+  const Expr *IgnoreSplices() const {
+    return const_cast<Expr *>(this)->IgnoreSplices();
   }
 
   /// Skip conversion operators. If this Expr is a call to a conversion
@@ -1066,8 +1066,8 @@ protected:
    setDependence(ExprDependence::None);
  }
 public:
-  const Expr *getSubExpr() const { return SubExpr ? cast<Expr>(SubExpr) : nullptr; }
-  Expr *getSubExpr() { return SubExpr ? cast<Expr>(SubExpr) : nullptr; }
+  const Expr *getSubExpr() const { return cast<Expr>(SubExpr); }
+  Expr *getSubExpr() { return cast<Expr>(SubExpr); }
 
   /// As with any mutator of the AST, be very careful when modifying an
   /// existing AST to preserve its invariants.
@@ -1137,10 +1137,10 @@ public:
                                                   const ASTContext &Context);
 
   SourceLocation getBeginLoc() const LLVM_READONLY {
-    return SubExpr ? SubExpr->getBeginLoc() : SourceLocation();
+    return SubExpr->getBeginLoc();
   }
   SourceLocation getEndLoc() const LLVM_READONLY {
-    return SubExpr ? SubExpr->getEndLoc() : SourceLocation();
+    return SubExpr->getEndLoc();
   }
 
   static bool classof(const Stmt *T) {
@@ -2345,6 +2345,11 @@ public:
     return getTrailingFPFeatures();
   }
 
+  /// Get the store FPOptionsOverride or default if not stored.
+  FPOptionsOverride getStoredFPFeaturesOrDefault() const {
+    return hasStoredFPFeatures() ? getStoredFPFeatures() : FPOptionsOverride();
+  }
+
 protected:
   /// Set FPFeatures in trailing storage, used by Serialization & ASTImporter.
   void setStoredFPFeatures(FPOptionsOverride F) { getTrailingFPFeatures() = F; }
@@ -3108,6 +3113,11 @@ public:
     *getTrailingFPFeatures() = F;
   }
 
+  /// Get the store FPOptionsOverride or default if not stored.
+  FPOptionsOverride getStoredFPFeaturesOrDefault() const {
+    return hasStoredFPFeatures() ? getStoredFPFeatures() : FPOptionsOverride();
+  }
+
   /// Get the FP features status of this operator. Only meaningful for
   /// operations on floating point types.
   FPOptions getFPFeaturesInEffect(const LangOptions &LO) const {
@@ -3604,6 +3614,11 @@ public:
     return *getTrailingFPFeatures();
   }
 
+  /// Get the store FPOptionsOverride or default if not stored.
+  FPOptionsOverride getStoredFPFeaturesOrDefault() const {
+    return hasStoredFPFeatures() ? getStoredFPFeatures() : FPOptionsOverride();
+  }
+
   /// Get the FP features status of this operation. Only meaningful for
   /// operations on floating point types.
   FPOptions getFPFeaturesInEffect(const LangOptions &LO) const {
@@ -4049,6 +4064,10 @@ public:
   void setStoredFPFeatures(FPOptionsOverride F) {
     assert(BinaryOperatorBits.HasFPFeatures);
     *getTrailingFPFeatures() = F;
+  }
+  /// Get the store FPOptionsOverride or default if not stored.
+  FPOptionsOverride getStoredFPFeaturesOrDefault() const {
+    return hasStoredFPFeatures() ? getStoredFPFeatures() : FPOptionsOverride();
   }
 
   /// Get the FP features status of this operator. Only meaningful for

@@ -272,7 +272,7 @@ public:
         asImpl().writeDeclRef(NNS->getAsRecordDecl());
         continue;
 
-      case NestedNameSpecifier::IndeterminateSplice:
+      case NestedNameSpecifier::Splice:
         asImpl().writeExprRef(NNS->getAsSpliceExpr());
         continue;
       }

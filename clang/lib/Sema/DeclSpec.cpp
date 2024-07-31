@@ -125,10 +125,10 @@ void CXXScopeSpec::MakeSuper(ASTContext &Context, CXXRecordDecl *RD,
   "NestedNameSpecifierLoc range computation incorrect");
 }
 
-void CXXScopeSpec::MakeIndeterminateSplice(ASTContext &Context,
-                                           CXXIndeterminateSpliceExpr * Expr,
-                                           SourceLocation ColonColonLoc) {
-  Builder.MakeIndeterminateSplice(Context, Expr, ColonColonLoc);
+void CXXScopeSpec::MakeSpliceSpecifier(ASTContext &Context,
+                                       CXXSpliceSpecifierExpr * Expr,
+                                       SourceLocation ColonColonLoc) {
+  Builder.MakeSpliceSpecifier(Context, Expr, ColonColonLoc);
 
   Range.setBegin(Expr->getLSpliceLoc());
   Range.setEnd(ColonColonLoc);

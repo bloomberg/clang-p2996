@@ -38,7 +38,7 @@ ExprResult Parser::ParseCXXReflectExpression() {
       return ExprError();
     }
 
-    if (ParseCXXIndeterminateSplice(TemplateKWLoc)) {
+    if (ParseCXXSpliceSpecifier(TemplateKWLoc)) {
       SkipUntil(tok::semi, StopAtSemi | StopBeforeMatch);
       return ExprError();
     }
@@ -86,15 +86,15 @@ ExprResult Parser::ParseCXXReflectExpression() {
 
     ExprResult ER = getExprAnnotation(Tok);
     assert(!ER.isInvalid());
-    if (ParseCXXSpliceAsExpr(true).isInvalid()) {
+    ER = ParseCXXSpliceAsExpr(true);
+    if (ER.isInvalid()) {
       TentativeAction.Commit();
       SkipUntil(tok::semi, StopAtSemi | StopBeforeMatch);
       return ExprError();
     }
 
     TentativeAction.Commit();
-    return Actions.ActOnCXXReflectExpr(
-          OpLoc, cast<CXXIndeterminateSpliceExpr>(ER.get()));
+    return Actions.ActOnCXXReflectExpr(OpLoc, cast<CXXSpliceExpr>(ER.get()));
   }
 
   // Next, check for an unqualified-id.
@@ -175,7 +175,7 @@ ExprResult Parser::ParseCXXMetafunctionExpression() {
   return Actions.ActOnCXXMetafunction(KwLoc, LPLoc, Args, RPLoc);
 }
 
-bool Parser::ParseCXXIndeterminateSplice(SourceLocation TemplateKWLoc) {
+bool Parser::ParseCXXSpliceSpecifier(SourceLocation TemplateKWLoc) {
   assert(Tok.is(tok::l_splice) && "expected '[:'");
 
   BalancedDelimiterTracker SpliceTokens(*this, tok::l_splice);
@@ -201,8 +201,8 @@ bool Parser::ParseCXXIndeterminateSplice(SourceLocation TemplateKWLoc) {
   SourceLocation LSplice = SpliceTokens.getOpenLocation();
   SourceLocation RSplice = SpliceTokens.getCloseLocation();
 
-  ER = Actions.ActOnCXXIndeterminateSpliceExpr(TemplateKWLoc, LSplice, Operand,
-                                               RSplice);
+  ER = Actions.ActOnCXXSpliceSpecifierExpr(TemplateKWLoc, LSplice, Operand,
+                                           RSplice);
   if (ER.isInvalid() || ER.get()->containsErrors())
     return true;
   Expr *SpliceExpr = ER.get();
@@ -254,7 +254,7 @@ ExprResult Parser::ParseCXXSpliceAsExpr(bool AllowMemberReference) {
   ExprResult ER = getExprAnnotation(Tok);
   assert(!ER.isInvalid());
 
-  auto *Splice = cast<CXXIndeterminateSpliceExpr>(ER.get());
+  auto *Splice = cast<CXXSpliceSpecifierExpr>(ER.get());
   SourceLocation TemplateKWLoc = Splice->getTemplateKWLoc();
   SourceLocation RSpliceLoc = Tok.getAnnotationEndLoc();
   SourceLocation LSpliceLoc = ConsumeAnnotationToken();

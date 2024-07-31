@@ -7511,7 +7511,6 @@ ASTRecordReader::readTemplateArgumentLocInfo(TemplateArgument::ArgKind Kind) {
   }
   case TemplateArgument::Null:
   case TemplateArgument::Integral:
-  case TemplateArgument::Reflection:
   case TemplateArgument::Declaration:
   case TemplateArgument::NullPtr:
   case TemplateArgument::StructuralValue:
@@ -9411,11 +9410,11 @@ ASTRecordReader::readNestedNameSpecifierLoc() {
       break;
     }
 
-    case NestedNameSpecifier::IndeterminateSplice: {
-      CXXIndeterminateSpliceExpr *Expr =
-            reinterpret_cast<CXXIndeterminateSpliceExpr *>(readExpr());
+    case NestedNameSpecifier::Splice: {
+      CXXSpliceSpecifierExpr *Expr =
+            reinterpret_cast<CXXSpliceSpecifierExpr *>(readExpr());
       SourceLocation ColonColonLoc = readSourceLocation();
-      Builder.MakeIndeterminateSplice(Context, Expr, ColonColonLoc);
+      Builder.MakeSpliceSpecifier(Context, Expr, ColonColonLoc);
       break;
     }
     }
@@ -9891,6 +9890,7 @@ void ASTReader::finishPendingActions() {
             // We only perform ODR checks for decls not in the explicit
             // global module fragment.
             !shouldSkipCheckingODR(FD) &&
+            !shouldSkipCheckingODR(NonConstDefn) &&
             FD->getODRHash() != NonConstDefn->getODRHash()) {
           if (!isa<CXXMethodDecl>(FD)) {
             PendingFunctionOdrMergeFailures[FD].push_back(NonConstDefn);

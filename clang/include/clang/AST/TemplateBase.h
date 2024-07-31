@@ -18,7 +18,6 @@
 
 #include "clang/AST/DependenceFlags.h"
 #include "clang/AST/NestedNameSpecifier.h"
-#include "clang/AST/Reflection.h"
 #include "clang/AST/TemplateName.h"
 #include "clang/AST/Type.h"
 #include "clang/Basic/LLVM.h"
@@ -56,7 +55,7 @@ namespace clang {
 
 class APValue;
 class ASTContext;
-class CXXIndeterminateSpliceExpr;
+class CXXSpliceSpecifierExpr;
 class Expr;
 struct PrintingPolicy;
 class TypeSourceInfo;
@@ -86,13 +85,9 @@ public:
     /// that was provided for an integral non-type template parameter.
     Integral,
 
-    /// The template argument is a reflection value that was provided for a
-    /// meta::info non-type template parameter.
-    Reflection,
-
-    /// The template argument is an indeterminate splice of a reflection, which
-    /// might reflect any of: a type, an expression, or a class template.
-    IndeterminateSplice,
+    /// The template argument is a splice specifier, which might splice to
+    /// a type, a declaration, a structural value, or a template.
+    SpliceSpecifier,
 
     /// The template argument is a non-type template argument that can't be
     /// represented by the special-case Declaration, NullPtr, or Integral
@@ -151,14 +146,6 @@ private:
     };
     void *Type;
   };
-  struct R {
-    LLVM_PREFERRED_TYPE(ArgKind)
-    unsigned Kind : 31;
-    LLVM_PREFERRED_TYPE(bool)
-    unsigned IsDefaulted : 1;
-    llvm::AlignedCharArrayUnion<ReflectionValue> Value;
-    void *Type;
-  };
   struct V {
     LLVM_PREFERRED_TYPE(ArgKind)
     unsigned Kind : 31;
@@ -193,7 +180,6 @@ private:
   union {
     struct DA DeclArg;
     struct I Integer;
-    struct R ReflectionArg;
     struct V Value;
     struct A Args;
     struct TA TemplateArg;
@@ -232,14 +218,8 @@ public:
   TemplateArgument(const ASTContext &Ctx, QualType Type, const APValue &Value,
                    bool IsDefaulted = false);
 
-  /// Construct a reflection template argument. The memory to store the value
-  /// is allocated with Ctx.
-  TemplateArgument(ASTContext &Ctx, const ReflectionValue &Value,
-                   bool IsDefaulted = false);
-
-  /// Construct an indeterminate splice template argument.
-  TemplateArgument(CXXIndeterminateSpliceExpr *Splice,
-                   bool IsDefaulted = false);
+  /// Construct a splice specifier template argument.
+  TemplateArgument(CXXSpliceSpecifierExpr *Splice, bool IsDefaulted = false);
 
   /// Construct an integral constant template argument with the same
   /// value as Other but a different type.
@@ -404,29 +384,15 @@ public:
                   Integer.IsUnsigned);
   }
 
-  /// Retrieve the template argument as an integral value.
-  const ReflectionValue& getAsReflection() const {
-    assert(getKind() == Reflection && "Unexpected kind");
-
-    return *reinterpret_cast<const ReflectionValue *>(
-            (const char *)&ReflectionArg.Value);
-  }
-
-  CXXIndeterminateSpliceExpr *getAsIndeterminateSplice() const {
-    assert(getKind() == IndeterminateSplice && "Unexpected kind");
-    return reinterpret_cast<CXXIndeterminateSpliceExpr *>(TypeOrValue.V);
+  CXXSpliceSpecifierExpr *getAsSpliceSpecifier() const {
+    assert(getKind() == SpliceSpecifier && "Unexpected kind");
+    return reinterpret_cast<CXXSpliceSpecifierExpr *>(TypeOrValue.V);
   }
 
   /// Retrieve the type of the integral value.
   QualType getIntegralType() const {
     assert(getKind() == Integral && "Unexpected kind");
     return QualType::getFromOpaquePtr(Integer.Type);
-  }
-
-  /// Retrieve the type of the reflection value.
-  QualType getReflectionType() const {
-    assert(getKind() == Reflection && "Unexpected kind");
-    return QualType::getFromOpaquePtr(ReflectionArg.Type);
   }
 
   void setIntegralType(QualType T) {
@@ -594,8 +560,7 @@ public:
     // expression.
     assert(Argument.getKind() == TemplateArgument::NullPtr ||
            Argument.getKind() == TemplateArgument::Integral ||
-           Argument.getKind() == TemplateArgument::Reflection ||
-           Argument.getKind() == TemplateArgument::IndeterminateSplice ||
+           Argument.getKind() == TemplateArgument::SpliceSpecifier ||
            Argument.getKind() == TemplateArgument::Declaration ||
            Argument.getKind() == TemplateArgument::StructuralValue ||
            Argument.getKind() == TemplateArgument::Expression);
@@ -653,13 +618,8 @@ public:
     return LocInfo.getAsExpr();
   }
 
-  Expr *getSourceReflectionExpression() const {
-    assert(Argument.getKind() == TemplateArgument::Reflection);
-    return LocInfo.getAsExpr();
-  }
-
-  Expr *getSourceIndeterminateSpliceExpression() const {
-    assert(Argument.getKind() == TemplateArgument::IndeterminateSplice);
+  Expr *getSourceSpliceSpecifierExpression() const {
+    assert(Argument.getKind() == TemplateArgument::SpliceSpecifier);
     return LocInfo.getAsExpr();
   }
 

@@ -369,9 +369,9 @@ public:
       : Kind(None) {
     MakeAddrLabelDiff(); setAddrLabelDiff(LHSExpr, RHSExpr);
   }
-  APValue(ReflectionValue::ReflectionKind ReflKind, const void *ReflEntity)
+  APValue(ReflectionValue RV)
       : Kind(None) {
-    MakeReflection(ReflKind, ReflEntity);
+    MakeReflection(RV);
   }
   static APValue IndeterminateValue() {
     APValue Result;
@@ -604,7 +604,8 @@ public:
     return const_cast<APValue*>(this)->getReflection();
   }
   QualType getReflectedType() const;
-  ConstantExpr *getReflectedExprResult() const;
+  const APValue &getReflectedObject() const;
+  const APValue &getReflectedValue() const;
   ValueDecl *getReflectedDecl() const;
   const TemplateName getReflectedTemplate() const;
   Decl *getReflectedNamespace() const;
@@ -705,12 +706,10 @@ private:
     new ((void *)(char *)&Data) AddrLabelDiffData();
     Kind = AddrLabelDiff;
   }
-  void MakeReflection(ReflectionValue::ReflectionKind ReflKind,
-                      const void *ReflEntity) {
+  void MakeReflection(ReflectionValue RV) {
     assert(isAbsent() && "Bad state change");
 
-    new ((void *)(char *)Data.buffer) ReflectionValue(
-            ReflKind, const_cast<void *>(ReflEntity));
+    new ((void *)(char *)Data.buffer) ReflectionValue(RV);
     Kind = Reflection;
   }
 

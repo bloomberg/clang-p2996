@@ -22,19 +22,65 @@
 
 namespace clang {
 
+namespace {
+
+QualType ComputeLValueType(const APValue &V) {
+  assert(V.isLValue());
+  assert(!V.getLValueBase().isNull());
+
+  SplitQualType SQT = V.getLValueBase().getType().split();
+
+  for (auto p = V.getLValuePath().begin();
+       p != V.getLValuePath().end(); ++p) {
+    const Decl *D = V.getLValuePath().back().getAsBaseOrMember().getPointer();
+    if (D) {  // base or member case
+      if (auto *VD = dyn_cast<FieldDecl>(D)) {
+        QualType QT = VD->getType();
+        SQT.Ty = QT.getTypePtr();
+
+        if (QT.isConstQualified()) SQT.Quals.addConst();
+        if (QT.isVolatileQualified()) SQT.Quals.addVolatile();
+
+        continue;
+      } else if (auto *TD = dyn_cast<CXXRecordDecl>(D)) {
+        SQT.Ty = TD->getTypeForDecl();
+        continue;
+      }
+
+      llvm_unreachable("unknown lvalue path kind");
+    } else { // array case
+      QualType QT = cast<ArrayType>(SQT.Ty)->getElementType();
+      SQT.Ty = QT.getTypePtr();
+      if (QT.isConstQualified()) SQT.Quals.addConst();
+      if (QT.isVolatileQualified()) SQT.Quals.addVolatile();
+    }
+  }
+  return QualType(SQT.Ty, SQT.Quals.getAsOpaqueValue());
+}
+
+}  // end anonymous namespace
+
 ReflectionValue::ReflectionValue() : Kind(RK_null), Entity(nullptr) { }
 
-ReflectionValue::ReflectionValue(ReflectionKind Kind, void *Entity)
-    : Kind(Kind), Entity(Entity) {
+ReflectionValue::ReflectionValue(ReflectionKind Kind, void *Entity,
+                                 QualType ResultType)
+    : Kind(Kind), Entity(Entity), ResultType(ResultType) {
+  assert(ResultType.isNull() ^ (Kind == RK_value));
+
+  if (Kind == RK_object)
+    this->ResultType = ComputeLValueType(getAsObject());
+
+  if (Kind == RK_value) getAsValue();
 }
 
 ReflectionValue::ReflectionValue(ReflectionValue const& Rhs)
-    : Kind(Rhs.Kind), Entity(Rhs.Entity) {
+    : Kind(Rhs.Kind), Entity(Rhs.Entity), ResultType(Rhs.ResultType) {
 }
 
-ReflectionValue &ReflectionValue::operator=(ReflectionValue const&Rhs) {
+ReflectionValue &ReflectionValue::operator=(ReflectionValue const& Rhs) {
   Kind = Rhs.Kind;
   Entity = Rhs.Entity;
+  ResultType = Rhs.ResultType;
 
   return *this;
 }
@@ -93,8 +139,34 @@ QualType ReflectionValue::getAsType() const {
   return QT;
 }
 
+const APValue &ReflectionValue::getAsObject() const {
+  assert(getKind() == RK_object && "not an object");
+
+  APValue *Result = reinterpret_cast<APValue *>(Entity);
+  assert(Result->isLValue());
+  assert(!Result->getLValueBase().isNull());
+
+  return *Result;
+}
+
+const APValue &ReflectionValue::getAsValue() const {
+  assert(getKind() == RK_value && "not a value");
+
+  APValue *Result = reinterpret_cast<APValue *>(Entity);
+
+  // A reflection of a value will be either:
+  // - a non-lvalue APValue,
+  // - an lvalue APValue with pointer type, or
+  // - an lvalue APValue with null pointer type.
+  if (Result->isLValue())
+    assert(ResultType->isPointerType() || Result->isNullPointer());
+
+  return *Result;
+}
+
 void ReflectionValue::Profile(llvm::FoldingSetNodeID &ID) const {
   ID.AddInteger(Kind);
+
   switch (Kind) {
   case RK_null:
     break;
@@ -109,7 +181,8 @@ void ReflectionValue::Profile(llvm::FoldingSetNodeID &ID) const {
       // Note: This sugar only kept for alias template specializations.
       ID.AddInteger(Type::TemplateSpecialization);
       ID.AddPointer(TST->getTemplateName().getAsTemplateDecl());
-      ID.AddPointer(QT->getAsRecordDecl()->getCanonicalDecl());
+      if (auto *D = QT->getAsRecordDecl())
+        ID.AddPointer(D->getCanonicalDecl());
     } else {
       ID.AddInteger(0);
       if (auto *TDT = dyn_cast<TypedefType>(QT)) {
@@ -122,14 +195,13 @@ void ReflectionValue::Profile(llvm::FoldingSetNodeID &ID) const {
     }
     break;
   }
-  case RK_expr_result: {
-    APValue V = getAsExprResult()->getAPValueResult();
-
-    getAsExprResult()->getType()
-        .getCanonicalType().getUnqualifiedType().Profile(ID);
-    V.Profile(ID);
+  case RK_object:
+    getAsObject().Profile(ID);
     break;
-  }
+  case RK_value:
+    ResultType.getCanonicalType().getUnqualifiedType().Profile(ID);
+    getAsValue().Profile(ID);
+    break;
   case RK_declaration:
     if (auto *PVD = dyn_cast<ParmVarDecl>(getAsDecl())) {
       auto *FD = cast<FunctionDecl>(PVD->getDeclContext());

@@ -224,6 +224,7 @@ class Parser : public CodeCompletionHandler {
   std::unique_ptr<PragmaHandler> MaxTokensHerePragmaHandler;
   std::unique_ptr<PragmaHandler> MaxTokensTotalPragmaHandler;
   std::unique_ptr<PragmaHandler> RISCVPragmaHandler;
+  std::unique_ptr<PragmaHandler> MCFuncPragmaHandler;
 
   std::unique_ptr<CommentHandler> CommentSemaHandler;
 
@@ -1905,6 +1906,10 @@ private:
     UnaryExprOnly,
     PrimaryExprOnly
   };
+
+  bool isRevertibleTypeTrait(const IdentifierInfo *Id,
+                             clang::tok::TokenKind *Kind = nullptr);
+
   ExprResult ParseCastExpression(CastParseKind ParseKind,
                                  bool isAddressOfOperand,
                                  bool &NotCastExpr,
@@ -2153,7 +2158,7 @@ private:
   };
   ExprResult ParseInitializerWithPotentialDesignator(DesignatorCompletionInfo);
   ExprResult createEmbedExpr();
-  void ExpandEmbedDirective(SmallVectorImpl<Expr *> &Exprs);
+  void injectEmbedTokens();
 
   //===--------------------------------------------------------------------===//
   // clang Expressions
@@ -3408,11 +3413,15 @@ private:
   BaseResult ParseBaseSpecifier(Decl *ClassDecl);
   AccessSpecifier getAccessSpecifierIfPresent() const;
 
-  bool ParseUnqualifiedIdTemplateId(
-      CXXScopeSpec &SS, ParsedType ObjectType, bool ObjectHadErrors,
-      SourceLocation TemplateKWLoc, SourceLocation TildeLoc,
-      IdentifierInfo *Name, SourceLocation NameLoc, bool EnteringContext,
-      UnqualifiedId &Id, bool AssumeTemplateId);
+  bool ParseUnqualifiedIdTemplateId(CXXScopeSpec &SS,
+                                    ParsedType ObjectType,
+                                    bool ObjectHadErrors,
+                                    SourceLocation TemplateKWLoc,
+                                    IdentifierInfo *Name,
+                                    SourceLocation NameLoc,
+                                    bool EnteringContext,
+                                    UnqualifiedId &Id,
+                                    bool AssumeTemplateId);
   bool ParseUnqualifiedIdOperator(CXXScopeSpec &SS, bool EnteringContext,
                                   ParsedType ObjectType,
                                   UnqualifiedId &Result);
@@ -3866,11 +3875,10 @@ private:
   AnnotateTemplateIdTokenAsType(CXXScopeSpec &SS,
                                 ImplicitTypenameContext AllowImplicitTypename,
                                 bool IsClassName = false);
-  void ExpandEmbedIntoTemplateArgList(TemplateArgList &TemplateArgs);
   bool ParseTemplateArgumentList(TemplateArgList &TemplateArgs,
                                  TemplateTy Template, SourceLocation OpenLoc);
   ParsedTemplateArgument ParseTemplateTemplateArgument();
-  ParsedTemplateArgument ParseIndeterminateSpliceTemplateArgument();
+  ParsedTemplateArgument ParseSpliceSpecifierTemplateArgument();
   ParsedTemplateArgument ParseTemplateArgument();
   DeclGroupPtrTy ParseExplicitInstantiation(DeclaratorContext Context,
                                             SourceLocation ExternLoc,
@@ -3923,12 +3931,14 @@ private:
   ExprResult ParseArrayTypeTrait();
   ExprResult ParseExpressionTrait();
 
+  ExprResult ParseBuiltinPtrauthTypeDiscriminator();
+
   //===--------------------------------------------------------------------===//
   // C++2c: Reflection [P2996]
   ExprResult ParseCXXReflectExpression();
   ExprResult ParseCXXMetafunctionExpression();
 
-  bool ParseCXXIndeterminateSplice(SourceLocation TemplateKWLoc = {});
+  bool ParseCXXSpliceSpecifier(SourceLocation TemplateKWLoc = {});
 
   TypeResult ParseCXXSpliceAsType(bool AllowDependent, bool Complain);
   ExprResult ParseCXXSpliceAsExpr(bool AllowMemberReference);

@@ -298,10 +298,10 @@ public:
                                             asImpl().readCXXRecordDeclRef());
         continue;
 
-      case NestedNameSpecifier::IndeterminateSplice:
-        cur = NestedNameSpecifier::IndeterminateSpliceSpecifier(
+      case NestedNameSpecifier::Splice:
+        cur = NestedNameSpecifier::SpliceSpecifier(
                 ctx,
-                reinterpret_cast<CXXIndeterminateSpliceExpr *>(
+                reinterpret_cast<CXXSpliceSpecifierExpr *>(
                       asImpl().readExprRef()));
         continue;
       }

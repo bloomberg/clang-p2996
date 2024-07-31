@@ -937,8 +937,8 @@ void clang::TextNodeDumper::dumpNestedNameSpecifier(const NestedNameSpecifier *N
     case NestedNameSpecifier::Super:
       OS << " Super";
       break;
-    case NestedNameSpecifier::IndeterminateSplice:
-      OS << " IndeterminateSplice";
+    case NestedNameSpecifier::Splice:
+      OS << " SpliceSpecifier";
       break;
     }
 
@@ -2393,8 +2393,8 @@ void TextNodeDumper::VisitNamespaceDecl(const NamespaceDecl *D) {
     OS << " inline";
   if (D->isNested())
     OS << " nested";
-  if (!D->isOriginalNamespace())
-    dumpDeclRef(D->getOriginalNamespace(), "original");
+  if (!D->isFirstDecl())
+    dumpDeclRef(D->getFirstDecl(), "original");
 }
 
 void TextNodeDumper::VisitUsingDirectiveDecl(const UsingDirectiveDecl *D) {

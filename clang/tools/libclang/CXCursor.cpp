@@ -673,6 +673,12 @@ CXCursor cxcursor::MakeCXCursor(const Stmt *S, const Decl *Parent,
   case Stmt::OMPUnrollDirectiveClass:
     K = CXCursor_OMPUnrollDirective;
     break;
+  case Stmt::OMPReverseDirectiveClass:
+    K = CXCursor_OMPReverseDirective;
+    break;
+  case Stmt::OMPInterchangeDirectiveClass:
+    K = CXCursor_OMPTileDirective;
+    break;
   case Stmt::OMPForDirectiveClass:
     K = CXCursor_OMPForDirective;
     break;
@@ -1477,8 +1483,6 @@ enum CXTemplateArgumentKind clang_Cursor_getTemplateArgumentKind(CXCursor C,
     return CXTemplateArgumentKind_NullPtr;
   case TemplateArgument::Integral:
     return CXTemplateArgumentKind_Integral;
-  case TemplateArgument::Reflection:
-    return CXTemplateArgumentKind_Reflection;
   case TemplateArgument::StructuralValue:
     // FIXME: Expose these values.
     return CXTemplateArgumentKind_Invalid;

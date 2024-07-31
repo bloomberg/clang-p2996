@@ -379,8 +379,7 @@ APValue::APValue(const APValue &RHS) : Kind(None) {
     setAddrLabelDiff(RHS.getAddrLabelDiffLHS(), RHS.getAddrLabelDiffRHS());
     break;
   case Reflection: {
-    const ReflectionValue& Refl = RHS.getReflection();
-    MakeReflection(Refl.getKind(), Refl.getOpaqueValue());
+    MakeReflection(RHS.getReflection());
     break;
   }
   }
@@ -631,45 +630,35 @@ void APValue::Profile(llvm::FoldingSetNodeID &ID) const {
 }
 
 QualType APValue::getReflectedType() const {
-  const ReflectionValue& Refl = getReflection();
-  assert(Refl.getKind() == ReflectionValue::RK_type);
-  return Refl.getAsType();
+  return getReflection().getAsType();
 }
 
-ConstantExpr *APValue::getReflectedExprResult() const {
-  const ReflectionValue &Refl = getReflection();
-  assert(Refl.getKind() == ReflectionValue::RK_expr_result);
-  return Refl.getAsExprResult();
+const APValue &APValue::getReflectedObject() const {
+  return getReflection().getAsObject();
+}
+
+const APValue &APValue::getReflectedValue() const {
+  return getReflection().getAsValue();
 }
 
 ValueDecl *APValue::getReflectedDecl() const {
-  const ReflectionValue &Refl = getReflection();
-  assert(Refl.getKind() == ReflectionValue::RK_declaration);
-  return Refl.getAsDecl();
+  return getReflection().getAsDecl();
 }
 
 const TemplateName APValue::getReflectedTemplate() const {
-  const ReflectionValue &Refl = getReflection();
-  assert(Refl.getKind() == ReflectionValue::RK_template);
-  return Refl.getAsTemplate();
+  return getReflection().getAsTemplate();
 }
 
 Decl *APValue::getReflectedNamespace() const {
-  const ReflectionValue &Refl = getReflection();
-  assert(Refl.getKind() == ReflectionValue::RK_namespace);
-  return Refl.getAsNamespace();
+  return getReflection().getAsNamespace();
 }
 
 CXXBaseSpecifier *APValue::getReflectedBaseSpecifier() const {
-  const ReflectionValue &Refl = getReflection();
-  assert(Refl.getKind() == ReflectionValue::RK_base_specifier);
-  return Refl.getAsBaseSpecifier();
+  return getReflection().getAsBaseSpecifier();
 }
 
 TagDataMemberSpec *APValue::getReflectedDataMemberSpec() const {
- const ReflectionValue &Refl = getReflection();
- assert(Refl.getKind() == ReflectionValue::RK_data_member_spec);
- return Refl.getAsDataMemberSpec();
+  return getReflection().getAsDataMemberSpec();
 }
 
 static double GetApproxValue(const llvm::APFloat &F) {
@@ -1002,8 +991,11 @@ void APValue::printPretty(raw_ostream &Out, const PrintingPolicy &Policy,
     case ReflectionValue::RK_type:
       Repr = "type";
       break;
-    case ReflectionValue::RK_expr_result:
-      Repr = "expression-result";
+    case ReflectionValue::RK_object:
+      Repr = "object";
+      break;
+    case ReflectionValue::RK_value:
+      Repr = "value";
       break;
     case ReflectionValue::RK_declaration:
       Repr = "declaration";
