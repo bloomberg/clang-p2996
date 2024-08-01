@@ -4420,6 +4420,23 @@ bool reflect_result(APValue &Result, Sema &S, EvalFn Evaluator,
   return SetAndSucceed(Result, APValue(RV));
 }
 
+bool is_nonstatic_member_function(ValueDecl *FD) {
+  if (!FD) {
+    return false;
+  }
+
+  if (dyn_cast<CXXConstructorDecl>(FD)) {
+    return false;
+  }
+
+  auto* MD = dyn_cast<CXXMethodDecl>(FD);
+  if (!MD) {
+    return false;
+  }
+
+  return !MD->isStatic();
+}
+
 bool reflect_invoke(APValue &Result, Sema &S, EvalFn Evaluator,
                     DiagFn Diagnoser, QualType ResultTy, SourceRange Range,
                     ArrayRef<Expr *> Args) {
@@ -4572,10 +4589,18 @@ bool reflect_invoke(APValue &Result, Sema &S, EvalFn Evaluator,
     {
       sema::TemplateDeductionInfo Info(Args[0]->getExprLoc(),
                                        FTD->getTemplateDepth());
+
+      bool exclude_first_arg =
+          is_nonstatic_member_function(FTD->getTemplatedDecl()) &&
+          ArgExprs.size() > 0;
+
       TemplateDeductionResult Result = S.DeduceTemplateArguments(
-            FTD, &ExplicitTAListInfo, ArgExprs, Specialization, Info, false,
-            true, QualType(), Expr::Classification(),
-            [](ArrayRef<QualType>) { return false; });
+          FTD, &ExplicitTAListInfo,
+          exclude_first_arg
+              ? SmallVector<Expr *, 4>(ArgExprs.begin() + 1, ArgExprs.end())
+              : ArgExprs,
+          Specialization, Info, false, true, QualType(), Expr::Classification(),
+          [](ArrayRef<QualType>) { return false; });
       if (Result != TemplateDeductionResult::Success)
         return Diagnoser(Range.getBegin(), diag::metafn_no_specialization_found)
             << FTD << Range;
@@ -4606,55 +4631,55 @@ bool reflect_invoke(APValue &Result, Sema &S, EvalFn Evaluator,
           CXXConstructionKind::Complete, Range);
     } else {
       auto *FnExpr = FnRefExpr;
-      auto FnArgs = ArgExprs;
+      auto FnArgExprs = ArgExprs;
 
-      if (DRE && dyn_cast<CXXMethodDecl>(DRE->getDecl())) {
+      if (DRE && is_nonstatic_member_function(DRE->getDecl())) {
         auto *MD = cast<CXXMethodDecl>(DRE->getDecl());
-        if (!MD->isStatic()) {
-          // todo: add diagnostic notes
-          if (ArgExprs.size() < 1) {
-            // need to have object as a first argument
-            return true;
-          }
-
-          auto ObjExpr = ArgExprs[0];
-          auto ObjType = ObjExpr->getType();
-
-          if (ObjType->isPointerType()) {
-            ObjType = ObjType->getPointeeType();
-          }
-
-          if (!ObjType->getAsCXXRecordDecl()) {
-            // first argument is not an object
-            return true;
-          }
-
-          // todo: add check if method belongs to class
-
-          SourceLocation ObjLoc = ObjExpr->getExprLoc();
-          UnqualifiedId Name;
-          Name.setIdentifier(MD->getIdentifier(), ObjLoc);
-
-          CXXScopeSpec SS;
-          SourceLocation TemplateKWLoc;
-          // todo: improve for template member functions if needed
-
-          ExprResult MemberAccessResult = S.ActOnMemberAccessExpr(
-              S.getCurScope(), S.MakeFullExpr(ObjExpr).get(), ObjLoc,
-              ObjExpr->getType()->isPointerType() ? tok::arrow : tok::period,
-              SS, TemplateKWLoc, Name, nullptr);
-
-          if (MemberAccessResult.isInvalid()) {
-            return true;
-          }
-
-          FnExpr = MemberAccessResult.get();
-          // exclude first argument because it's an object
-          FnArgs = {ArgExprs.begin() + 1, ArgExprs.end()};
+        // todo: add diagnostic notes
+        if (ArgExprs.size() < 1) {
+          // need to have object as a first argument
+          return true;
         }
+
+        auto ObjExpr = ArgExprs[0];
+        auto ObjType = ObjExpr->getType();
+
+        if (ObjType->isPointerType()) {
+          ObjType = ObjType->getPointeeType();
+        }
+
+        if (!ObjType->getAsCXXRecordDecl()) {
+          // first argument is not an object
+          return true;
+        }
+
+        // todo: add check if method belongs to class
+        // todo: check that return value is not void
+        // todo: prohibit virtual methods
+
+        SourceLocation ObjLoc = ObjExpr->getExprLoc();
+        UnqualifiedId Name;
+        Name.setIdentifier(MD->getIdentifier(), ObjLoc);
+
+        CXXScopeSpec SS;
+        SourceLocation TemplateKWLoc;
+        // todo: improve for template member functions if needed
+
+        ExprResult MemberAccessResult = S.ActOnMemberAccessExpr(
+            S.getCurScope(), S.MakeFullExpr(ObjExpr).get(), ObjLoc,
+            ObjExpr->getType()->isPointerType() ? tok::arrow : tok::period, SS,
+            TemplateKWLoc, Name, nullptr);
+
+        if (MemberAccessResult.isInvalid()) {
+          return true;
+        }
+
+        FnExpr = MemberAccessResult.get();
+        // exclude first argument because it's an object
+        FnArgExprs = {ArgExprs.begin() + 1, ArgExprs.end()};
       }
 
-      ER = S.ActOnCallExpr(S.getCurScope(), FnExpr, Range.getBegin(), FnArgs,
+      ER = S.ActOnCallExpr(S.getCurScope(), FnExpr, Range.getBegin(), FnArgExprs,
                            Range.getEnd(), /*ExecConfig=*/nullptr);
     }
   }
