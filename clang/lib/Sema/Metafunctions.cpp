@@ -4429,7 +4429,9 @@ bool is_nonstatic_member_function(ValueDecl *FD) {
     return false;
   }
 
-  auto* MD = dyn_cast<CXXMethodDecl>(FD);
+  // todo: check that method is not special??
+
+  auto *MD = dyn_cast<CXXMethodDecl>(FD);
   if (!MD) {
     return false;
   }
@@ -4635,10 +4637,12 @@ bool reflect_invoke(APValue &Result, Sema &S, EvalFn Evaluator,
 
       if (DRE && is_nonstatic_member_function(DRE->getDecl())) {
         auto *MD = cast<CXXMethodDecl>(DRE->getDecl());
-        // todo: add diagnostic notes
+
         if (ArgExprs.size() < 1) {
           // need to have object as a first argument
-          return true;
+          return Diagnoser(Range.getBegin(),
+                           diag::metafn_first_argument_is_not_object)
+                 << Range;
         }
 
         auto ObjExpr = ArgExprs[0];
@@ -4650,12 +4654,24 @@ bool reflect_invoke(APValue &Result, Sema &S, EvalFn Evaluator,
 
         if (!ObjType->getAsCXXRecordDecl()) {
           // first argument is not an object
-          return true;
+          return Diagnoser(Range.getBegin(),
+                           diag::metafn_first_argument_is_not_object)
+                 << Range;
         }
 
-        // todo: add check if method belongs to class
-        // todo: check that return value is not void
-        // todo: prohibit virtual methods
+        // check that method belongs to class
+        if (ObjType->getAsCXXRecordDecl()->getDeclName() !=
+            MD->getParent()->getDeclName()) {
+          return Diagnoser(Range.getBegin(),
+                           diag::metafn_function_is_not_member_of_object)
+                 << Range;
+        }
+
+        if (MD->getReturnType()->isVoidType()) {
+          // void return type is not supported
+          return Diagnoser(Range.getBegin(), diag::metafn_function_returns_void)
+                 << Range;
+        }
 
         SourceLocation ObjLoc = ObjExpr->getExprLoc();
         UnqualifiedId Name;
@@ -4663,7 +4679,6 @@ bool reflect_invoke(APValue &Result, Sema &S, EvalFn Evaluator,
 
         CXXScopeSpec SS;
         SourceLocation TemplateKWLoc;
-        // todo: improve for template member functions if needed
 
         ExprResult MemberAccessResult = S.ActOnMemberAccessExpr(
             S.getCurScope(), S.MakeFullExpr(ObjExpr).get(), ObjLoc,
@@ -4679,8 +4694,8 @@ bool reflect_invoke(APValue &Result, Sema &S, EvalFn Evaluator,
         FnArgExprs = {ArgExprs.begin() + 1, ArgExprs.end()};
       }
 
-      ER = S.ActOnCallExpr(S.getCurScope(), FnExpr, Range.getBegin(), FnArgExprs,
-                           Range.getEnd(), /*ExecConfig=*/nullptr);
+      ER = S.ActOnCallExpr(S.getCurScope(), FnExpr, Range.getBegin(),
+                           FnArgExprs, Range.getEnd(), /*ExecConfig=*/nullptr);
     }
   }
 
