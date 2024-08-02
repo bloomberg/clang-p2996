@@ -957,7 +957,8 @@ public:
            (Tok.is(tok::identifier) || Tok.is(tok::coloncolon) ||
             (Tok.is(tok::annot_template_id) &&
              NextToken().is(tok::coloncolon)) ||
-            Tok.is(tok::kw_decltype) || Tok.is(tok::kw___super));
+            Tok.is(tok::kw_decltype) || Tok.is(tok::kw___super) || 
+            Tok.isOneOf(tok::l_splice, tok::annot_splice));
   }
   bool TryAnnotateOptionalCXXScopeToken(bool EnteringContext = false) {
     return MightBeCXXScopeToken() && TryAnnotateCXXScopeToken(EnteringContext);
