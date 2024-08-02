@@ -61,7 +61,7 @@ def metafn_invocation_not_constant_expr : Note<
   "invocation is not a constant expression">;
 def metafn_first_argument_is_not_object : Note<
   "expected related object reflection as a first argument for invoking "
-  "member non-static function">;
+  "non-static member function">;
 def metafn_function_is_not_member_of_object : Note<
    "method is not a member of "
    "given object reflection">;
