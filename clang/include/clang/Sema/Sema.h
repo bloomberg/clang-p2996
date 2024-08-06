@@ -8554,7 +8554,8 @@ public:
                                               CXXScopeSpec &SS,
                                               SourceLocation NameLoc,
                                               const IdentifierInfo *TypeName,
-                                              TemplateIdAnnotation *TemplateId);
+                                              TemplateIdAnnotation *TemplateId,
+                                              CXXSpliceSpecifierExpr *SpliceExpr);
   concepts::Requirement *ActOnCompoundRequirement(Expr *E,
                                                   SourceLocation NoexceptLoc);
   concepts::Requirement *ActOnCompoundRequirement(
