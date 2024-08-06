@@ -9244,9 +9244,11 @@ concepts::Requirement *Sema::ActOnSimpleRequirement(Expr *E) {
 
 concepts::Requirement *Sema::ActOnTypeRequirement(
     SourceLocation TypenameKWLoc, CXXScopeSpec &SS, SourceLocation NameLoc,
-    const IdentifierInfo *TypeName, TemplateIdAnnotation *TemplateId) {
-  assert(((!TypeName && TemplateId) || (TypeName && !TemplateId)) &&
-         "Exactly one of TypeName and TemplateId must be specified.");
+    const IdentifierInfo *TypeName, TemplateIdAnnotation *TemplateId,
+    CXXSpliceSpecifierExpr *SpliceExpr) {
+  assert(((bool(TypeName) + bool(TemplateId) + bool(SpliceExpr)) == 1) &&
+         "Exactly one of TypeName, TemplateId and SpliceExpr "
+         "must be specified.");
   TypeSourceInfo *TSI = nullptr;
   if (TypeName) {
     QualType T =
@@ -9255,7 +9257,7 @@ concepts::Requirement *Sema::ActOnTypeRequirement(
                           &TSI, /*DeducedTSTContext=*/false);
     if (T.isNull())
       return nullptr;
-  } else {
+  } else if (TemplateId) {
     ASTTemplateArgsPtr ArgsPtr(TemplateId->getTemplateArgs(),
                                TemplateId->NumArgs);
     TypeResult T = ActOnTypenameType(CurScope, TypenameKWLoc, SS,
@@ -9268,6 +9270,16 @@ concepts::Requirement *Sema::ActOnTypeRequirement(
       return nullptr;
     if (GetTypeFromParser(T.get(), &TSI).isNull())
       return nullptr;
+  } else {
+    TypeResult T = ActOnCXXSpliceExpectingType(
+          SpliceExpr->getLSpliceLoc(), SpliceExpr->getOperand(), SpliceExpr->getRSpliceLoc(),
+          true);
+    if (T.isInvalid()) {
+      return nullptr;
+    }
+    if (GetTypeFromParser(T.get(), &TSI).isNull()) {
+      return nullptr;
+    }
   }
   return BuildTypeRequirement(TSI);
 }

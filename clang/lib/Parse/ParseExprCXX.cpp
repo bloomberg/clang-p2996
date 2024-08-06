@@ -3852,25 +3852,32 @@ ExprResult Parser::ParseRequiresExpression() {
             ConsumeAnnotationToken();
           }
 
-          if (Tok.isOneOf(tok::identifier, tok::annot_template_id) &&
+          if (Tok.isOneOf(
+              tok::identifier, tok::annot_template_id, tok::annot_splice) &&
               !NextToken().isOneOf(tok::l_brace, tok::l_paren)) {
             TPA.Commit();
             SourceLocation NameLoc = Tok.getLocation();
             IdentifierInfo *II = nullptr;
             TemplateIdAnnotation *TemplateId = nullptr;
+            CXXSpliceSpecifierExpr *SpliceExpr = nullptr;
             if (Tok.is(tok::identifier)) {
               II = Tok.getIdentifierInfo();
               ConsumeToken();
-            } else {
+            } else if (Tok.is(tok::annot_template_id)) {
               TemplateId = takeTemplateIdAnnotation(Tok);
               ConsumeAnnotationToken();
               if (TemplateId->isInvalid())
                 break;
+            } else {
+              ExprResult Result = getExprAnnotation(Tok);
+              ConsumeAnnotationToken();
+              SpliceExpr = dyn_cast<CXXSpliceSpecifierExpr>(Result.get());
             }
 
             if (auto *Req = Actions.ActOnTypeRequirement(TypenameKWLoc, SS,
                                                          NameLoc, II,
-                                                         TemplateId)) {
+                                                         TemplateId,
+                                                         SpliceExpr)) {
               Requirements.push_back(Req);
             }
             break;
