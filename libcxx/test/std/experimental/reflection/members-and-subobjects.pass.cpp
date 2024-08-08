@@ -155,12 +155,16 @@ void fn();
 struct Cls {};
 using Alias = int;
 
-template <typename T> class TCls {};
+template <typename T1, typename T2> class TCls {};
 template <typename T> void TFn() {}
 ;  // Empty declarations should not be represented in 'members_of'.
-template <typename T> int TVar = 0;
+template <typename T1, typename T2> int TVar = 0;
 template <typename T> using TAlias = int;
 template <typename T> concept Concept = requires { true; };
+
+// Partial specializations are not representable in P2996.
+template <typename T2> class TCls<int, T2> {};
+template <typename T2> int TVar<int, T2> = 1;
 
 }  // namespace myns
 
@@ -178,6 +182,48 @@ static_assert((members_of(^myns) | std::views::filter(std::meta::is_template) |
                                    std::ranges::to<std::vector>()) ==
               std::vector{^myns::TAlias});
 }  // namespace_members
+
+                         // ===========================
+                         // language_linkage_specifiers
+                         // ===========================
+
+namespace language_linkage_specifiers {
+namespace with_empty {
+extern "C" { }
+}  // namespace with_empty
+
+namespace leading_node {
+extern "C" {
+void fn1();
+}  // extern "C"
+
+void fn2();
+}  // namespace leading_node
+
+namespace multiple_blocks {
+extern "C" {
+void fn3();
+}  // extern "C"
+
+void fn4();
+
+extern "C" {
+void fn5();
+}  // extern "C"
+}  // namespace multiple_blocks
+
+namespace multiple_blocks {
+void fn6();
+
+extern "C" {
+void fn7();
+}
+}  // namespace multiple_blocks
+
+static_assert(members_of(^with_empty).size() == 0);
+static_assert(members_of(^leading_node).size() == 2);
+static_assert(members_of(^multiple_blocks).size() == 5);
+}  // namespace language_linkage_specifiers
 
                          // ==========================
                          // inaccessible_class_members

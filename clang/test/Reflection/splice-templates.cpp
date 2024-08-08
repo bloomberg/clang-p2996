@@ -36,22 +36,12 @@ struct S {
   template <typename T> static constexpr int TMemVar = 0;
 };
 
-static_assert(^template [:^TCls:] == ^TCls);
-static_assert(^typename [:^TCls:]<int> == ^TCls<int>);
-static_assert(^template [:^TCls:]<int> == ^typename [:^TCls:]<int>);
 static_assert(is_same_v<typename [:^TCls:]<int>, TCls<int>>);
-static_assert(^typename [:^TAlias:]<int> == ^TAlias<int>);
 static_assert(is_same_v<typename [:^TAlias:]<int>, TCls<int>>);
-static_assert(^template [:^TFn:] == ^TFn);
-static_assert(^template [:^TFn:]<int> == ^TFn<int>);
 static_assert(&template [:^TFn:]<int> == &TFn<int>);
-static_assert(^template [:^TVar:]<int> == ^TVar<int>);
 static_assert(&template [:^TVar:]<int> == &TVar<int>);
-static_assert(^template [:^S::TInner:]<int> == ^S::TInner<int>);
 static_assert(is_same_v<typename [:^S::TInner:]<int>, S::TInner<int>>);
-static_assert(^template [:^S::TFn:]<int> == ^S::TFn<int>);
 static_assert(&template [:^S::TFn:]<int> == &S::TFn<int>);
-static_assert(^template [:^S::TMemVar:]<int> == ^S::TMemVar<int>);
 static_assert(&template [:^S::TMemVar:]<int> == &S::TMemVar<int>);
 }  // namespace idempotency
 

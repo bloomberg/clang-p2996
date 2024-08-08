@@ -136,8 +136,7 @@ def OverloadedOperatorKind : EnumPropertyType;
 def Qualifiers : PropertyType;
 def QualType : DefaultValuePropertyType;
 def RefQualifierKind : EnumPropertyType;
-def ReflectionKind : EnumPropertyType<"ReflectionValue::ReflectionKind">;
-def ReflectionValue : PropertyType { let PassByReference = 1; }
+def ReflectionKind : EnumPropertyType<"ReflectionKind">;
 def Selector : PropertyType;
 def SourceLocation : PropertyType;
 def StmtRef : RefPropertyType<"Stmt"> { let ConstWhenWriting = 1; }
@@ -262,86 +261,6 @@ class PropertyTypeCase<PropertyType type, string name> : HasProperties {
 
   /// The name of the case (a value of the type's kind enum).
   string Name = name;
-}
-
-// Type cases for ReflectionValue.
-def : PropertyTypeKind<ReflectionValue, ReflectionKind,
-                       "node.getKind()">;
-let Class = PropertyTypeCase<ReflectionValue, "RK_null"> in {
-  def : Creator<[{
-    return ReflectionValue();
-  }]>;
-}
-let Class = PropertyTypeCase<ReflectionValue, "RK_type"> in {
-  def : Property<"value", QualType> {
-    let Read = [{ node.getAsType() }];
-  }
-  def : Creator<[{
-    return ReflectionValue(ReflectionValue::RK_type,
-                           value.getAsOpaquePtr());
-  }]>;
-}
-let Class = PropertyTypeCase<ReflectionValue, "RK_object"> in {
-  def : Property<"value", APValue> {
-    let Read = [{ node.getAsObject() }];
-  }
-  def : Creator<[{
-    return ReflectionValue(ReflectionValue::RK_object,
-                           new (ctx) APValue(value));
-  }]>;
-}
-let Class = PropertyTypeCase<ReflectionValue, "RK_value"> in {
-  def : Property<"value", APValue> {
-    let Read = [{ node.getAsValue() }];
-  }
-  def : Property<"type", QualType> {
-    let Read = [{ node.getResultType() }];
-  }
-  def : Creator<[{
-    return ReflectionValue(ReflectionValue::RK_value,
-                           new (ctx) APValue(value), type);
-  }]>;
-}
-let Class = PropertyTypeCase<ReflectionValue, "RK_declaration"> in {
-  def : Property<"value", ValueDeclRef> {
-    let Read = [{ node.getAsDecl() }];
-  }
-  def : Creator<[{
-    return ReflectionValue(ReflectionValue::RK_declaration, value);
-  }]>;
-}
-let Class = PropertyTypeCase<ReflectionValue, "RK_template"> in {
-  def : Property<"value", TemplateName> {
-    let Read = [{ node.getAsTemplate() }];
-  }
-  def : Creator<[{
-    return ReflectionValue(ReflectionValue::RK_template,
-                           value.getAsTemplateDecl());
-  }]>;
-}
-let Class = PropertyTypeCase<ReflectionValue, "RK_namespace"> in {
-  def : Property<"value", DeclRef> {
-    let Read = [{ node.getAsNamespace() }];
-  }
-  def : Creator<[{
-    return ReflectionValue(ReflectionValue::RK_namespace, value);
-  }]>;
-}
-let Class = PropertyTypeCase<ReflectionValue, "RK_base_specifier"> in {
-  def : Property<"value", CXXBaseSpecifierRef> {
-    let Read = [{ node.getAsBaseSpecifier() }];
-  }
-  def : Creator<[{
-    return ReflectionValue(ReflectionValue::RK_base_specifier, value);
-  }]>;
-}
-let Class = PropertyTypeCase<ReflectionValue, "RK_data_member_spec"> in {
-  def : Property<"value", TagDataMemberSpecRef> {
-    let Read = [{ node.getAsDataMemberSpec() }];
-  }
-  def : Creator<[{
-    return ReflectionValue(ReflectionValue::RK_data_member_spec, value);
-  }]>;
 }
 
 // Type cases for APValue.

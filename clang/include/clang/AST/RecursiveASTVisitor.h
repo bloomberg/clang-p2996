@@ -2958,26 +2958,27 @@ DEF_TRAVERSE_STMT(CXXReflectExpr, {
   if (S->hasDependentSubExpr()) {
     TRY_TO(TraverseStmt(S->getDependentSubExpr()));
   } else {
-    ReflectionValue RV = S->getReflection();
-    switch (RV.getKind()) {
-    case ReflectionValue::RK_type: {
-      TRY_TO(TraverseType(RV.getAsType()));
+    APValue RV = S->getReflection();
+    assert(RV.isReflection());
+    switch (RV.getReflectionKind()) {
+    case ReflectionKind::Type: {
+      TRY_TO(TraverseType(RV.getReflectedType()));
       break;
     }
-    case ReflectionValue::RK_declaration: {
-      TRY_TO(TraverseDecl(RV.getAsDecl()));
+    case ReflectionKind::Declaration: {
+      TRY_TO(TraverseDecl(RV.getReflectedDecl()));
       break;
     }
-    case ReflectionValue::RK_template: {
-      TRY_TO(TraverseTemplateName(RV.getAsTemplate()));
+    case ReflectionKind::Template: {
+      TRY_TO(TraverseTemplateName(RV.getReflectedTemplate()));
       break;
     }
-    case ReflectionValue::RK_null:
-    case ReflectionValue::RK_object:
-    case ReflectionValue::RK_value:
-    case ReflectionValue::RK_namespace:
-    case ReflectionValue::RK_base_specifier:
-    case ReflectionValue::RK_data_member_spec:
+    case ReflectionKind::Null:
+    case ReflectionKind::Object:
+    case ReflectionKind::Value:
+    case ReflectionKind::Namespace:
+    case ReflectionKind::BaseSpecifier:
+    case ReflectionKind::DataMemberSpec:
       break;
     }
   }

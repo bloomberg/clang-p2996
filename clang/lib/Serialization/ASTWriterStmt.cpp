@@ -472,7 +472,7 @@ void ASTStmtWriter::VisitCXXReflectExpr(CXXReflectExpr *E) {
   if (E->hasDependentSubExpr())
     Record.AddStmt(E->getDependentSubExpr());
   else
-    Record.AddReflectionValue(E->getReflection());
+    Record.AddAPValue(E->getReflection());
   Code = serialization::EXPR_REFLECT;
 }
 

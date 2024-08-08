@@ -1889,11 +1889,12 @@ TypeTraitExpr *TypeTraitExpr::CreateDeserialized(const ASTContext &C,
   return new (Mem) TypeTraitExpr(EmptyShell());
 }
 
-CXXReflectExpr::CXXReflectExpr(const ASTContext &C, QualType ExprTy,
-                               ReflectionValue RV)
+CXXReflectExpr::CXXReflectExpr(const ASTContext &C, QualType ExprTy, APValue RV)
     : Expr(CXXReflectExprClass, ExprTy, VK_PRValue, OK_Ordinary),
       Kind(OperandKind::Reflection) {
-  new ((void *)(char *)&Operand) ReflectionValue(RV);
+  assert(RV.isReflection());
+
+  new ((void *)(char *)&Operand) APValue(RV);
   setDependence(computeDependence(this, C));
 }
 
@@ -1901,17 +1902,16 @@ CXXReflectExpr::CXXReflectExpr(const ASTContext &C, QualType ExprTy,
                                Expr *DepSubExpr)
     : Expr(CXXReflectExprClass, ExprTy, VK_PRValue, OK_Ordinary),
       Kind(OperandKind::DependentExpr) {
-  new ((void *)(char *)&Operand) Expr *(DepSubExpr);
   assert(DepSubExpr->isValueDependent() &&
          "reflection operand must be a reflection or a dependent expression");
 
+  new ((void *)(char *)&Operand) Expr *(DepSubExpr);
   setDependence(computeDependence(this, C));
 }
 
 CXXReflectExpr *CXXReflectExpr::Create(ASTContext &C,
                                        SourceLocation OperatorLoc,
-                                       SourceRange OperandRange,
-                                       ReflectionValue RV) {
+                                       SourceRange OperandRange, APValue RV) {
   CXXReflectExpr *E = new (C) CXXReflectExpr(C, C.MetaInfoTy, RV);
   E->setOperatorLoc(OperatorLoc);
   E->setOperandRange(OperandRange);

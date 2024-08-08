@@ -4561,15 +4561,14 @@ NestedNameSpecifierLoc TreeTransform<Derived>::TransformNestedNameSpecifierLoc(
       Expr::EvalResult Result;
       if (!ER.get()->EvaluateAsRValue(Result, SemaRef.Context))
         return NestedNameSpecifierLoc();
-      ReflectionValue Reflection = Result.Val.getReflection();
 
       // Form new nested-name-specifier component based on the reflection kind.
-      if (Reflection.getKind() == ReflectionValue::RK_type) {
+      if (Result.Val.isReflectedType()) {
         // Verify that the resulting type is a tag type.
-        if (!Reflection.getAsType()->isRecordType() &&
-            !Reflection.getAsType()->isEnumeralType()) {
+        if (!Result.Val.getReflectedType()->isRecordType() &&
+            !Result.Val.getReflectedType()->isEnumeralType()) {
           SemaRef.Diag(Splice->getExprLoc(), diag::err_nested_name_spec_non_tag)
-              << Reflection.getAsType() << SS.getRange();
+              << Result.Val.getReflectedType() << SS.getRange();
           return NestedNameSpecifierLoc();
         }
 
@@ -4586,8 +4585,8 @@ NestedNameSpecifierLoc TreeTransform<Derived>::TransformNestedNameSpecifierLoc(
         SS.Extend(SemaRef.Context, Splice->getLSpliceLoc(),
                   TLB.getTypeLocInContext(getSema().Context, QT),
                   Q.getLocalEndLoc());
-      } else if (Reflection.getKind() == ReflectionValue::RK_namespace) {
-        Decl *D = Reflection.getAsNamespace();
+      } else if (Result.Val.isReflectedNamespace()) {
+        Decl *D = Result.Val.getReflectedNamespace();
         if (auto *TD = dyn_cast<TranslationUnitDecl>(D))
           SS.MakeGlobal(SemaRef.Context, Splice->getLSpliceLoc());
         else if (auto *ND = dyn_cast<NamespaceDecl>(D))
@@ -8805,10 +8804,10 @@ TreeTransform<Derived>::TransformCXXReflectExpr(CXXReflectExpr *E) {
                                          Result.get());
   }
 
-  ReflectionValue RV = E->getReflection();
-  switch (RV.getKind()) {
-  case ReflectionValue::RK_type: {
-    QualType Old = RV.getAsType();
+  APValue RV = E->getReflection();
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Type: {
+    QualType Old = RV.getReflectedType();
 
     // Adjust the type in case we get parsed type information.
     if (const LocInfoType *LIT = dyn_cast<LocInfoType>(Old)) {
@@ -8822,15 +8821,15 @@ TreeTransform<Derived>::TransformCXXReflectExpr(CXXReflectExpr *E) {
     return getSema().BuildCXXReflectExpr(E->getOperatorLoc(),
                                          E->getOperandRange().getBegin(), New);
   }
-  case ReflectionValue::RK_declaration: {
+  case ReflectionKind::Declaration: {
     Decl *Transformed = getDerived().TransformDecl(E->getExprLoc(),
-                                                   RV.getAsDecl());
+                                                   RV.getReflectedDecl());
     return getSema().BuildCXXReflectExpr(E->getOperatorLoc(),
                                          E->getOperandRange().getBegin(),
                                          cast<ValueDecl>(Transformed));
   }
-  case ReflectionValue::RK_template: {
-    TemplateName TName = RV.getAsTemplate();
+  case ReflectionKind::Template: {
+    TemplateName TName = RV.getReflectedTemplate();
 
     NestedNameSpecifier *NNS = nullptr;
     if (TName.getKind() == TemplateName::QualifiedTemplate)
@@ -8860,19 +8859,20 @@ TreeTransform<Derived>::TransformCXXReflectExpr(CXXReflectExpr *E) {
                                          E->getOperandRange().getBegin(),
                                          Template);
   }
-  case ReflectionValue::RK_namespace: {
+  case ReflectionKind::Namespace: {
     Decl *Transformed =
-          getDerived().TransformDecl(E->getExprLoc(), RV.getAsNamespace());
+          getDerived().TransformDecl(E->getExprLoc(),
+                                     RV.getReflectedNamespace());
     return getSema().BuildCXXReflectExpr(E->getOperatorLoc(),
                                          E->getOperandRange().getBegin(),
                                          Transformed);
   }
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
     return E;
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_base_specifier:
-  case ReflectionValue::RK_data_member_spec:
+  case ReflectionKind::Null:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::DataMemberSpec:
     llvm_unreachable("reflect expression should not have this reflection kind");
   }
   llvm_unreachable("invalid reflection");

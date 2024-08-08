@@ -177,10 +177,6 @@ public:
     return llvm::APInt(bitWidth, numWords, &data[0]);
   }
 
-  ReflectionValue readReflectionValue() {
-    llvm_unreachable("unimplemented");
-  }
-
   llvm::FixedPointSemantics readFixedPointSemantics() {
     unsigned width = asImpl().readUInt32();
     unsigned scale = asImpl().readUInt32();

@@ -26,51 +26,14 @@ ExprResult Parser::ParseCXXReflectExpression() {
   EnterExpressionEvaluationContext EvalContext(
         Actions, Sema::ExpressionEvaluationContext::ReflectionContext);
 
-  // ^ template [:splice-specifier:]
-  //
-  SourceLocation TemplateKWLoc;
-  if (Tok.is(tok::kw_template)) {
-    TemplateKWLoc = ConsumeToken();
-
-    if (!Tok.is(tok::l_splice)) {
-      Diag(TemplateKWLoc, diag::err_unexpected_template_in_unqualified_id);
-      SkipUntil(tok::semi, StopAtSemi | StopBeforeMatch);
-      return ExprError();
-    }
-
-    if (ParseCXXSpliceSpecifier(TemplateKWLoc)) {
-      SkipUntil(tok::semi, StopAtSemi | StopBeforeMatch);
-      return ExprError();
-    }
-
-    if (!NextToken().is(tok::less)) {
-      Token Splice = Tok;
-      TemplateTy Template = ParseCXXSpliceAsTemplate();
-      if (Template)
-        return Actions.BuildCXXReflectExpr(OpLoc, Splice.getLocation(),
-                                           Template.get());
-      SkipUntil(tok::semi, StopAtSemi | StopBeforeMatch);
-      return ExprError();
-    }
-
-    if (ParseTemplateAnnotationFromSplice(SourceLocation(), false, false,
-                                                 /*Complain=*/true)) {
-      SkipUntil(tok::semi, StopAtSemi | StopBeforeMatch);
-      return ExprError();
-    }
-  }
-
-
   // Parse a leading nested-name-specifier, e.g.,
   //
   CXXScopeSpec SS;
-  if (TemplateKWLoc.isInvalid()) {
-    if (ParseOptionalCXXScopeSpecifier(SS, /*ObjectType=*/nullptr,
-                                       /*ObjectHasErrors=*/false,
-                                       /*EnteringContext=*/false)) {
-      SkipUntil(tok::semi, StopAtSemi | StopBeforeMatch);
-      return ExprError();
-    }
+  if (ParseOptionalCXXScopeSpecifier(SS, /*ObjectType=*/nullptr,
+                                     /*ObjectHasErrors=*/false,
+                                     /*EnteringContext=*/false)) {
+    SkipUntil(tok::semi, StopAtSemi | StopBeforeMatch);
+    return ExprError();
   }
 
   // Start the tentative parse: This will be reverted if the operand is found
@@ -78,24 +41,6 @@ ExprResult Parser::ParseCXXReflectExpression() {
   // single identifier).
   //
   TentativeParsingAction TentativeAction(*this);
-
-  // ^ [:splice-specifier:]
-  //
-  if (!SS.isSet() && Tok.is(tok::annot_splice)) {
-    assert(TemplateKWLoc.isInvalid());
-
-    ExprResult ER = getExprAnnotation(Tok);
-    assert(!ER.isInvalid());
-    ER = ParseCXXSpliceAsExpr(true);
-    if (ER.isInvalid()) {
-      TentativeAction.Commit();
-      SkipUntil(tok::semi, StopAtSemi | StopBeforeMatch);
-      return ExprError();
-    }
-
-    TentativeAction.Commit();
-    return Actions.ActOnCXXReflectExpr(OpLoc, cast<CXXSpliceExpr>(ER.get()));
-  }
 
   // Next, check for an unqualified-id.
   if (Tok.isOneOf(tok::identifier, tok::kw_operator, tok::kw_template,
