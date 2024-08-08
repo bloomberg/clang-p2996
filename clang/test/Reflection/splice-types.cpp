@@ -337,8 +337,7 @@ static_assert(!type_alias_is_float2<int>);
 // Compound requirements
 template <typename T>
 constexpr auto compound_returns_addable = 
-  requires { {[:^T:]()} -> same_as<Addable>; };
-// #error doesn't work w/o typename - why?
+  requires { {typename [:^T:]()} -> same_as<Addable>; };
 
 template <typename T>
 constexpr auto compound_returns_addable2 =
