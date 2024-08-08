@@ -46,6 +46,7 @@
 
 #include <iterator>
 #include <optional>
+#include <iostream>
 using namespace clang;
 using namespace sema;
 
@@ -7472,8 +7473,7 @@ static Expr *BuildExpressionFromIntegralTemplateArgumentValue(
 }
 
 static ExprResult
-BuildExpressionFromReflection(Sema &S, const ReflectionValue &RV,
-                              SourceLocation Loc) {
+BuildExpressionFromReflection(Sema &S, const APValue &RV, SourceLocation Loc) {
   return CXXReflectExpr::Create(S.Context, Loc, SourceRange {Loc, Loc}, RV);
 }
 
@@ -7553,7 +7553,7 @@ static Expr *BuildExpressionFromNonTypeTemplateArgumentValue(
     return ConstantExpr::Create(S.Context, OVE, Val);
   }
   case APValue::Reflection: {
-    return BuildExpressionFromReflection(S, Val.getReflection(), Loc).get();
+    return BuildExpressionFromReflection(S, Val, Loc).get();
   }
   }
   llvm_unreachable("Unhandled APValue::ValueKind enum");

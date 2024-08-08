@@ -177,6 +177,7 @@ ExprResult Sema::ActOnCXXReflectExpr(SourceLocation OpLoc,
   if (isa<NamespaceDecl, NamespaceAliasDecl, TranslationUnitDecl>(ND))
     return BuildCXXReflectExpr(OpLoc, NameInfo.getBeginLoc(), ND);
 
+  // Why do we have to build an expression here? Just stash in an APValue?
   if (isa<VarDecl, BindingDecl, FunctionDecl, FieldDecl, EnumConstantDecl,
           NonTypeTemplateParmDecl>(ND)) {
     ExprResult Result = BuildDeclarationNameExpr(SS, Found, false, false);
@@ -369,58 +370,59 @@ ParsedTemplateArgument Sema::ActOnTemplateSpliceSpecifierArgument(
   }
   assert(ER.Val.getKind() == APValue::Reflection);
 
-  ReflectionValue RV = ER.Val.getReflection();
-  if (Splice->getTemplateKWLoc().isValid() &&
-     RV.getKind() != ReflectionValue::RK_template) {
+  if (Splice->getTemplateKWLoc().isValid() && !ER.Val.isReflectedTemplate()) {
     Diag(Splice->getOperand()->getExprLoc(),
          diag::err_unexpected_reflection_kind_in_splice) << 3;
     return ParsedTemplateArgument();
   }
 
-  switch (RV.getKind()) {
-  case ReflectionValue::RK_type:
+  switch (ER.Val.getReflectionKind()) {
+  case ReflectionKind::Type:
     return ParsedTemplateArgument(ParsedTemplateArgument::Type,
-                                  RV.getAsType().getAsOpaquePtr(),
+                                  const_cast<void *>(
+                                      ER.Val.getOpaqueReflectionData()),
                                   Splice->getExprLoc());
-  case ReflectionValue::RK_object: {
-    Expr *OVE = new (Context) OpaqueValueExpr(Splice->getExprLoc(),
-                                              RV.getResultType(), VK_LValue);
-    Expr *CE = ConstantExpr::Create(Context, OVE, RV.getAsObject());
+  case ReflectionKind::Object: {
+    QualType ResultTy = ER.Val.getTypeOfReflectedResult(Context);
+    Expr *OVE = new (Context) OpaqueValueExpr(Splice->getExprLoc(), ResultTy,
+                                              VK_LValue);
+    Expr *CE = ConstantExpr::Create(Context, OVE, ER.Val.getReflectedObject());
     return ParsedTemplateArgument(ParsedTemplateArgument::NonType, CE,
                                   Splice->getExprLoc());
   }
-  case ReflectionValue::RK_value: {
-    Expr *OVE = new (Context) OpaqueValueExpr(Splice->getExprLoc(),
-                                              RV.getResultType(), VK_PRValue);
-    Expr *CE = ConstantExpr::Create(Context, OVE, RV.getAsValue());
+  case ReflectionKind::Value: {
+    QualType ResultTy = ER.Val.getTypeOfReflectedResult(Context);
+    Expr *OVE = new (Context) OpaqueValueExpr(Splice->getExprLoc(), ResultTy,
+                                              VK_PRValue);
+    Expr *CE = ConstantExpr::Create(Context, OVE, ER.Val.getReflectedValue());
     return ParsedTemplateArgument(ParsedTemplateArgument::NonType, CE,
                                   Splice->getExprLoc());
   }
-  case ReflectionValue::RK_template: {
-    TemplateName TName = RV.getAsTemplate();
+  case ReflectionKind::Template: {
+    TemplateName TName = ER.Val.getReflectedTemplate();
     return ParsedTemplateArgument(ParsedTemplateArgument::Template,
                                   TName.getAsTemplateDecl(),
                                   Splice->getExprLoc());
   }
-  case ReflectionValue::RK_declaration: {
-    Expr *E = CreateRefToDecl(*this, cast<ValueDecl>(RV.getAsDecl()),
+  case ReflectionKind::Declaration: {
+    Expr *E = CreateRefToDecl(*this, cast<ValueDecl>(ER.Val.getReflectedDecl()),
                               Splice->getExprLoc());
     return ParsedTemplateArgument(ParsedTemplateArgument::NonType, E,
                                   E->getExprLoc());
   }
-  case ReflectionValue::RK_null:
+  case ReflectionKind::Null:
     Diag(Splice->getExprLoc(), diag::err_unsupported_splice_kind)
       << "null reflections" << 0 << 0;
     break;
-  case ReflectionValue::RK_namespace:
+  case ReflectionKind::Namespace:
     Diag(Splice->getExprLoc(), diag::err_unsupported_splice_kind)
       << "namespaces" << 0 << 0;
     break;
-  case ReflectionValue::RK_base_specifier:
+  case ReflectionKind::BaseSpecifier:
     Diag(Splice->getExprLoc(), diag::err_unsupported_splice_kind)
       << "base specifiers" << 0 << 0;
     break;
-  case ReflectionValue::RK_data_member_spec:
+  case ReflectionKind::DataMemberSpec:
     Diag(Splice->getExprLoc(), diag::err_unsupported_splice_kind)
       << "data member specs" << 0 << 0;
     break;
@@ -442,7 +444,7 @@ bool Sema::ActOnCXXNestedNameSpecifierReflectionSplice(
 
 ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
                                      SourceLocation OperandLoc, QualType T) {
-  ReflectionValue RV(ReflectionValue::RK_type, T.getAsOpaquePtr());
+  APValue RV(ReflectionKind::Type, T.getAsOpaquePtr());
   return CXXReflectExpr::Create(Context, OperatorLoc, OperandLoc, RV);
 }
 
@@ -452,8 +454,8 @@ ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
   bool IsNamespace = isa<TranslationUnitDecl, NamespaceDecl,
                          NamespaceAliasDecl>(D);
 
-  ReflectionValue RV(IsNamespace ? ReflectionValue::RK_namespace :
-                                   ReflectionValue::RK_declaration, D);
+  APValue RV(IsNamespace ? ReflectionKind::Namespace :
+                           ReflectionKind::Declaration, D);
   return CXXReflectExpr::Create(Context, OperatorLoc,
                                 SourceRange(OperandLoc, OperandLoc), RV);
 }
@@ -467,7 +469,7 @@ ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
     return ExprError();
   }
 
-  ReflectionValue RV(ReflectionValue::RK_template, Template.getAsVoidPointer());
+  APValue RV(ReflectionKind::Template, Template.getAsVoidPointer());
   return CXXReflectExpr::Create(Context, OperatorLoc,
                                 SourceRange(OperandLoc, OperandLoc), RV);
 }
@@ -563,14 +565,8 @@ ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
                                const_cast<ValueDecl *>(VD));
   }
 
-  ReflectionValue RV;
-  if (E->isLValue())
-    RV = {ReflectionValue::RK_object, new (Context) APValue(ER.Val)};
-  else
-    RV = {ReflectionValue::RK_value, new (Context) APValue(ER.Val),
-          E->getType()};
-  return CXXReflectExpr::Create(Context, OperatorLoc, E->getSourceRange(),
-                                RV);
+  APValue RV = ER.Val.Lift(E->getType());
+  return CXXReflectExpr::Create(Context, OperatorLoc, E->getSourceRange(), RV);
 }
 
 ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
@@ -599,7 +595,7 @@ ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
   }
 
   return CXXReflectExpr::Create(Context, OperatorLoc, E->getSourceRange(),
-                                ER.Val.getReflection());
+                                ER.Val);
 }
 
 ExprResult Sema::BuildCXXMetafunctionExpr(
@@ -654,14 +650,13 @@ ExprResult Sema::BuildCXXMetafunctionExpr(
         Diag(TyRefl->getExprLoc(), diag::err_splice_operand_not_reflection);
         return true;
       }
-      ReflectionValue& R = ER.Val.getReflection();
 
-      if (R.getKind() != ReflectionValue::RK_type) {
+      if (!ER.Val.isReflectedType()) {
         Diag(TyRefl->getExprLoc(), diag::err_unexpected_reflection_kind) << 0;
         return true;
       }
 
-      Result = R.getAsType().getCanonicalType();
+      Result = ER.Val.getReflectedType().getCanonicalType();
       return false;
     }
     }
@@ -720,20 +715,18 @@ QualType Sema::BuildReflectionSpliceType(SourceLocation LSplice,
     Diag(Operand->getExprLoc(), diag::err_splice_operand_not_reflection);
     return QualType();
   }
-  ReflectionValue &R = ER.Val.getReflection();
 
-  if (R.getKind() == ReflectionValue::RK_template) {
-    return Context.getDeducedTemplateSpecializationType(R.getAsTemplate(),
-                                                        QualType(),
-                                                        false);
-  } else if (R.getKind() != ReflectionValue::RK_type) {
+  if (ER.Val.isReflectedTemplate()) {
+    return Context.getDeducedTemplateSpecializationType(
+            ER.Val.getReflectedTemplate(), QualType(), false);
+  } else if (!ER.Val.isReflectedType()) {
     if (Complain)
       Diag(Operand->getExprLoc(),
            diag::err_unexpected_reflection_kind_in_splice) << 0;
     return QualType();
   }
 
-  QualType ReflectedTy = R.getAsType();
+  QualType ReflectedTy = ER.Val.getReflectedType();
 
   // Check if the type refers to a substituted but uninstantiated template.
   if (auto *TT = dyn_cast<TagType>(ReflectedTy))
@@ -805,19 +798,17 @@ ExprResult Sema::BuildReflectionSpliceExpr(
       Diag(Operand->getExprLoc(), diag::err_splice_operand_not_reflection);
       return ExprError();
     }
-    ReflectionValue RV = ER.Val.getReflection();
-
     bool RequireTemplate = TemplateKWLoc.isValid() ||
                            TArgs->getLAngleLoc().isValid();
-    if (RequireTemplate && RV.getKind() != ReflectionValue::RK_template) {
+    if (RequireTemplate && !ER.Val.isReflectedTemplate()) {
       Diag(Operand->getExprLoc(),
            diag::err_unexpected_reflection_kind_in_splice) << 3;
       return ExprError();
     }
 
-    switch (RV.getKind()) {
-    case ReflectionValue::RK_declaration: {
-      Decl *TheDecl = RV.getAsDecl();
+    switch (ER.Val.getReflectionKind()) {
+    case ReflectionKind::Declaration: {
+      Decl *TheDecl = ER.Val.getReflectedDecl();
 
       // Class members may not be implicitly referenced through a splice.
       if (!AllowMemberReference &&
@@ -849,27 +840,30 @@ ExprResult Sema::BuildReflectionSpliceExpr(
                                       TArgs, AllowMemberReference);
       break;
     }
-    case ReflectionValue::RK_object: {
-      Expr *OVE = new (Context) OpaqueValueExpr(SpliceOp->getExprLoc(),
-                                                RV.getResultType(), VK_LValue);
-      Expr *CE = ConstantExpr::Create(Context, OVE, RV.getAsObject());
+    case ReflectionKind::Object: {
+      QualType QT = ER.Val.getTypeOfReflectedResult(Context);
+      Expr *OVE = new (Context) OpaqueValueExpr(SpliceOp->getExprLoc(), QT,
+                                                VK_LValue);
+      Expr *CE = ConstantExpr::Create(Context, OVE,
+                                      ER.Val.getReflectedObject());
 
       Operand = CXXSpliceExpr::Create(Context, VK_LValue, TemplateKWLoc,
                                       LSplice, CE, RSplice, TArgs,
                                       AllowMemberReference);
       break;
     }
-    case ReflectionValue::RK_value: {
-      Expr *OVE = new (Context) OpaqueValueExpr(SpliceOp->getExprLoc(),
-                                                RV.getResultType(), VK_PRValue);
-      Expr *CE = ConstantExpr::Create(Context, OVE, RV.getAsValue());
+    case ReflectionKind::Value: {
+      QualType QT = ER.Val.getTypeOfReflectedResult(Context);
+      Expr *OVE = new (Context) OpaqueValueExpr(SpliceOp->getExprLoc(), QT,
+                                                VK_PRValue);
+      Expr *CE = ConstantExpr::Create(Context, OVE, ER.Val.getReflectedValue());
 
       Operand = CXXSpliceExpr::Create(Context, VK_PRValue, TemplateKWLoc,
                                       LSplice, CE, RSplice, TArgs,
                                       AllowMemberReference);
       break;
     }
-    case ReflectionValue::RK_template: {
+    case ReflectionKind::Template: {
       if (SpliceOp->getTemplateKWLoc().isInvalid()) {
         Diag(SpliceOp->getOperand()->getExprLoc(),
              diag::err_unexpected_reflection_kind_in_splice)
@@ -877,7 +871,7 @@ ExprResult Sema::BuildReflectionSpliceExpr(
         return ExprError();
       }
 
-      TemplateName TName = RV.getAsTemplate();
+      TemplateName TName = ER.Val.getReflectedTemplate();
       assert(!TName.isDependent());
 
       TemplateDecl *TDecl = TName.getAsTemplateDecl();
@@ -951,11 +945,11 @@ ExprResult Sema::BuildReflectionSpliceExpr(
                                       AllowMemberReference);
       break;
     }
-    case ReflectionValue::RK_null:
-    case ReflectionValue::RK_type:
-    case ReflectionValue::RK_namespace:
-    case ReflectionValue::RK_base_specifier:
-    case ReflectionValue::RK_data_member_spec:
+    case ReflectionKind::Null:
+    case ReflectionKind::Type:
+    case ReflectionKind::Namespace:
+    case ReflectionKind::BaseSpecifier:
+    case ReflectionKind::DataMemberSpec:
       Diag(SpliceOp->getOperand()->getExprLoc(),
            diag::err_unexpected_reflection_kind_in_splice)
           << 1 << SpliceOp->getOperand()->getSourceRange();
@@ -991,18 +985,17 @@ DeclResult Sema::BuildReflectionSpliceNamespace(SourceLocation LSplice,
     Diag(Operand->getExprLoc(), diag::err_splice_operand_not_reflection);
     return DeclError();
   }
-  ReflectionValue &R = ER.Val.getReflection();
 
-  if (R.getKind() != ReflectionValue::RK_namespace) {
+  if (!ER.Val.isReflectedNamespace()) {
     Diag(Operand->getExprLoc(), diag::err_unexpected_reflection_kind) << 2;
     return DeclError();
-  } else if (isa<TranslationUnitDecl>(R.getAsNamespace())) {
+  } else if (isa<TranslationUnitDecl>(ER.Val.getReflectedNamespace())) {
     Diag(Operand->getExprLoc(),
          diag::err_splice_global_scope_as_namespace);
     return DeclError();
   }
 
-  return R.getAsNamespace();
+  return ER.Val.getReflectedNamespace();
 }
 
 Sema::TemplateTy Sema::BuildReflectionSpliceTemplate(SourceLocation LSplice,
@@ -1034,9 +1027,8 @@ Sema::TemplateTy Sema::BuildReflectionSpliceTemplate(SourceLocation LSplice,
          diag::err_splice_operand_not_reflection) << SpliceOp->getSourceRange();
     return TemplateTy();
   }
-  ReflectionValue &R = ER.Val.getReflection();
 
-  if (R.getKind() != ReflectionValue::RK_template) {
+  if (!ER.Val.isReflectedTemplate()) {
     if (Complain)
       Diag(SpliceOp->getOperand()->getExprLoc(),
            diag::err_unexpected_reflection_kind)
@@ -1044,7 +1036,7 @@ Sema::TemplateTy Sema::BuildReflectionSpliceTemplate(SourceLocation LSplice,
     return TemplateTy();
   }
 
-  return TemplateTy::make(R.getAsTemplate());
+  return TemplateTy::make(ER.Val.getReflectedTemplate());
 }
 
 DeclContext *Sema::TryFindDeclContextOf(const Expr *E) {
@@ -1055,18 +1047,16 @@ DeclContext *Sema::TryFindDeclContextOf(const Expr *E) {
   Expr::EvalResult ER;
   ER.Diag = &Diags;
 
-  Expr::EvalResult Result;
-  if (!E->EvaluateAsRValue(Result, Context, true)) {
+  if (!E->EvaluateAsRValue(ER, Context, true)) {
     Diag(E->getExprLoc(), diag::err_splice_operand_not_constexpr);
     for (PartialDiagnosticAt PD : Diags)
       Diag(PD.first, PD.second);
     return nullptr;
   }
 
-  ReflectionValue Reflection = Result.Val.getReflection();
-  switch (Reflection.getKind()) {
-  case ReflectionValue::RK_type: {
-    QualType QT = Reflection.getAsType();
+  switch (ER.Val.getReflectionKind()) {
+  case ReflectionKind::Type: {
+    QualType QT = ER.Val.getReflectedType();
     if (const TagType *TT = QT->getAs<TagType>())
       return TT->getDecl();
 
@@ -1074,19 +1064,19 @@ DeclContext *Sema::TryFindDeclContextOf(const Expr *E) {
         << QT << getLangOpts().CPlusPlus;
     return nullptr;
   }
-  case ReflectionValue::RK_namespace: {
-    Decl *NS = Reflection.getAsNamespace();
+  case ReflectionKind::Namespace: {
+    Decl *NS = ER.Val.getReflectedNamespace();
     if (auto *A = dyn_cast<NamespaceAliasDecl>(NS))
       NS = A->getNamespace();
     return cast<DeclContext>(NS);
   }
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
-  case ReflectionValue::RK_declaration:
-  case ReflectionValue::RK_template:
-  case ReflectionValue::RK_base_specifier:
-  case ReflectionValue::RK_data_member_spec:
+  case ReflectionKind::Null:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
+  case ReflectionKind::Declaration:
+  case ReflectionKind::Template:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::DataMemberSpec:
     Diag(E->getExprLoc(), diag::err_expected_class_or_namespace)
         << "spliced entity" << getLangOpts().CPlusPlus;
     return nullptr;

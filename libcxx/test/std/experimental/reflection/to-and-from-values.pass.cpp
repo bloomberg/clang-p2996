@@ -313,6 +313,38 @@ static_assert(rvfirst == std::meta::reflect_value(std::make_pair(1, true)));
 static_assert([:rvfirst:].first == 1);
 }  // namespace values_from_objects
 
+// ========================
+// pointer_object_ambiguity
+// ========================
+
+namespace pointer_object_ambiguity {
+
+constexpr int k = 3;
+constexpr const int *p = &k;
+
+constexpr auto rp = ^p;
+static_assert(is_variable(rp));
+//static_assert(!is_object(rp));
+static_assert(!is_value(rp));
+
+constexpr auto ro = object_of(rp);
+static_assert(!is_variable(ro));
+static_assert(is_object(ro));
+static_assert(!is_value(ro));
+static_assert(ro == std::meta::reflect_object(p));
+static_assert(ro != std::meta::reflect_value(&k));
+
+constexpr auto rv = value_of(ro);
+static_assert(!is_variable(rv));
+static_assert(!is_object(rv));
+static_assert(is_value(rv));
+static_assert(rv == std::meta::reflect_value(&k));
+
+static_assert(rp != ro);
+static_assert(rp != rv);
+static_assert(ro != rv);
+}  // namespace pointer_object_ambiguity
+
                    // =======================================
                    // bb_clang_p2996_issue_67_regression_test
                    // =======================================

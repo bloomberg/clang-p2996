@@ -2432,8 +2432,8 @@ TemplateInstantiator::TransformCXXReflectExpr(CXXReflectExpr *E) {
     return getSema().BuildCXXReflectExpr(E->getOperatorLoc(), Result.get());
   }
 
-  if (E->getReflection().getKind() == ReflectionValue::RK_declaration) {
-    Decl *D = E->getReflection().getAsDecl();
+  if (E->getReflection().isReflectedDecl()) {
+    Decl *D = E->getReflection().getReflectedDecl();
 
     // Handle references to non-type template parameters and non-type template
     // parameter packs.

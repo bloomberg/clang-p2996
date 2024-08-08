@@ -503,6 +503,7 @@ static constexpr Metafunction Metafunctions[] = {
   { Metafunction::MFRK_bool, 1, 1, is_public },
   { Metafunction::MFRK_bool, 1, 1, is_protected },
   { Metafunction::MFRK_bool, 1, 1, is_private },
+  { Metafunction::MFRK_metaInfo, 0, 0, access_context },
   { Metafunction::MFRK_bool, 1, 2, is_accessible },
   { Metafunction::MFRK_bool, 1, 1, is_virtual },
   { Metafunction::MFRK_bool, 1, 1, is_pure_virtual },
@@ -573,9 +574,6 @@ static constexpr Metafunction Metafunctions[] = {
   { Metafunction::MFRK_sizeT, 1, 1, alignment_of },
   { Metafunction::MFRK_spliceFromArg, 5, 5, define_static_string },
 
-  // Proposed alternative P2996 accessibility API
-  { Metafunction::MFRK_metaInfo, 0, 0, access_context },
-
   // P3096 metafunction extensions
   { Metafunction::MFRK_metaInfo, 3, 3, get_ith_parameter_of },
   { Metafunction::MFRK_bool, 1, 1, has_consistent_identifier },
@@ -617,34 +615,27 @@ static APValue makeBool(ASTContext &C, bool B) {
 }
 
 static APValue makeReflection(QualType QT) {
-  ReflectionValue RV(ReflectionValue::RK_type, QT.getAsOpaquePtr());
-  return APValue(RV);
+  return APValue(ReflectionKind::Type, QT.getAsOpaquePtr());
 }
 
 static APValue makeReflection(Decl *D) {
   if (isa<NamespaceDecl>(D) || isa<NamespaceAliasDecl>(D) ||
-      isa<TranslationUnitDecl>(D)) {
-    ReflectionValue RV(ReflectionValue::RK_namespace, D);
-    return APValue(RV);
-  }
+      isa<TranslationUnitDecl>(D))
+    return APValue(ReflectionKind::Namespace, D);
 
-  ReflectionValue RV(ReflectionValue::RK_declaration, D);
-  return APValue(RV);
+  return APValue(ReflectionKind::Declaration, D);
 }
 
 static APValue makeReflection(TemplateName TName) {
-  ReflectionValue RV(ReflectionValue::RK_template, TName.getAsVoidPointer());
-  return APValue(RV);
+  return APValue(ReflectionKind::Template, TName.getAsVoidPointer());
 }
 
 static APValue makeReflection(CXXBaseSpecifier *Base) {
-  ReflectionValue RV(ReflectionValue::RK_base_specifier, Base);
-  return APValue(RV);
+  return APValue(ReflectionKind::BaseSpecifier, Base);
 }
 
 static APValue makeReflection(TagDataMemberSpec *TDMS) {
-  ReflectionValue RV(ReflectionValue::RK_data_member_spec, TDMS);
-  return APValue(RV);
+  return APValue(ReflectionKind::DataMemberSpec, TDMS);
 }
 
 static Expr *makeStrLiteral(StringRef Str, ASTContext &C, bool Utf8) {
@@ -687,8 +678,12 @@ static TemplateName findTemplateOfType(QualType QT) {
   if (const ElaboratedType *ET = dyn_cast<ElaboratedType>(QT))
     QT = ET->getNamedType();
 
-  if (auto *TST = dyn_cast<TemplateSpecializationType>(QT))
-    return TST->getTemplateName();
+  if (auto *TST = dyn_cast<TemplateSpecializationType>(QT)) {
+    TemplateName TName = TST->getTemplateName();
+    if (TName.getKind() == TemplateName::QualifiedTemplate)
+      TName = TName.getAsQualifiedTemplateName()->getUnderlyingTemplate();
+    return TName;
+  }
 
   if (auto *CXXRD = QT->getAsCXXRecordDecl())
     if (auto *CTSD = dyn_cast<ClassTemplateSpecializationDecl>(CXXRD))
@@ -914,17 +909,13 @@ static APValue getNthTemplateArgument(Sema &S,
                                       ArrayRef<TemplateArgument> templateArgs,
                                       EvalFn Evaluator, APValue Sentinel,
                                       size_t Idx) {
-  if (Idx >= templateArgs.size()) {
+  if (Idx >= templateArgs.size())
     return Sentinel;
-  }
 
   const auto& templArgument = templateArgs[Idx];
   switch (templArgument.getKind()) {
-    // Works for type parameters pack as well
     case TemplateArgument::Type:
       return makeReflection(templArgument.getAsType());
-    // Works for non-template parameters and parameter packs of types:
-    // int, pointers
     case TemplateArgument::Expression: {
       Expr *TExpr = templArgument.getAsExpr();
 
@@ -932,63 +923,41 @@ static APValue getNthTemplateArgument(Sema &S,
       bool success = Evaluator(ArgResult, TExpr, !TExpr->isLValue());
       assert(success);
 
-      ReflectionValue RV;
-      if (ArgResult.isLValue())
-        RV = {ReflectionValue::RK_object, new (S.Context) APValue(ArgResult)};
-      else {
-        RV = {ReflectionValue::RK_value, new (S.Context) APValue(ArgResult),
-              TExpr->getType()};
-      }
-
-      return APValue(RV);
+      return ArgResult.Lift(TExpr->getType());
     }
-    case TemplateArgument::Template:
-      return makeReflection(templArgument.getAsTemplate());
-    case TemplateArgument::Declaration:
+    case TemplateArgument::Template: {
+      TemplateName TName = templArgument.getAsTemplate();
+      if (TName.getKind() == TemplateName::QualifiedTemplate)
+        TName = TName.getAsQualifiedTemplateName()->getUnderlyingTemplate();
+      return makeReflection(TName);
+    } case TemplateArgument::Declaration:
       return makeReflection(templArgument.getAsDecl());
+    case TemplateArgument::NullPtr: {
+      APValue NullPtrValue((ValueDecl *)nullptr,
+                           CharUnits::fromQuantity(
+                               S.Context.getTargetNullPointerValue(
+                                   templArgument.getNullPtrType())),
+                           APValue::NoLValuePath(),
+                           /*IsNullPtr=*/true);
+      return NullPtrValue.Lift(templArgument.getNullPtrType());
+    }
+    case TemplateArgument::StructuralValue: {
+      APValue SV = templArgument.getAsStructuralValue();
+      return SV.Lift(templArgument.getStructuralValueType());
+    }
+    case TemplateArgument::Integral: {
+      APValue IV(templArgument.getAsIntegral());
+      return IV.Lift(templArgument.getIntegralType());
+    }
+    case TemplateArgument::SpliceSpecifier:
+      llvm_unreachable("TemplateArgument::SpliceSpecifier should have been "
+                       "transformed by now");
     case TemplateArgument::Pack:
       llvm_unreachable("Packs should be expanded before calling this");
 
     // Could not get a test case to hit one of the below
     case TemplateArgument::Null:
       llvm_unreachable("TemplateArgument::Null not supported");
-    case TemplateArgument::NullPtr: {
-      ReflectionValue RV(
-            ReflectionValue::RK_value,
-            new (S.Context) APValue((const ValueDecl *)nullptr,
-                                    CharUnits::fromQuantity(
-                                        S.Context.getTargetNullPointerValue(
-                                            templArgument.getNullPtrType())),
-                                    APValue::NoLValuePath(),
-                                    /*IsNullPtr=*/true),
-            templArgument.getNullPtrType());
-
-      return APValue(RV);
-    }
-    case TemplateArgument::StructuralValue: {
-      if (templArgument.getStructuralValueType()->isReferenceType()) {
-        ReflectionValue RV(ReflectionValue::RK_object,
-                           const_cast<APValue *>(
-                               &templArgument.getAsStructuralValue()));
-        return APValue(RV);
-      } else {
-        ReflectionValue RV(ReflectionValue::RK_value,
-                           const_cast<APValue *>(
-                               &templArgument.getAsStructuralValue()),
-                           templArgument.getStructuralValueType());
-        return APValue(RV);
-      }
-    }
-    case TemplateArgument::Integral: {
-      ReflectionValue RV(ReflectionValue::RK_value,
-                         new (S.Context) APValue(templArgument.getAsIntegral()),
-                         templArgument.getIntegralType());
-
-      return APValue(RV);
-    }
-    case TemplateArgument::SpliceSpecifier:
-      llvm_unreachable("TemplateArgument::SpliceSpecifier should have been "
-                       "transformed by now");
     case TemplateArgument::TemplateExpansion:
       llvm_unreachable("TemplateArgument::TemplateExpansion not supported");
   }
@@ -1100,14 +1069,20 @@ static bool ensureDeclared(Sema &S, QualType QT, SourceLocation SpecLoc) {
 
 static bool isReflectableDecl(ASTContext &C, const Decl *D) {
   assert(D && "null declaration");
-  if (isa<AccessSpecDecl>(D) || isa<EmptyDecl>(D) || isa<FriendDecl>(D))
-    return false;
+
   if (isa<NamespaceAliasDecl>(D))
     return true;
+
+  if (!isa<VarDecl, FunctionDecl, TypeDecl, FieldDecl, TemplateDecl,
+           NamespaceDecl, NamespaceAliasDecl, TranslationUnitDecl>(D))
+    return false;
+
   if (auto *Class = dyn_cast<CXXRecordDecl>(D))
     if (Class->isInjectedClassName())
       return false;
-  if (isa<StaticAssertDecl>(D))
+
+  if (isa<ClassTemplatePartialSpecializationDecl,
+          VarTemplatePartialSpecializationDecl>(D))
     return false;
 
   return D->getCanonicalDecl() == D;
@@ -1115,8 +1090,19 @@ static bool isReflectableDecl(ASTContext &C, const Decl *D) {
 
 /// Filter non-reflectable members.
 static Decl *findIterableMember(ASTContext &C, Decl *D, bool Inclusive) {
-  if (!D || (Inclusive && isReflectableDecl(C, D)))
+  if (!D)
     return D;
+
+  if (Inclusive) {
+    if (isReflectableDecl(C, D))
+      return D;
+
+    // Handle the case where the first Decl is a LinkageSpecDecl.
+    if (auto *LSDecl = dyn_cast_or_null<LinkageSpecDecl>(D)) {
+      Decl *RecD = findIterableMember(C, *LSDecl->decls_begin(), true);
+      if (RecD) return RecD;
+    }
+  }
 
   do {
     DeclContext *DC = D->getDeclContext();
@@ -1129,17 +1115,30 @@ static Decl *findIterableMember(ASTContext &C, Decl *D, bool Inclusive) {
     // declarations whose DeclContext is different from the previous Decl;
     // otherwise, we may inadvertently break the chain of redeclarations in
     // difficult to predit ways.
-    D = D->getNextDeclInContext();
-    while (D && D->getDeclContext() != DC)
-       D = D->getNextDeclInContext();
+    do {
+      D = D->getNextDeclInContext();
+    } while (D && D->getDeclContext() != DC);
 
+    // In the case of namespaces, walk the redeclaration chain.
     if (auto *NSDecl = dyn_cast<NamespaceDecl>(DC)) {
       while (!D && NSDecl) {
         NSDecl = NSDecl->getPreviousDecl();
         D = NSDecl ? *NSDecl->decls_begin() : nullptr;
       }
     }
+
+    // We need to recursively descend into LinkageSpecDecls to iterate over the
+    // members declared therein (e.g., `extern "C"` blocks).
+    if (auto *LSDecl = dyn_cast_or_null<LinkageSpecDecl>(D)) {
+      Decl *RecD = findIterableMember(C, *LSDecl->decls_begin(), true);
+      if (RecD) return RecD;
+    }
+
+    // Pop back out of a recursively entered LinkageSpecDecl.
+    if (!D && isa<LinkageSpecDecl>(DC))
+      return findIterableMember(C, cast<Decl>(DC), false);
   } while (D && !isReflectableDecl(C, D));
+
   return D;
 }
 
@@ -1277,19 +1276,19 @@ QualType Sema::ComputeResultType(QualType ExprTy, const APValue &V) {
 // Diagnostic helper function
 // -----------------------------------------------------------------------------
 
-StringRef DescriptionOf(ReflectionValue RV, bool Granular = true) {
-  switch (RV.getKind()) {
-  case ReflectionValue::RK_null:
+StringRef DescriptionOf(APValue RV, bool Granular = true) {
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Null:
     return "a null reflection";
-  case ReflectionValue::RK_type:
-    if (isTypeAlias(RV.getAsType())) return "type alias";
+  case ReflectionKind::Type:
+    if (isTypeAlias(RV.getReflectedType())) return "type alias";
     else return "a type";
-  case ReflectionValue::RK_object:
+  case ReflectionKind::Object:
     return "an object";
-  case ReflectionValue::RK_value:
+  case ReflectionKind::Value:
     return "a value";
-  case ReflectionValue::RK_declaration: {
-    ValueDecl *D = RV.getAsDecl();
+  case ReflectionKind::Declaration: {
+    ValueDecl *D = RV.getReflectedDecl();
 
     switch (D->getDeclName().getNameKind()) {
     case DeclarationName::CXXConstructorName:
@@ -1317,8 +1316,8 @@ StringRef DescriptionOf(ReflectionValue RV, bool Granular = true) {
     else if (isa<EnumConstantDecl>(D)) return "a enumerator";
     llvm_unreachable("unhandled declaration kind");
   }
-  case ReflectionValue::RK_template: {
-    TemplateDecl *TD = RV.getAsTemplate().getAsTemplateDecl();
+  case ReflectionKind::Template: {
+    TemplateDecl *TD = RV.getReflectedTemplate().getAsTemplateDecl();
 
     switch (TD->getDeclName().getNameKind()) {
     case DeclarationName::CXXConstructorName:
@@ -1341,17 +1340,17 @@ StringRef DescriptionOf(ReflectionValue RV, bool Granular = true) {
     else if (isa<ConceptDecl>(TD)) return "a concept";
     llvm_unreachable("unhandled template kind");
   }
-  case ReflectionValue::RK_namespace: {
-    Decl *D = RV.getAsNamespace();
+  case ReflectionKind::Namespace: {
+    Decl *D = RV.getReflectedNamespace();
     if (isa<TranslationUnitDecl>(D)) return "the global namespace";
     else if (isa<NamespaceAliasDecl>(D)) return "a namespace alias";
     else if (isa<NamespaceDecl>(D)) return "a namespace";
     llvm_unreachable("unhandled namespace kind");
   }
-  case ReflectionValue::RK_base_specifier: {
+  case ReflectionKind::BaseSpecifier: {
     return "a base class specifier";
   }
-  case ReflectionValue::RK_data_member_spec: {
+  case ReflectionKind::DataMemberSpec: {
     return "a description of a non-static data member";
   }
   }
@@ -1380,18 +1379,18 @@ bool get_begin_enumerator_decl_of(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.MetaInfoTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   APValue Sentinel;
   if (!Evaluator(Sentinel, Args[1], true))
     return true;
-  assert(Sentinel.getReflection().getKind() == ReflectionValue::RK_type);
+  assert(Sentinel.isReflectedType());
 
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_type: {
-    Decl *D = findTypeDecl(R.getReflectedType());
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Type: {
+    Decl *D = findTypeDecl(RV.getReflectedType());
 
     if (auto enumDecl = dyn_cast_or_null<EnumDecl>(D)) {
       if (auto itr = enumDecl->enumerator_begin();
@@ -1402,16 +1401,16 @@ bool get_begin_enumerator_decl_of(APValue &Result, Sema &S, EvalFn Evaluator,
     }
     return DiagnoseReflectionKind(Diagnoser, Range, "an enum type");
   }
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_declaration:
-  case ReflectionValue::RK_template:
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
-  case ReflectionValue::RK_namespace:
-  case ReflectionValue::RK_base_specifier:
-  case ReflectionValue::RK_data_member_spec: {
+  case ReflectionKind::Null:
+  case ReflectionKind::Declaration:
+  case ReflectionKind::Template:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
+  case ReflectionKind::Namespace:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::DataMemberSpec: {
     return DiagnoseReflectionKind(Diagnoser, Range, "an enum type",
-                                  DescriptionOf(R.getReflection()));
+                                  DescriptionOf(RV));
   }
   }
   llvm_unreachable("unknown reflection kind");
@@ -1423,31 +1422,31 @@ bool get_next_enumerator_decl_of(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.MetaInfoTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   APValue Sentinel;
   if (!Evaluator(Sentinel, Args[1], true))
     return true;
-  assert(Sentinel.getReflection().getKind() == ReflectionValue::RK_type);
+  assert(Sentinel.isReflectedType());
 
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_declaration: {
-    Decl *currEnumConstDecl = R.getReflectedDecl();
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Declaration: {
+    Decl *currEnumConstDecl = RV.getReflectedDecl();
     if(auto nextEnumConstDecl = currEnumConstDecl->getNextDeclInContext()) {
       return SetAndSucceed(Result, makeReflection(nextEnumConstDecl));
     }
     return SetAndSucceed(Result, Sentinel);
   }
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_type:
-  case ReflectionValue::RK_template:
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
-  case ReflectionValue::RK_namespace:
-  case ReflectionValue::RK_base_specifier:
-  case ReflectionValue::RK_data_member_spec: {
+  case ReflectionKind::Null:
+  case ReflectionKind::Type:
+  case ReflectionKind::Template:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
+  case ReflectionKind::Namespace:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::DataMemberSpec: {
     llvm_unreachable("should have failed in 'get_begin_enumerator_decl_of'");
   }
   }
@@ -1460,27 +1459,27 @@ bool get_ith_base_of(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.MetaInfoTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   APValue Sentinel;
   if (!Evaluator(Sentinel, Args[1], true))
     return true;
-  assert(Sentinel.getReflection().getKind() == ReflectionValue::RK_type);
+  assert(Sentinel.isReflectedType());
 
   APValue Idx;
   if (!Evaluator(Idx, Args[2], true))
     return true;
   size_t idx = Idx.getInt().getExtValue();
 
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_type: {
-    Decl *typeDecl = findTypeDecl(R.getReflectedType());
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Type: {
+    Decl *typeDecl = findTypeDecl(RV.getReflectedType());
 
     if (auto cxxRecordDecl = dyn_cast_or_null<CXXRecordDecl>(typeDecl)) {
       ensureInstantiated(S, typeDecl, Range);
-      if (R.getReflectedType()->isIncompleteType())
+      if (RV.getReflectedType()->isIncompleteType())
         return Diagnoser(Range.getBegin(), diag::metafn_cannot_introspect_type)
             << 0 << 0 << Range;
 
@@ -1495,16 +1494,16 @@ bool get_ith_base_of(APValue &Result, Sema &S, EvalFn Evaluator,
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_introspect_type)
         << 0 << 1 << Range;
   }
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_declaration:
-  case ReflectionValue::RK_template:
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
-  case ReflectionValue::RK_namespace:
-  case ReflectionValue::RK_base_specifier:
-  case ReflectionValue::RK_data_member_spec:
+  case ReflectionKind::Null:
+  case ReflectionKind::Declaration:
+  case ReflectionKind::Template:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
+  case ReflectionKind::Namespace:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::DataMemberSpec:
     return DiagnoseReflectionKind(Diagnoser, Range, "a class type",
-                                  DescriptionOf(R.getReflection()));
+                                  DescriptionOf(RV));
   }
   llvm_unreachable("unknown reflection kind");
 }
@@ -1515,48 +1514,48 @@ bool get_ith_template_argument_of(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.MetaInfoTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   APValue Sentinel;
   if (!Evaluator(Sentinel, Args[1], true))
     return true;
-  assert(Sentinel.getReflection().getKind() == ReflectionValue::RK_type);
+  assert(Sentinel.isReflectedType());
 
   APValue Idx;
   if (!Evaluator(Idx, Args[2], true))
     return true;
   size_t idx = Idx.getInt().getExtValue();
 
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_type: {
-    QualType QT = R.getReflectedType();
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Type: {
+    QualType QT = RV.getReflectedType();
     SmallVector<TemplateArgument, 4> TArgs;
     if (getTemplateArgumentsFromType(QT, TArgs))
       return DiagnoseReflectionKind(Diagnoser, Range,
                                     "a template specialization");
 
-    return SetAndSucceed(Result, getNthTemplateArgument(S, TArgs, Evaluator,
-                                                        Sentinel, idx));
+    APValue R = getNthTemplateArgument(S, TArgs, Evaluator, Sentinel, idx);
+    return SetAndSucceed(Result, R);
   }
-  case ReflectionValue::RK_declaration: {
+  case ReflectionKind::Declaration: {
     SmallVector<TemplateArgument, 4> TArgs;
-    if (getTemplateArgumentsFromDecl(R.getReflectedDecl(), TArgs))
+    if (getTemplateArgumentsFromDecl(RV.getReflectedDecl(), TArgs))
       return DiagnoseReflectionKind(Diagnoser, Range,
                                     "a template specialization");
     return SetAndSucceed(Result, getNthTemplateArgument(S, TArgs, Evaluator,
                                                         Sentinel, idx));
   }
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_template:
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
-  case ReflectionValue::RK_namespace:
-  case ReflectionValue::RK_base_specifier:
-  case ReflectionValue::RK_data_member_spec:
+  case ReflectionKind::Null:
+  case ReflectionKind::Template:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
+  case ReflectionKind::Namespace:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::DataMemberSpec:
     return DiagnoseReflectionKind(Diagnoser, Range, "a template specialization",
-                                  DescriptionOf(R.getReflection()));
+                                  DescriptionOf(RV));
   }
   llvm_unreachable("unknown reflection kind");
 }
@@ -1567,8 +1566,8 @@ bool get_begin_member_decl_of(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(ResultTy == S.Context.MetaInfoTy);
 
   assert(Args[0]->getType()->isReflectionType());
-  APValue R;
-  if (!Evaluator(R, Args[0], true)) {
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true)) {
     return true;
   }
 
@@ -1576,12 +1575,12 @@ bool get_begin_member_decl_of(APValue &Result, Sema &S, EvalFn Evaluator,
   APValue Sentinel;
   if (!Evaluator(Sentinel, Args[1], true))
     return true;
-  assert(Sentinel.getReflection().getKind() == ReflectionValue::RK_type);
+  assert(Sentinel.isReflectedType());
 
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_type:
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Type:
   {
-    QualType QT = R.getReflectedType();
+    QualType QT = RV.getReflectedType();
     if (isTypeAlias(QT))
       QT = desugarType(QT, /*UnwrapAliases=*/true, /*DropCV=*/false,
                        /*DropRefs=*/false);
@@ -1619,11 +1618,11 @@ bool get_begin_member_decl_of(APValue &Result, Sema &S, EvalFn Evaluator,
                                            *declContext->decls_begin(), true);
     if (!beginMember)
       return SetAndSucceed(Result, Sentinel);
-    ReflectionValue RV(ReflectionValue::RK_declaration, beginMember);
-    return SetAndSucceed(Result, APValue(RV));
+    return SetAndSucceed(Result,
+                         APValue(ReflectionKind::Declaration, beginMember));
   }
-  case ReflectionValue::RK_namespace: {
-    Decl *NS = R.getReflectedNamespace();
+  case ReflectionKind::Namespace: {
+    Decl *NS = RV.getReflectedNamespace();
     if (auto *A = dyn_cast<NamespaceAliasDecl>(NS))
       NS = A->getNamespace();
 
@@ -1632,16 +1631,16 @@ bool get_begin_member_decl_of(APValue &Result, Sema &S, EvalFn Evaluator,
     Decl *beginMember = findIterableMember(S.Context, *DC->decls_begin(), true);
     if (!beginMember)
       return SetAndSucceed(Result, Sentinel);
-    ReflectionValue RV(ReflectionValue::RK_declaration, beginMember);
-    return SetAndSucceed(Result, APValue(RV));
+    return SetAndSucceed(Result,
+                         APValue(ReflectionKind::Declaration, beginMember));
   }
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_declaration:
-  case ReflectionValue::RK_template:
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
-  case ReflectionValue::RK_base_specifier:
-  case ReflectionValue::RK_data_member_spec:
+  case ReflectionKind::Null:
+  case ReflectionKind::Declaration:
+  case ReflectionKind::Template:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::DataMemberSpec:
     return true;
   }
   llvm_unreachable("unknown reflection kind");
@@ -1653,20 +1652,18 @@ bool get_next_member_decl_of(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(ResultTy == S.Context.MetaInfoTy);
 
   assert(Args[0]->getType()->isReflectionType());
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   assert(Args[1]->getType()->isReflectionType());
   APValue Sentinel;
   if (!Evaluator(Sentinel, Args[1], true))
     return true;
-  assert(Sentinel.getReflection().getKind() == ReflectionValue::RK_type);
+  assert(Sentinel.isReflectedType());
 
-  if (Decl *Next = findIterableMember(S.Context, R.getReflectedDecl(), false)) {
-    ReflectionValue RV(ReflectionValue::RK_declaration, Next);
-    return SetAndSucceed(Result, APValue(RV));
-  }
+  if (Decl *Next = findIterableMember(S.Context, RV.getReflectedDecl(), false))
+    return SetAndSucceed(Result, APValue(ReflectionKind::Declaration, Next));
   return SetAndSucceed(Result, Sentinel);
 }
 
@@ -1676,10 +1673,10 @@ bool map_decl_to_entity(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(ResultTy == S.Context.MetaInfoTy);
   assert(Args[0]->getType()->isReflectionType());
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
-  Decl *D = R.getReflectedDecl();
+  Decl *D = RV.getReflectedDecl();
 
   if (auto *TyDecl = dyn_cast<TypeDecl>(D)) {
     QualType QT = S.Context.getTypeDeclType(TyDecl);
@@ -1698,8 +1695,8 @@ bool identifier_of(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
                    ArrayRef<Expr *> Args) {
   assert(Args[0]->getType()->isReflectionType());
 
-  APValue R;
-  if (!Evaluator(R, Args[1], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[1], true))
     return true;
 
   bool IsUtf8;
@@ -1719,9 +1716,9 @@ bool identifier_of(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   }
 
   std::string Name;
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_type: {
-    QualType QT = R.getReflectedType();
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Type: {
+    QualType QT = RV.getReflectedType();
     if (isTemplateSpecialization(QT))
       return Diagnoser(Range.getBegin(), diag::metafn_name_is_not_identifier)
           << 0 << Range;
@@ -1732,17 +1729,17 @@ bool identifier_of(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
 
     break;
   }
-  case ReflectionValue::RK_declaration: {
-    if (auto *PVD = dyn_cast<ParmVarDecl>(R.getReflectedDecl())) {
+  case ReflectionKind::Declaration: {
+    if (auto *PVD = dyn_cast<ParmVarDecl>(RV.getReflectedDecl())) {
       bool ConsistentName = getParameterName(PVD, Name);
       if (EnforceConsistent && !ConsistentName) {
         return Diagnoser(Range.getBegin(), diag::metafn_inconsistent_name)
-            << DescriptionOf(R.getReflection()) << Range;
+            << DescriptionOf(RV) << Range;
       }
       break;
     }
 
-    if (auto *ND = dyn_cast<NamedDecl>(R.getReflectedDecl())) {
+    if (auto *ND = dyn_cast<NamedDecl>(RV.getReflectedDecl())) {
       if (!findTemplateOfDecl(ND).isNull())
         return Diagnoser(Range.getBegin(), diag::metafn_name_is_not_identifier)
             << 0 << Range;
@@ -1769,8 +1766,8 @@ bool identifier_of(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
 
     break;
   }
-  case ReflectionValue::RK_template: {
-    const TemplateDecl *TD = R.getReflectedTemplate().getAsTemplateDecl();
+  case ReflectionKind::Template: {
+    const TemplateDecl *TD = RV.getReflectedTemplate().getAsTemplateDecl();
     if (auto *FTD = dyn_cast<FunctionTemplateDecl>(TD)) {
       if (isa<CXXConstructorDecl>(FTD->getTemplatedDecl()))
         return Diagnoser(Range.getBegin(), diag::metafn_name_is_not_identifier)
@@ -1793,31 +1790,31 @@ bool identifier_of(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
 
     break;
   }
-  case ReflectionValue::RK_namespace: {
-    if (isa<TranslationUnitDecl>(R.getReflectedNamespace()))
+  case ReflectionKind::Namespace: {
+    if (isa<TranslationUnitDecl>(RV.getReflectedNamespace()))
       return Diagnoser(Range.getBegin(),
                        diag::metafn_name_of_unnamed_singleton) << 1 << Range;
-    getDeclName(Name, S.Context, R.getReflectedNamespace());
+    getDeclName(Name, S.Context, RV.getReflectedNamespace());
     break;
   }
-  case ReflectionValue::RK_data_member_spec: {
-    TagDataMemberSpec *TDMS = R.getReflectedDataMemberSpec();
+  case ReflectionKind::DataMemberSpec: {
+    TagDataMemberSpec *TDMS = RV.getReflectedDataMemberSpec();
     if (TDMS->Name)
       Name = *TDMS->Name;
     break;
   }
-  case ReflectionValue::RK_null:
+  case ReflectionKind::Null:
     return Diagnoser(Range.getBegin(),
                      diag::metafn_name_of_unnamed_singleton) << 0 << Range;
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
-  case ReflectionValue::RK_base_specifier:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
+  case ReflectionKind::BaseSpecifier:
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_have_name)
-        << DescriptionOf(R.getReflection()) << Range;
+        << DescriptionOf(RV) << Range;
   }
   if (Name.empty())
     return Diagnoser(Range.getBegin(), diag::metafn_anonymous_entity)
-        << DescriptionOf(R.getReflection()) << Range;
+        << DescriptionOf(RV) << Range;
 
   Expr *StrLit = makeStrLiteral(Name, S.Context, IsUtf8);
 
@@ -1831,14 +1828,14 @@ bool has_identifier(APValue &Result, Sema &S, EvalFn Evaluator,
                     ArrayRef<Expr *> Args) {
   assert(Args[0]->getType()->isReflectionType());
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool HasIdentifier = false;
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_type: {
-    QualType QT = R.getReflectedType();
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Type: {
+    QualType QT = RV.getReflectedType();
     if (isTemplateSpecialization(QT))
       break;
 
@@ -1848,8 +1845,8 @@ bool has_identifier(APValue &Result, Sema &S, EvalFn Evaluator,
 
     break;
   }
-  case ReflectionValue::RK_declaration: {
-    auto *D = R.getReflectedDecl();
+  case ReflectionKind::Declaration: {
+    auto *D = RV.getReflectedDecl();
     if (auto *PVD = dyn_cast<ParmVarDecl>(D)) {
       std::string Name;
       (void) getParameterName(PVD, Name);
@@ -1866,8 +1863,8 @@ bool has_identifier(APValue &Result, Sema &S, EvalFn Evaluator,
 
     break;
   }
-  case ReflectionValue::RK_template: {
-    const TemplateDecl *TD = R.getReflectedTemplate().getAsTemplateDecl();
+  case ReflectionKind::Template: {
+    const TemplateDecl *TD = RV.getReflectedTemplate().getAsTemplateDecl();
     if (auto *FTD = dyn_cast<FunctionTemplateDecl>(TD))
       if (isa<CXXConstructorDecl>(FTD->getTemplatedDecl()))
         break;
@@ -1875,20 +1872,20 @@ bool has_identifier(APValue &Result, Sema &S, EvalFn Evaluator,
     HasIdentifier = (TD->getIdentifier() != nullptr);
     break;
   }
-  case ReflectionValue::RK_namespace: {
-    if (auto *ND = dyn_cast<NamedDecl>(R.getReflectedNamespace()))
+  case ReflectionKind::Namespace: {
+    if (auto *ND = dyn_cast<NamedDecl>(RV.getReflectedNamespace()))
       HasIdentifier = (ND->getIdentifier() != nullptr);
     break;
   }
-  case ReflectionValue::RK_data_member_spec: {
-    TagDataMemberSpec *TDMS = R.getReflectedDataMemberSpec();
+  case ReflectionKind::DataMemberSpec: {
+    TagDataMemberSpec *TDMS = RV.getReflectedDataMemberSpec();
     HasIdentifier = TDMS->Name && !TDMS->Name->empty();
     break;
   }
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_base_specifier:
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
+  case ReflectionKind::Null:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
     break;
   }
 
@@ -1924,23 +1921,23 @@ bool operator_of(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
     return (OpPtr - OperatorIndices);
   };
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   size_t OperatorId = 0;
-  if (R.getReflection().getKind() == ReflectionValue::RK_template) {
-    const TemplateDecl *TD = R.getReflectedTemplate().getAsTemplateDecl();
+  if (RV.isReflectedTemplate()) {
+    const TemplateDecl *TD = RV.getReflectedTemplate().getAsTemplateDecl();
     if (auto *FTD = dyn_cast<FunctionTemplateDecl>(TD))
       OperatorId = findOperatorOf(FTD->getTemplatedDecl());
-  } else if (R.getReflection().getKind() == ReflectionValue::RK_declaration) {
-    if (auto *FD = dyn_cast<FunctionDecl>(R.getReflectedDecl()))
+  } else if (RV.isReflectedDecl()) {
+    if (auto *FD = dyn_cast<FunctionDecl>(RV.getReflectedDecl()))
       OperatorId = findOperatorOf(FD);
   }
 
   if (OperatorId == 0)
     return Diagnoser(Range.getBegin(), diag::metafn_not_an_operator)
-        << DescriptionOf(R.getReflection()) << Range;
+        << DescriptionOf(RV) << Range;
 
   return SetAndSucceed(
           Result,
@@ -1952,33 +1949,33 @@ bool source_location_of(APValue &Result, Sema &S, EvalFn Evaluator,
                         ArrayRef<Expr *> Args) {
   assert(Args[0]->getType()->isReflectionType());
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_type:
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Type:
     return findTypeDeclLoc(Result, S.Context, Evaluator, ResultTy,
-                           R.getReflectedType());
-  case ReflectionValue::RK_declaration:
+                           RV.getReflectedType());
+  case ReflectionKind::Declaration:
     return findDeclLoc(Result, S.Context, Evaluator, ResultTy,
-                       R.getReflectedDecl());
-  case ReflectionValue::RK_template: {
-    TemplateName TName = R.getReflectedTemplate();
+                       RV.getReflectedDecl());
+  case ReflectionKind::Template: {
+    TemplateName TName = RV.getReflectedTemplate();
     return findDeclLoc(Result, S.Context, Evaluator, ResultTy,
                        TName.getAsTemplateDecl());
   }
-  case ReflectionValue::RK_namespace:
+  case ReflectionKind::Namespace:
     return findDeclLoc(Result, S.Context, Evaluator, ResultTy,
-                       R.getReflectedNamespace());
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
+                       RV.getReflectedNamespace());
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
     // TODO(P2996): Passing 'nullptr' here (and for base spec) can't be right.
     return findDeclLoc(Result, S.Context, Evaluator, ResultTy, nullptr);
-  case ReflectionValue::RK_base_specifier:
+  case ReflectionKind::BaseSpecifier:
     return findBaseSpecLoc(Result, S.Context, Evaluator, ResultTy, nullptr);
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_data_member_spec:
+  case ReflectionKind::Null:
+  case ReflectionKind::DataMemberSpec:
     return true;
   }
   llvm_unreachable("unknown reflection kind");
@@ -1988,34 +1985,34 @@ bool type_of(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
              QualType ResultTy, SourceRange Range, ArrayRef<Expr *> Args) {
   assert(Args[0]->getType()->isReflectionType());
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_type:
-  case ReflectionValue::RK_template:
-  case ReflectionValue::RK_namespace:
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Null:
+  case ReflectionKind::Type:
+  case ReflectionKind::Template:
+  case ReflectionKind::Namespace:
     return Diagnoser(Range.getBegin(), diag::metafn_no_associated_property)
-        << DescriptionOf(R.getReflection()) << 0 << Range;
-  case ReflectionValue::RK_object: {
-    QualType QT = desugarType(R.getReflection().getResultType(),
+        << DescriptionOf(RV) << 0 << Range;
+  case ReflectionKind::Object: {
+    QualType QT = desugarType(RV.getTypeOfReflectedResult(S.Context),
                               /*UnwrapAliases=*/false, /*DropCV=*/false,
                               /*DropRefs=*/false);
     return SetAndSucceed(Result, makeReflection(QT));
   }
-  case ReflectionValue::RK_value: {
-    QualType QT = desugarType(R.getReflection().getResultType(),
+  case ReflectionKind::Value: {
+    QualType QT = desugarType(RV.getTypeOfReflectedResult(S.Context),
                               /*UnwrapAliases=*/true, /*DropCV=*/false,
                               /*DropRefs=*/false);
     return SetAndSucceed(Result, makeReflection(QT));
   }
-  case ReflectionValue::RK_declaration: {
-    ValueDecl *VD = cast<ValueDecl>(R.getReflectedDecl());
+  case ReflectionKind::Declaration: {
+    ValueDecl *VD = cast<ValueDecl>(RV.getReflectedDecl());
     if (isa<CXXConstructorDecl, CXXDestructorDecl, BindingDecl>(VD))
       return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
-          << 0 << DescriptionOf(R.getReflection()) << Range;
+          << 0 << DescriptionOf(RV) << Range;
 
     bool UnwrapAliases = isa<ParmVarDecl>(VD) || isa<BindingDecl>(VD);
     bool DropCV = isa<ParmVarDecl>(VD);
@@ -2023,15 +2020,15 @@ bool type_of(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
                               /*DropRefs=*/false);
     return SetAndSucceed(Result, makeReflection(QT));
   }
-  case ReflectionValue::RK_base_specifier: {
-    QualType QT = R.getReflectedBaseSpecifier()->getType();
+  case ReflectionKind::BaseSpecifier: {
+    QualType QT = RV.getReflectedBaseSpecifier()->getType();
     QT = desugarType(QT, /*UnwrapAliases=*/false, /*DropCV=*/false,
                      /*DropRefs=*/false);
     return SetAndSucceed(Result, makeReflection(QT));
   }
-  case ReflectionValue::RK_data_member_spec:
+  case ReflectionKind::DataMemberSpec:
   {
-    QualType QT = R.getReflectedDataMemberSpec()->Ty;
+    QualType QT = RV.getReflectedDataMemberSpec()->Ty;
     QT = desugarType(QT, /*UnwrapAliases=*/false, /*DropCV=*/false,
                      /*DropRefs=*/false);
     return SetAndSucceed(Result, makeReflection(QT));
@@ -2044,54 +2041,54 @@ bool parent_of(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
                QualType ResultTy, SourceRange Range, ArrayRef<Expr *> Args) {
   assert(Args[0]->getType()->isReflectionType());
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   auto DiagWrapper = [&](unsigned DiagId) {
     if (DiagId && Diagnoser)
       return bool(Diagnoser(Range.getBegin(), DiagId)
-          << DescriptionOf(R.getReflection()) << Range);
+          << DescriptionOf(RV) << Range);
 
     return DiagId > 0;
   };
 
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
-  case ReflectionValue::RK_data_member_spec:
-  case ReflectionValue::RK_base_specifier:
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Null:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
+  case ReflectionKind::DataMemberSpec:
+  case ReflectionKind::BaseSpecifier:
     if (Diagnoser)
       return Diagnoser(Range.getBegin(), diag::metafn_no_associated_property)
-          << DescriptionOf(R.getReflection()) << 1 << Range;
+          << DescriptionOf(RV) << 1 << Range;
     return true;
-  case ReflectionValue::RK_type: {
-    if (TemplateName TName = findTemplateOfType(R.getReflectedType());
+  case ReflectionKind::Type: {
+    if (TemplateName TName = findTemplateOfType(RV.getReflectedType());
         !TName.isNull())
       return DiagWrapper(parentOf(Result, TName.getAsTemplateDecl()));
 
-    return DiagWrapper(parentOf(Result, findTypeDecl(R.getReflectedType())));
+    return DiagWrapper(parentOf(Result, findTypeDecl(RV.getReflectedType())));
   }
-  case ReflectionValue::RK_declaration: {
-    if (TemplateName TName = findTemplateOfDecl(R.getReflectedDecl());
+  case ReflectionKind::Declaration: {
+    if (TemplateName TName = findTemplateOfDecl(RV.getReflectedDecl());
         !TName.isNull())
       return DiagWrapper(parentOf(Result, TName.getAsTemplateDecl()));
 
-    return DiagWrapper(parentOf(Result, R.getReflectedDecl()));
+    return DiagWrapper(parentOf(Result, RV.getReflectedDecl()));
   }
-  case ReflectionValue::RK_template: {
+  case ReflectionKind::Template: {
     return DiagWrapper(parentOf(Result,
-                                R.getReflectedTemplate().getAsTemplateDecl()));
+                                RV.getReflectedTemplate().getAsTemplateDecl()));
   }
-  case ReflectionValue::RK_namespace:
-    if (isa<TranslationUnitDecl>(R.getReflectedNamespace())) {
+  case ReflectionKind::Namespace:
+    if (isa<TranslationUnitDecl>(RV.getReflectedNamespace())) {
       if (Diagnoser)
         return Diagnoser(Range.getBegin(), diag::metafn_no_associated_property)
-            << DescriptionOf(R.getReflection()) << 1 << Range;
+            << DescriptionOf(RV) << 1 << Range;
       return true;
     }
-    return DiagWrapper(parentOf(Result, R.getReflectedNamespace()));
+    return DiagWrapper(parentOf(Result, RV.getReflectedNamespace()));
   }
   llvm_unreachable("unknown reflection kind");
 }
@@ -2101,27 +2098,27 @@ bool dealias(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.MetaInfoTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
-  case ReflectionValue::RK_declaration:
-  case ReflectionValue::RK_template:
-  case ReflectionValue::RK_base_specifier:
-  case ReflectionValue::RK_data_member_spec:
-    return SetAndSucceed(Result, R);
-  case ReflectionValue::RK_type: {
-    QualType QT = R.getReflectedType();
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Null:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
+  case ReflectionKind::Declaration:
+  case ReflectionKind::Template:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::DataMemberSpec:
+    return SetAndSucceed(Result, RV);
+  case ReflectionKind::Type: {
+    QualType QT = RV.getReflectedType();
     QT = desugarType(QT, /*UnwrapAliases=*/true, /*DropCV=*/false,
                      /*DropRefs=*/false);
     return SetAndSucceed(Result, makeReflection(QT));
   }
-  case ReflectionValue::RK_namespace: {
-    Decl *NS = R.getReflectedNamespace();
+  case ReflectionKind::Namespace: {
+    Decl *NS = RV.getReflectedNamespace();
     if (auto *A = dyn_cast<NamespaceAliasDecl>(NS))
       NS = A->getNamespace();
     return SetAndSucceed(Result, makeReflection(NS));
@@ -2135,18 +2132,18 @@ bool object_of(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.MetaInfoTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_object:
-    return SetAndSucceed(Result, R);
-  case ReflectionValue::RK_declaration: {
-    VarDecl *VD = dyn_cast<VarDecl>(R.getReflectedDecl());
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Object:
+    return SetAndSucceed(Result, RV);
+  case ReflectionKind::Declaration: {
+    VarDecl *VD = dyn_cast<VarDecl>(RV.getReflectedDecl());
     if (!VD)
       return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
-          << 1 << DescriptionOf(R.getReflection()) << Range;
+          << 1 << DescriptionOf(RV) << Range;
 
     QualType QT = VD->getType();
     if (auto *LVRT = dyn_cast<LValueReferenceType>(QT)) {
@@ -2162,19 +2159,18 @@ bool object_of(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
     if (!Evaluator(Value, Synthesized, false) || !Value.isLValue())
       return true;
 
-    ReflectionValue RV(ReflectionValue::RK_object,
-                       new (S.Context) APValue(Value));
-    return SetAndSucceed(Result, APValue(RV));
+    APValue OV = Value.Lift(QualType{});
+    return SetAndSucceed(Result, OV);
   }
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_value:
-  case ReflectionValue::RK_type:
-  case ReflectionValue::RK_template:
-  case ReflectionValue::RK_namespace:
-  case ReflectionValue::RK_base_specifier:
-  case ReflectionValue::RK_data_member_spec:
+  case ReflectionKind::Null:
+  case ReflectionKind::Value:
+  case ReflectionKind::Type:
+  case ReflectionKind::Template:
+  case ReflectionKind::Namespace:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::DataMemberSpec:
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
-        << 1 << DescriptionOf(R.getReflection()) << Range;
+        << 1 << DescriptionOf(RV) << Range;
   }
   llvm_unreachable("unimplemented");
 }
@@ -2185,37 +2181,35 @@ bool value_of(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.MetaInfoTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
-  ReflectionValue RV = R.getReflection();
-  switch (RV.getKind()) {
-  case ReflectionValue::RK_value:
-    return SetAndSucceed(Result, R);
-  case ReflectionValue::RK_object: {
-    if (!RV.getResultType()->isStructuralType())
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Value:
+    return SetAndSucceed(Result, RV);
+  case ReflectionKind::Object: {
+    if (!RV.getTypeOfReflectedResult(S.Context)->isStructuralType())
       return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
           << 2 << "an object of non-structural type" << Range;
 
+    QualType ObjectTy = RV.getTypeOfReflectedResult(S.Context);
     Expr *OVE = new (S.Context) OpaqueValueExpr(Range.getBegin(),
-                                                RV.getResultType(),
+                                                ObjectTy,
                                                 VK_LValue);
-    Expr *CE = ConstantExpr::Create(S.Context, OVE, RV.getAsObject());
+    Expr *CE = ConstantExpr::Create(S.Context, OVE, RV.getReflectedObject());
 
     Expr::EvalResult ER;
     if (!CE->EvaluateAsRValue(ER, S.Context, true))
       return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
           << 2 << "an object not usable in constant expressions" << Range;
 
-    ReflectionValue RVResult(ReflectionValue::RK_value,
-                             new (S.Context) APValue(ER.Val),
-                             S.ComputeResultType(RV.getResultType(), ER.Val));
-
-    return SetAndSucceed(Result, APValue(RVResult));
+    QualType ValueTy =
+          S.ComputeResultType(RV.getTypeOfReflectedResult(S.Context), ER.Val);
+    return SetAndSucceed(Result, ER.Val.Lift(ValueTy));
   }
-  case ReflectionValue::RK_declaration: {
-    ValueDecl *Decl = R.getReflectedDecl();
+  case ReflectionKind::Declaration: {
+    ValueDecl *Decl = RV.getReflectedDecl();
 
     APValue Value;
     QualType QT;
@@ -2251,21 +2245,22 @@ bool value_of(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
     } else if (auto *TPOD = dyn_cast<TemplateParamObjectDecl>(Decl)) {
       Value = TPOD->getValue();
       QT = TPOD->getType();
+    } else {
+      return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
+          << 2 << DescriptionOf(RV) << Range;
     }
 
-    ReflectionValue RVResult(ReflectionValue::RK_value,
-                             new (S.Context) APValue(Value),
-                             S.ComputeResultType(QT, Value));
-    return SetAndSucceed(Result, APValue(RVResult));
+    QualType ValueTy = S.ComputeResultType(QT, Value);
+    return SetAndSucceed(Result, Value.Lift(ValueTy));
   }
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_type:
-  case ReflectionValue::RK_template:
-  case ReflectionValue::RK_namespace:
-  case ReflectionValue::RK_base_specifier:
-  case ReflectionValue::RK_data_member_spec:
+  case ReflectionKind::Null:
+  case ReflectionKind::Type:
+  case ReflectionKind::Template:
+  case ReflectionKind::Namespace:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::DataMemberSpec:
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
-        << 2 << DescriptionOf(R.getReflection()) << Range;
+        << 2 << DescriptionOf(RV) << Range;
   }
   llvm_unreachable("unimplemented");
 }
@@ -2275,84 +2270,89 @@ bool template_of(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.MetaInfoTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_type: {
-    TemplateName TName = findTemplateOfType(R.getReflectedType());
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Type: {
+    TemplateName TName = findTemplateOfType(RV.getReflectedType());
     if (TName.isNull())
       return DiagnoseReflectionKind(Diagnoser, Range,
                                     "a template specialization");
 
     return SetAndSucceed(Result, makeReflection(TName));
   }
-  case ReflectionValue::RK_declaration: {
-    TemplateName TName = findTemplateOfDecl(R.getReflectedDecl());
+  case ReflectionKind::Declaration: {
+    TemplateName TName = findTemplateOfDecl(RV.getReflectedDecl());
     if (TName.isNull())
       return DiagnoseReflectionKind(Diagnoser, Range,
                                     "a template specialization");
 
     return SetAndSucceed(Result, makeReflection(TName));
   }
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
-  case ReflectionValue::RK_template:
-  case ReflectionValue::RK_namespace:
-  case ReflectionValue::RK_base_specifier:
-  case ReflectionValue::RK_data_member_spec:
+  case ReflectionKind::Null:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
+  case ReflectionKind::Template:
+  case ReflectionKind::Namespace:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::DataMemberSpec:
     return DiagnoseReflectionKind(Diagnoser, Range, "a template specialization",
-                                  DescriptionOf(R.getReflection()));
+                                  DescriptionOf(RV));
     return true;
   }
   llvm_unreachable("unknown reflection kind");
 }
 
-static bool CanActAsTemplateArg(const ReflectionValue &RV) {
-  switch (RV.getKind()) {
-  case ReflectionValue::RK_type:
-  case ReflectionValue::RK_declaration:
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
+static bool CanActAsTemplateArg(const APValue &RV) {
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Type:
+  case ReflectionKind::Declaration:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
     return true;
-  case ReflectionValue::RK_template:
-    return isa<ClassTemplateDecl,
-               TypeAliasTemplateDecl>(RV.getAsTemplate().getAsTemplateDecl());
-  case ReflectionValue::RK_namespace:
-  case ReflectionValue::RK_base_specifier:
-  case ReflectionValue::RK_data_member_spec:
-  case ReflectionValue::RK_null:
+  case ReflectionKind::Template: {
+    TemplateDecl *TDecl = RV.getReflectedTemplate().getAsTemplateDecl();
+    return isa<ClassTemplateDecl, TypeAliasTemplateDecl>(TDecl);
+  }
+  case ReflectionKind::Namespace:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::DataMemberSpec:
+  case ReflectionKind::Null:
     return false;
   }
   llvm_unreachable("unknown reflection kind");
 }
 
 static TemplateArgument TArgFromReflection(Sema &S, EvalFn Evaluator,
-                                           const ReflectionValue &RV,
+                                           const APValue &RV,
                                            SourceLocation Loc) {
-  switch (RV.getKind()) {
-  case ReflectionValue::RK_type:
-    return RV.getAsType().getCanonicalType();
-  case ReflectionValue::RK_object: {
-    QualType RefTy = S.Context.getLValueReferenceType(RV.getResultType());
-    return TemplateArgument(S.Context, RefTy, RV.getAsObject(), false);
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Type:
+    return RV.getReflectedType().getCanonicalType();
+  case ReflectionKind::Object: {
+    QualType RefTy = S.Context.getLValueReferenceType(
+            RV.getTypeOfReflectedResult(S.Context));
+    return TemplateArgument(S.Context, RefTy, RV.getReflectedObject(), false);
   }
-  case ReflectionValue::RK_value: {
-    if (RV.getResultType()->isIntegralOrEnumerationType())
-      return TemplateArgument(S.Context, RV.getAsValue().getInt(),
-                              RV.getResultType().getCanonicalType());
-
-    return TemplateArgument(S.Context, RV.getResultType(), RV.getAsValue(),
-                            false);
+  case ReflectionKind::Value: {
+    APValue Lowered = RV.getReflectedValue();
+    QualType ResultTy = RV.getTypeOfReflectedResult(S.Context);
+    if (Lowered.isInt()) {
+      return TemplateArgument(S.Context, Lowered.getInt(),
+                              ResultTy.getCanonicalType());
+    }
+    TemplateArgument TArg(S.Context, ResultTy, Lowered, false);
+    return TArg;
   }
-  case ReflectionValue::RK_declaration: {
-    ValueDecl *Decl = RV.getAsDecl();
+  case ReflectionKind::Declaration: {
+    ValueDecl *Decl = RV.getReflectedDecl();
     Expr *Synthesized =
         DeclRefExpr::Create(S.Context, NestedNameSpecifierLoc(),
                             SourceLocation(), Decl, false, Loc,
                             Decl->getType(), VK_LValue, Decl, nullptr);
+    // TODO(P2996): Just throw this in an lvalue APValue.
     APValue R;
     if (!Evaluator(R, Synthesized, true))
       break;
@@ -2366,8 +2366,8 @@ static TemplateArgument TArgFromReflection(Sema &S, EvalFn Evaluator,
       return TemplateArgument(Synthesized);
     break;
   }
-  case ReflectionValue::RK_template:
-    return TemplateArgument(RV.getAsTemplate());
+  case ReflectionKind::Template:
+    return TemplateArgument(RV.getReflectedTemplate());
     break;
   default:
     llvm_unreachable("unimplemented for template argument kind");
@@ -2389,9 +2389,9 @@ bool can_substitute(APValue &Result, Sema &S, EvalFn Evaluator,
   if (!Evaluator(Template, Args[0], true))
     return true;
 
-  if (Template.getReflection().getKind() != ReflectionValue::RK_template)
+  if (!Template.isReflectedTemplate())
     return DiagnoseReflectionKind(Diagnoser, Range, "a template",
-                                  DescriptionOf(Template.getReflection()));
+                                  DescriptionOf(Template));
   TemplateDecl *TDecl = Template.getReflectedTemplate().getAsTemplateDecl();
   if (TDecl->isInvalidDecl())
     return true;
@@ -2422,12 +2422,11 @@ bool can_substitute(APValue &Result, Sema &S, EvalFn Evaluator,
       if (!Evaluator(Unwrapped, Synthesized, true) ||
           !Unwrapped.isReflection())
         return true;
-      if (!CanActAsTemplateArg(Unwrapped.getReflection()))
+      if (!CanActAsTemplateArg(Unwrapped))
         return SetAndSucceed(Result, makeBool(S.Context, false));
 
       TemplateArgument TArg = TArgFromReflection(S, Evaluator,
-                                                 Unwrapped.getReflection(),
-                                                 Range.getBegin());
+                                                 Unwrapped, Range.getBegin());
       if (TArg.isNull())
         llvm_unreachable("could not form template argument?");
       TArgs.push_back(TArg);
@@ -2461,9 +2460,9 @@ bool substitute(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   if (!Evaluator(Template, Args[0], true))
     return true;
 
-  if (Template.getReflection().getKind() != ReflectionValue::RK_template)
+  if (!Template.isReflectedTemplate())
     return DiagnoseReflectionKind(Diagnoser, Range, "a template",
-                                  DescriptionOf(Template.getReflection()));
+                                  DescriptionOf(Template));
 
   TemplateDecl *TDecl = Template.getReflectedTemplate().getAsTemplateDecl();
   if (TDecl->isInvalidDecl())
@@ -2495,13 +2494,12 @@ bool substitute(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
       if (!Evaluator(Unwrapped, Synthesized, true) ||
           !Unwrapped.isReflection())
         return true;
-      if (!CanActAsTemplateArg(Unwrapped.getReflection()))
+      if (!CanActAsTemplateArg(Unwrapped))
         return Diagnoser(Range.getBegin(), diag::metafn_cannot_be_arg)
-            << DescriptionOf(Unwrapped.getReflection()) << 1 << Range;
+            << DescriptionOf(Unwrapped) << 1 << Range;
 
       TemplateArgument TArg = TArgFromReflection(S, Evaluator,
-                                                 Unwrapped.getReflection(),
-                                                 Range.getBegin());
+                                                 Unwrapped, Range.getBegin());
       if (TArg.isNull())
         llvm_unreachable("could not form template argument?");
       TArgs.push_back(TArg);
@@ -2534,9 +2532,9 @@ bool substitute(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
     }
     assert(TSpecDecl);
 
-    ReflectionValue RV(ReflectionValue::RK_type,
-                       const_cast<Type *>(TSpecDecl->getTypeForDecl()));
-    return SetAndSucceed(Result, APValue(RV));
+    APValue RV(ReflectionKind::Type,
+               const_cast<Type *>(TSpecDecl->getTypeForDecl()));
+    return SetAndSucceed(Result, RV);
   } else if (isa<TypeAliasTemplateDecl>(TDecl)) {
     TemplateArgumentListInfo TAListInfo =
           addLocToTemplateArgs(S, TArgs, Args[1]);
@@ -2567,8 +2565,8 @@ bool substitute(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
       // Could not instantiate function with the provided arguments.
       llvm_unreachable("Substitution failed after validating arguments?");
 
-    ReflectionValue RV(ReflectionValue::RK_declaration, TSpecDecl);
-    return SetAndSucceed(Result, APValue(RV));
+    return SetAndSucceed(Result,
+                         APValue(ReflectionKind::Declaration, TSpecDecl));
   } else if (auto *VTD = dyn_cast<VarTemplateDecl>(TDecl)) {
     void *InsertPos;
     VarTemplateSpecializationDecl *TSpecDecl =
@@ -2601,10 +2599,7 @@ bool substitute(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
     if (!Evaluator(SatisfiesConcept, ER.get(), true))
       llvm_unreachable("Substitution failed after validating arguments?");
 
-    ReflectionValue RV(ReflectionValue::RK_value,
-                       new (S.Context) APValue(SatisfiesConcept),
-                       S.Context.BoolTy);
-    return SetAndSucceed(Result, APValue(RV));
+    return SetAndSucceed(Result, SatisfiesConcept.Lift(S.Context.BoolTy));
   }
   llvm_unreachable("unimplemented for template kind");
 }
@@ -2647,38 +2642,39 @@ bool extract(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
     return SetAndSucceed(Out, CallOpLV);
   };
 
-  APValue R;
-  if (!Evaluator(R, Args[1], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[1], true))
     return true;
 
-  ReflectionValue RV = R.getReflection();
-  switch (RV.getKind()) {
-  case ReflectionValue::RK_object: {
-    if (RV.getResultType().getCanonicalType().getTypePtr() !=
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Object: {
+    QualType ObjectTy = RV.getTypeOfReflectedResult(S.Context);
+    if (ObjectTy.getCanonicalType().getTypePtr() !=
         ResultTy.getCanonicalType().getTypePtr())
       return Diagnoser(Range.getBegin(), diag::metafn_extract_type_mismatch)
-          << 1 << RV.getResultType() << ReturnsLValue << ResultTy << Range;
+          << 1 << ObjectTy << ReturnsLValue << ResultTy << Range;
 
-    return SetAndSucceed(Result, RV.getAsObject());
+    return SetAndSucceed(Result, RV.getReflectedObject());
   }
-  case ReflectionValue::RK_value: {
+  case ReflectionKind::Value: {
     if (ReturnsLValue)
       return Diagnoser(Range.getBegin(), diag::metafn_cannot_extract)
           << 1 << DescriptionOf(RV) << Range;
 
-    if (auto *RD = RV.getResultType()->getAsCXXRecordDecl();
+    QualType ValueTy = RV.getTypeOfReflectedResult(S.Context);
+    if (auto *RD = ValueTy->getAsCXXRecordDecl();
         RD && RD->isLambda() && ResultTy->isPointerType())
       return extractLambda(Result, RD);
 
-    if (RV.getResultType().getCanonicalType().getTypePtr() !=
+    if (ValueTy.getCanonicalType().getTypePtr() !=
         ResultTy.getCanonicalType().getTypePtr())
       return Diagnoser(Range.getBegin(), diag::metafn_extract_type_mismatch)
-          << 0 << RV.getResultType() << ReturnsLValue << ResultTy << Range;
+          << 0 << ValueTy << ReturnsLValue << ResultTy << Range;
 
-    return SetAndSucceed(Result, RV.getAsValue());
+    return SetAndSucceed(Result, RV.getReflectedValue());
   }
-  case ReflectionValue::RK_declaration: {
-    ValueDecl *Decl = R.getReflectedDecl();
+  case ReflectionKind::Declaration: {
+    ValueDecl *Decl = RV.getReflectedDecl();
     ensureInstantiated(S, Decl, Args[1]->getSourceRange());
 
     if (auto *RD = Decl->getType()->getAsCXXRecordDecl();
@@ -2736,12 +2732,12 @@ bool extract(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
     } else if (ReturnsLValue) {
       // Only variables may be returned as LValues.
       return Diagnoser(Range.getBegin(), diag::metafn_cannot_extract)
-          << 1 << DescriptionOf(R.getReflection());
+          << 1 << DescriptionOf(RV);
     } else if (isa<FieldDecl, CXXMethodDecl>(Decl)) {
       // Extracting a non-static member as a pointer.
       if (auto *FD = dyn_cast<FieldDecl>(Decl); FD && FD->isBitField())
         return Diagnoser(Range.getBegin(), diag::metafn_cannot_extract) << 2
-            << DescriptionOf(R.getReflection()) << Range;
+            << DescriptionOf(RV) << Range;
 
       auto *ParentTy = cast<RecordDecl>(
               Decl->getDeclContext())->getTypeForDecl();
@@ -2751,8 +2747,7 @@ bool extract(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
           ResultTy.getCanonicalType().getTypePtr())
         return Diagnoser(Range.getBegin(),
                          diag::metafn_extract_entity_type_mismatch)
-            << ResultTy << DescriptionOf(R.getReflection()) << MemPtrTy
-            << Range;
+            << ResultTy << DescriptionOf(RV) << MemPtrTy << Range;
 
       APValue MemPtrLV(Decl, false, ArrayRef<const CXXRecordDecl *> {});
       return SetAndSucceed(Result, MemPtrLV);
@@ -2774,15 +2769,14 @@ bool extract(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
                            APValue::NoLValuePath()));
     }
   }
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_type:
-  case ReflectionValue::RK_template:
-  case ReflectionValue::RK_namespace:
-  case ReflectionValue::RK_base_specifier:
-  case ReflectionValue::RK_data_member_spec:
+  case ReflectionKind::Null:
+  case ReflectionKind::Type:
+  case ReflectionKind::Template:
+  case ReflectionKind::Namespace:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::DataMemberSpec:
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_extract)
-        << (ReturnsLValue ? 1 : 0)
-        << DescriptionOf(R.getReflection()) << Range;
+        << (ReturnsLValue ? 1 : 0) << DescriptionOf(RV) << Range;
   }
   llvm_unreachable("invalid reflection type");
 }
@@ -2792,38 +2786,38 @@ bool is_public(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_type: {
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Type: {
     bool IsPublic = false;
-    if (const Decl *D = findTypeDecl(R.getReflectedType()))
+    if (const Decl *D = findTypeDecl(RV.getReflectedType()))
       IsPublic = (D->getAccess() == AS_public);
 
     return SetAndSucceed(Result, makeBool(S.Context, IsPublic));
   }
-  case ReflectionValue::RK_declaration: {
-    bool IsPublic = (R.getReflectedDecl()->getAccess() == AS_public);
+  case ReflectionKind::Declaration: {
+    bool IsPublic = (RV.getReflectedDecl()->getAccess() == AS_public);
     return SetAndSucceed(Result, makeBool(S.Context, IsPublic));
   }
-  case ReflectionValue::RK_template: {
-    const Decl *D = R.getReflectedTemplate().getAsTemplateDecl();
+  case ReflectionKind::Template: {
+    const Decl *D = RV.getReflectedTemplate().getAsTemplateDecl();
 
     bool IsPublic = (D->getAccess() == AS_public);
     return SetAndSucceed(Result, makeBool(S.Context, IsPublic));
   }
-  case ReflectionValue::RK_base_specifier: {
-    CXXBaseSpecifier *Base = R.getReflectedBaseSpecifier();
+  case ReflectionKind::BaseSpecifier: {
+    CXXBaseSpecifier *Base = RV.getReflectedBaseSpecifier();
     bool IsPublic = (Base->getAccessSpecifier() == AS_public);
     return SetAndSucceed(Result, makeBool(S.Context, IsPublic));
   }
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
-  case ReflectionValue::RK_data_member_spec:
-  case ReflectionValue::RK_namespace:
+  case ReflectionKind::Null:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
+  case ReflectionKind::DataMemberSpec:
+  case ReflectionKind::Namespace:
     return SetAndSucceed(Result, makeBool(S.Context, false));
   }
   llvm_unreachable("invalid reflection type");
@@ -2834,38 +2828,38 @@ bool is_protected(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_type: {
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Type: {
     bool IsProtected = false;
-    if (const Decl *D = findTypeDecl(R.getReflectedType()))
+    if (const Decl *D = findTypeDecl(RV.getReflectedType()))
       IsProtected = (D->getAccess() == AS_protected);
 
     return SetAndSucceed(Result, makeBool(S.Context, IsProtected));
   }
-  case ReflectionValue::RK_declaration: {
-    bool IsProtected = (R.getReflectedDecl()->getAccess() == AS_protected);
+  case ReflectionKind::Declaration: {
+    bool IsProtected = (RV.getReflectedDecl()->getAccess() == AS_protected);
     return SetAndSucceed(Result, makeBool(S.Context, IsProtected));
   }
-  case ReflectionValue::RK_template: {
-    const Decl *D = R.getReflectedTemplate().getAsTemplateDecl();
+  case ReflectionKind::Template: {
+    const Decl *D = RV.getReflectedTemplate().getAsTemplateDecl();
 
     bool IsProtected = (D->getAccess() == AS_protected);
     return SetAndSucceed(Result, makeBool(S.Context, IsProtected));
   }
-  case ReflectionValue::RK_base_specifier: {
-    CXXBaseSpecifier *Base = R.getReflectedBaseSpecifier();
+  case ReflectionKind::BaseSpecifier: {
+    CXXBaseSpecifier *Base = RV.getReflectedBaseSpecifier();
     bool IsProtected = (Base->getAccessSpecifier() == AS_protected);
     return SetAndSucceed(Result, makeBool(S.Context, IsProtected));
   }
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
-  case ReflectionValue::RK_data_member_spec:
-  case ReflectionValue::RK_namespace:
+  case ReflectionKind::Null:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
+  case ReflectionKind::DataMemberSpec:
+  case ReflectionKind::Namespace:
     return SetAndSucceed(Result, makeBool(S.Context, false));
   }
   llvm_unreachable("invalid reflection type");
@@ -2876,38 +2870,38 @@ bool is_private(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_type: {
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Type: {
     bool IsPrivate = false;
-    if (const Decl *D = findTypeDecl(R.getReflectedType()))
+    if (const Decl *D = findTypeDecl(RV.getReflectedType()))
       IsPrivate = (D->getAccess() == AS_private);
 
     return SetAndSucceed(Result, makeBool(S.Context, IsPrivate));
   }
-  case ReflectionValue::RK_declaration: {
-    bool IsPrivate = (R.getReflectedDecl()->getAccess() == AS_private);
+  case ReflectionKind::Declaration: {
+    bool IsPrivate = (RV.getReflectedDecl()->getAccess() == AS_private);
     return SetAndSucceed(Result, makeBool(S.Context, IsPrivate));
   }
-  case ReflectionValue::RK_template: {
-    const Decl *D = R.getReflectedTemplate().getAsTemplateDecl();
+  case ReflectionKind::Template: {
+    const Decl *D = RV.getReflectedTemplate().getAsTemplateDecl();
 
     bool IsPrivate = (D->getAccess() == AS_private);
     return SetAndSucceed(Result, makeBool(S.Context, IsPrivate));
   }
-  case ReflectionValue::RK_base_specifier: {
-    CXXBaseSpecifier *Base = R.getReflectedBaseSpecifier();
+  case ReflectionKind::BaseSpecifier: {
+    CXXBaseSpecifier *Base = RV.getReflectedBaseSpecifier();
     bool IsPrivate = (Base->getAccessSpecifier() == AS_private);
     return SetAndSucceed(Result, makeBool(S.Context, IsPrivate));
   }
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
-  case ReflectionValue::RK_namespace:
-  case ReflectionValue::RK_data_member_spec:
+  case ReflectionKind::Null:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
+  case ReflectionKind::Namespace:
+  case ReflectionKind::DataMemberSpec:
     return SetAndSucceed(Result, makeBool(S.Context, false));
   }
   llvm_unreachable("invalid reflection type");
@@ -2945,53 +2939,55 @@ bool is_accessible(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
     return true;
 
   DeclContext *AccessDC = nullptr;
-  switch (Scratch.getReflection().getKind()) {
-  case ReflectionValue::RK_type:
+  switch (Scratch.getReflectionKind()) {
+  case ReflectionKind::Null:
+    return SetAndSucceed(Result, makeBool(S.Context, false));
+  case ReflectionKind::Type:
     AccessDC = dyn_cast<DeclContext>(findTypeDecl(Scratch.getReflectedType()));
     if (!AccessDC)
       return true;
     break;
-  case ReflectionValue::RK_namespace:
+  case ReflectionKind::Namespace:
     AccessDC = dyn_cast<DeclContext>(Scratch.getReflectedNamespace());
     break;
-  case ReflectionValue::RK_declaration:
+  case ReflectionKind::Declaration:
     AccessDC = dyn_cast<DeclContext>(Scratch.getReflectedDecl());
     break;
   default:
     llvm_unreachable("invalid access context");
   }
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_type: {
-    NamedDecl *D = findTypeDecl(R.getReflectedType());
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Type: {
+    NamedDecl *D = findTypeDecl(RV.getReflectedType());
     if (!D || !D->getDeclContext() || !isa<CXXRecordDecl>(D->getDeclContext()))
       return DiagnoseReflectionKind(Diagnoser, Range, "a class member");
 
     bool Accessible = isAccessible(S, AccessDC, D);
     return SetAndSucceed(Result, makeBool(S.Context, Accessible));
   }
-  case ReflectionValue::RK_declaration: {
-    ValueDecl *D = R.getReflectedDecl();
+  case ReflectionKind::Declaration: {
+    ValueDecl *D = RV.getReflectedDecl();
     if (!D->getDeclContext() || !isa<CXXRecordDecl>(D->getDeclContext()))
       return DiagnoseReflectionKind(Diagnoser, Range, "a class member");
 
-    bool Accessible = isAccessible(S, AccessDC, R.getReflectedDecl());
+    bool Accessible = isAccessible(S, AccessDC, RV.getReflectedDecl());
     return SetAndSucceed(Result, makeBool(S.Context, Accessible));
   }
-  case ReflectionValue::RK_template: {
-    TemplateDecl *D = R.getReflectedTemplate().getAsTemplateDecl();
+  case ReflectionKind::Template: {
+    TemplateDecl *D = RV.getReflectedTemplate().getAsTemplateDecl();
     if (!D->getDeclContext() || !isa<CXXRecordDecl>(D->getDeclContext()))
       return DiagnoseReflectionKind(Diagnoser, Range, "a class member");
 
     bool Accessible = isAccessible(S, AccessDC, D);
     return SetAndSucceed(Result, makeBool(S.Context, Accessible));
   }
-  case ReflectionValue::RK_base_specifier: {
-    CXXBaseSpecifier *BaseSpec = R.getReflectedBaseSpecifier();
+  case ReflectionKind::BaseSpecifier: {
+    CXXBaseSpecifier *BaseSpec = RV.getReflectedBaseSpecifier();
 
     auto *Base = findTypeDecl(BaseSpec->getType());
     assert(Base && "base class has no type declaration?");
@@ -3014,13 +3010,13 @@ bool is_accessible(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
     bool Accessible = (AR == Sema::AR_accessible);
     return SetAndSucceed(Result, makeBool(S.Context, Accessible));
   }
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
-  case ReflectionValue::RK_namespace:
-  case ReflectionValue::RK_data_member_spec:
+  case ReflectionKind::Null:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
+  case ReflectionKind::Namespace:
+  case ReflectionKind::DataMemberSpec:
     return DiagnoseReflectionKind(Diagnoser, Range, "a class member",
-                                  DescriptionOf(R.getReflection()));
+                                  DescriptionOf(RV));
   }
   llvm_unreachable("invalid reflection type");
 }
@@ -3030,28 +3026,28 @@ bool is_virtual(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool IsVirtual = false;
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_declaration: {
-    if (const auto *MD = dyn_cast<CXXMethodDecl>(R.getReflectedDecl()))
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Declaration: {
+    if (const auto *MD = dyn_cast<CXXMethodDecl>(RV.getReflectedDecl()))
       IsVirtual = MD->isVirtual();
     return SetAndSucceed(Result, makeBool(S.Context, IsVirtual));
   }
-  case ReflectionValue::RK_base_specifier: {
-    IsVirtual = R.getReflectedBaseSpecifier()->isVirtual();
+  case ReflectionKind::BaseSpecifier: {
+    IsVirtual = RV.getReflectedBaseSpecifier()->isVirtual();
     return SetAndSucceed(Result, makeBool(S.Context, IsVirtual));
   }
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_type:
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
-  case ReflectionValue::RK_template:
-  case ReflectionValue::RK_namespace:
-  case ReflectionValue::RK_data_member_spec:
+  case ReflectionKind::Null:
+  case ReflectionKind::Type:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
+  case ReflectionKind::Template:
+  case ReflectionKind::Namespace:
+  case ReflectionKind::DataMemberSpec:
     return SetAndSucceed(Result, makeBool(S.Context, IsVirtual));
   }
   llvm_unreachable("invalid reflection type");
@@ -3063,23 +3059,23 @@ bool is_pure_virtual(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_type:
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
-  case ReflectionValue::RK_template:
-  case ReflectionValue::RK_namespace:
-  case ReflectionValue::RK_base_specifier:
-  case ReflectionValue::RK_data_member_spec:
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Null:
+  case ReflectionKind::Type:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
+  case ReflectionKind::Template:
+  case ReflectionKind::Namespace:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::DataMemberSpec:
     return SetAndSucceed(Result, makeBool(S.Context, false));
-  case ReflectionValue::RK_declaration: {
+  case ReflectionKind::Declaration: {
     bool IsPureVirtual = false;
-    if (const auto *FD = dyn_cast<FunctionDecl>(R.getReflectedDecl()))
+    if (const auto *FD = dyn_cast<FunctionDecl>(RV.getReflectedDecl()))
       IsPureVirtual = FD->isPureVirtual();
 
     return SetAndSucceed(Result, makeBool(S.Context, IsPureVirtual));
@@ -3093,23 +3089,23 @@ bool is_override(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool IsOverride = false;
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_type:
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
-  case ReflectionValue::RK_template:
-  case ReflectionValue::RK_namespace:
-  case ReflectionValue::RK_base_specifier:
-  case ReflectionValue::RK_data_member_spec:
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Null:
+  case ReflectionKind::Type:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
+  case ReflectionKind::Template:
+  case ReflectionKind::Namespace:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::DataMemberSpec:
     return SetAndSucceed(Result, makeBool(S.Context, false));
-  case ReflectionValue::RK_declaration: {
-    if (const auto *MD = dyn_cast<CXXMethodDecl>(R.getReflectedDecl()))
+  case ReflectionKind::Declaration: {
+    if (const auto *MD = dyn_cast<CXXMethodDecl>(RV.getReflectedDecl()))
       IsOverride = MD->size_overridden_methods() > 0;
     return SetAndSucceed(Result, makeBool(S.Context, IsOverride));
   }
@@ -3122,23 +3118,23 @@ bool is_deleted(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_type:
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
-  case ReflectionValue::RK_template:
-  case ReflectionValue::RK_namespace:
-  case ReflectionValue::RK_base_specifier:
-  case ReflectionValue::RK_data_member_spec:
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Null:
+  case ReflectionKind::Type:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
+  case ReflectionKind::Template:
+  case ReflectionKind::Namespace:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::DataMemberSpec:
     return SetAndSucceed(Result, makeBool(S.Context, false));
-  case ReflectionValue::RK_declaration: {
+  case ReflectionKind::Declaration: {
     bool IsDeleted = false;
-    if (const auto *FD = dyn_cast<FunctionDecl>(R.getReflectedDecl()))
+    if (const auto *FD = dyn_cast<FunctionDecl>(RV.getReflectedDecl()))
       IsDeleted = FD->isDeleted();
     return SetAndSucceed(Result, makeBool(S.Context, IsDeleted));
   }
@@ -3151,23 +3147,23 @@ bool is_defaulted(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_type:
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
-  case ReflectionValue::RK_template:
-  case ReflectionValue::RK_namespace:
-  case ReflectionValue::RK_base_specifier:
-  case ReflectionValue::RK_data_member_spec:
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Null:
+  case ReflectionKind::Type:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
+  case ReflectionKind::Template:
+  case ReflectionKind::Namespace:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::DataMemberSpec:
     return SetAndSucceed(Result, makeBool(S.Context, false));
-  case ReflectionValue::RK_declaration: {
+  case ReflectionKind::Declaration: {
     bool IsDefaulted = false;
-    if (const auto *FD = dyn_cast<FunctionDecl>(R.getReflectedDecl()))
+    if (const auto *FD = dyn_cast<FunctionDecl>(RV.getReflectedDecl()))
       IsDefaulted = FD->isDefaulted();
 
     return SetAndSucceed(Result, makeBool(S.Context, IsDefaulted));
@@ -3181,22 +3177,22 @@ bool is_explicit(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_type:
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
-  case ReflectionValue::RK_namespace:
-  case ReflectionValue::RK_base_specifier:
-  case ReflectionValue::RK_data_member_spec:
-  case ReflectionValue::RK_template:
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Null:
+  case ReflectionKind::Type:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
+  case ReflectionKind::Namespace:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::DataMemberSpec:
+  case ReflectionKind::Template:
     return SetAndSucceed(Result, makeBool(S.Context, false));
-  case ReflectionValue::RK_declaration: {
-    ValueDecl *D = R.getReflectedDecl();
+  case ReflectionKind::Declaration: {
+    ValueDecl *D = RV.getReflectedDecl();
 
     bool result = false;
     if (auto *CtorD = dyn_cast<CXXConstructorDecl>(D))
@@ -3214,27 +3210,27 @@ bool is_noexcept(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
-  case ReflectionValue::RK_template:
-  case ReflectionValue::RK_namespace:
-  case ReflectionValue::RK_base_specifier:
-  case ReflectionValue::RK_data_member_spec:
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Null:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
+  case ReflectionKind::Template:
+  case ReflectionKind::Namespace:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::DataMemberSpec:
     return SetAndSucceed(Result, makeBool(S.Context, false));
-  case ReflectionValue::RK_type: {
-    const QualType QT = R.getReflectedType();
+  case ReflectionKind::Type: {
+    const QualType QT = RV.getReflectedType();
     const auto result = isFunctionOrMethodNoexcept(QT);
 
     return SetAndSucceed(Result, makeBool(S.Context, result));
   }
-  case ReflectionValue::RK_declaration: {
-    const ValueDecl *D = R.getReflectedDecl();
+  case ReflectionKind::Declaration: {
+    const ValueDecl *D = RV.getReflectedDecl();
     const auto result = isFunctionOrMethodNoexcept(D->getType());
 
     return SetAndSucceed(Result, makeBool(S.Context, result));
@@ -3248,17 +3244,16 @@ bool is_bit_field(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool result = false;
-  if (R.getReflection().getKind() == ReflectionValue::RK_declaration) {
-    if (const auto *FD = dyn_cast<FieldDecl>(R.getReflectedDecl()))
+  if (RV.isReflectedDecl()) {
+    if (const auto *FD = dyn_cast<FieldDecl>(RV.getReflectedDecl()))
       result = FD->isBitField();
-  } else if (R.getReflection().getKind() ==
-             ReflectionValue::RK_data_member_spec) {
-    result = R.getReflectedDataMemberSpec()->BitWidth.has_value();
+  } else if (RV.isReflectedDataMemberSpec()) {
+    result = RV.getReflectedDataMemberSpec()->BitWidth.has_value();
   }
   return SetAndSucceed(Result, makeBool(S.Context, result));
 }
@@ -3269,13 +3264,13 @@ bool is_enumerator(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool result = false;
-  if (R.getReflection().getKind() == ReflectionValue::RK_declaration)
-    result = isa<EnumConstantDecl>(R.getReflectedDecl());
+  if (RV.isReflectedDecl())
+    result = isa<EnumConstantDecl>(RV.getReflectedDecl());
 
   return SetAndSucceed(Result, makeBool(S.Context, result));
 }
@@ -3285,32 +3280,32 @@ bool is_const(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_template:
-  case ReflectionValue::RK_namespace:
-  case ReflectionValue::RK_base_specifier:
-  case ReflectionValue::RK_data_member_spec:
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Null:
+  case ReflectionKind::Template:
+  case ReflectionKind::Namespace:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::DataMemberSpec:
     return SetAndSucceed(Result, makeBool(S.Context, false));
-  case ReflectionValue::RK_type: {
-    bool result = isConstQualifiedType(R.getReflectedType());
+  case ReflectionKind::Type: {
+    bool result = isConstQualifiedType(RV.getReflectedType());
 
     return SetAndSucceed(Result, makeBool(S.Context, result));
   }
-  case ReflectionValue::RK_declaration: {
+  case ReflectionKind::Declaration: {
     bool result = false;
-    if (!isa<ParmVarDecl>(R.getReflectedDecl()))
-      result = isConstQualifiedType(R.getReflectedDecl()->getType());
+    if (!isa<ParmVarDecl>(RV.getReflectedDecl()))
+      result = isConstQualifiedType(RV.getReflectedDecl()->getType());
 
     return SetAndSucceed(Result, makeBool(S.Context, result));
   }
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value: {
-    bool result = isConstQualifiedType(R.getReflection().getResultType());
+  case ReflectionKind::Object:
+  case ReflectionKind::Value: {
+    bool result = isConstQualifiedType(RV.getTypeOfReflectedResult(S.Context));
 
     return SetAndSucceed(Result, makeBool(S.Context, result));
   }
@@ -3323,32 +3318,33 @@ bool is_volatile(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_template:
-  case ReflectionValue::RK_namespace:
-  case ReflectionValue::RK_base_specifier:
-  case ReflectionValue::RK_data_member_spec:
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Null:
+  case ReflectionKind::Template:
+  case ReflectionKind::Namespace:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::DataMemberSpec:
     return SetAndSucceed(Result, makeBool(S.Context, false));
-  case ReflectionValue::RK_type: {
-    bool result = isVolatileQualifiedType(R.getReflectedType());
+  case ReflectionKind::Type: {
+    bool result = isVolatileQualifiedType(RV.getReflectedType());
 
     return SetAndSucceed(Result, makeBool(S.Context, result));
   }
-  case ReflectionValue::RK_declaration: {
+  case ReflectionKind::Declaration: {
     bool result = false;
-    if (!isa<ParmVarDecl>(R.getReflectedDecl()))
-      result = isVolatileQualifiedType(R.getReflectedDecl()->getType());
+    if (!isa<ParmVarDecl>(RV.getReflectedDecl()))
+      result = isVolatileQualifiedType(RV.getReflectedDecl()->getType());
 
     return SetAndSucceed(Result, makeBool(S.Context, result));
   }
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value: {
-    bool result = isVolatileQualifiedType(R.getReflection().getResultType());
+  case ReflectionKind::Object:
+  case ReflectionKind::Value: {
+    bool result = isVolatileQualifiedType(
+            RV.getTypeOfReflectedResult(S.Context));
 
     return SetAndSucceed(Result, makeBool(S.Context, result));
   }
@@ -3362,16 +3358,16 @@ bool is_lvalue_reference_qualified(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool result = false;
-  if (R.getReflection().getKind() == ReflectionValue::RK_type) {
-    if (auto FT = dyn_cast<FunctionProtoType>(R.getReflectedType()))
+  if (RV.isReflectedType()) {
+    if (auto FT = dyn_cast<FunctionProtoType>(RV.getReflectedType()))
       result = (FT->getRefQualifier() == RQ_LValue);
-  } else if (R.getReflection().getKind() == ReflectionValue::RK_declaration) {
-    if (const auto *FD = dyn_cast<FunctionDecl>(R.getReflectedDecl()))
+  } else if (RV.isReflectedDecl()) {
+    if (const auto *FD = dyn_cast<FunctionDecl>(RV.getReflectedDecl()))
       if (auto FT = dyn_cast<FunctionProtoType>(FD->getType()))
         result = (FT->getRefQualifier() == RQ_LValue);
   }
@@ -3384,16 +3380,16 @@ bool is_rvalue_reference_qualified(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool result = false;
-  if (R.getReflection().getKind() == ReflectionValue::RK_type) {
-    if (auto FT = dyn_cast<FunctionProtoType>(R.getReflectedType()))
+  if (RV.isReflectedType()) {
+    if (auto FT = dyn_cast<FunctionProtoType>(RV.getReflectedType()))
       result = (FT->getRefQualifier() == RQ_RValue);
-  } else if (R.getReflection().getKind() == ReflectionValue::RK_declaration) {
-    if (const auto *FD = dyn_cast<FunctionDecl>(R.getReflectedDecl()))
+  } else if (RV.isReflectedDecl()) {
+    if (const auto *FD = dyn_cast<FunctionDecl>(RV.getReflectedDecl()))
       if (auto FT = dyn_cast<FunctionProtoType>(FD->getType()))
         result = (FT->getRefQualifier() == RQ_RValue);
   }
@@ -3406,17 +3402,17 @@ bool has_static_storage_duration(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool result = false;
-  if (R.getReflection().getKind() == ReflectionValue::RK_declaration) {
-    if (const auto *VD = dyn_cast<VarDecl>(R.getReflectedDecl()))
+  if (RV.isReflectedDecl()) {
+    if (const auto *VD = dyn_cast<VarDecl>(RV.getReflectedDecl()))
       result = VD->getStorageDuration() == SD_Static;
-    else if (isa<TemplateParamObjectDecl>(R.getReflectedDecl()))
+    else if (isa<TemplateParamObjectDecl>(RV.getReflectedDecl()))
       result = true;
-  } else if (R.getReflection().getKind() == ReflectionValue::RK_object) {
+  } else if (RV.isReflectedObject()) {
     result = true;
   }
   return SetAndSucceed(Result, makeBool(S.Context, result));
@@ -3428,20 +3424,20 @@ bool has_internal_linkage(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool result = false;
-  if (R.getReflection().getKind() == ReflectionValue::RK_type) {
+  if (RV.isReflectedType()) {
     if (NamedDecl *typeDecl =
-            dyn_cast_or_null<NamedDecl>(findTypeDecl(R.getReflectedType())))
+            dyn_cast_or_null<NamedDecl>(findTypeDecl(RV.getReflectedType())))
       result = (typeDecl->getFormalLinkage() == Linkage::Internal);
-  } else if (R.getReflection().getKind() == ReflectionValue::RK_declaration) {
-    if (const auto *ND = dyn_cast<NamedDecl>(R.getReflectedDecl()))
+  } else if (RV.isReflectedDecl()) {
+    if (const auto *ND = dyn_cast<NamedDecl>(RV.getReflectedDecl()))
       result = (ND->getFormalLinkage() == Linkage::Internal);
-  } else if (R.getReflection().getKind() == ReflectionValue::RK_object) {
-    if (APValue::LValueBase LVBase = R.getReflectedObject().getLValueBase();
+  } else if (RV.isReflectedObject()) {
+    if (APValue::LValueBase LVBase = RV.getReflectedObject().getLValueBase();
         LVBase.is<const ValueDecl *>()) {
       const ValueDecl *VD = LVBase.get<const ValueDecl *>();
       result = (VD->getFormalLinkage() == Linkage::Internal);
@@ -3456,20 +3452,20 @@ bool has_module_linkage(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool result = false;
-  if (R.getReflection().getKind() == ReflectionValue::RK_type) {
+  if (RV.isReflectedType()) {
     if (NamedDecl *typeDecl =
-            dyn_cast_or_null<NamedDecl>(findTypeDecl(R.getReflectedType())))
+            dyn_cast_or_null<NamedDecl>(findTypeDecl(RV.getReflectedType())))
       result = (typeDecl->getFormalLinkage() == Linkage::Module);
-  } else  if (R.getReflection().getKind() == ReflectionValue::RK_declaration) {
-    if (const auto *ND = dyn_cast<NamedDecl>(R.getReflectedDecl()))
+  } else  if (RV.isReflectedDecl()) {
+    if (const auto *ND = dyn_cast<NamedDecl>(RV.getReflectedDecl()))
       result = (ND->getFormalLinkage() == Linkage::Module);
-  } else if (R.getReflection().getKind() == ReflectionValue::RK_object) {
-    if (APValue::LValueBase LVBase = R.getReflectedObject().getLValueBase();
+  } else if (RV.isReflectedObject()) {
+    if (APValue::LValueBase LVBase = RV.getReflectedObject().getLValueBase();
         LVBase.is<const ValueDecl *>()) {
       const ValueDecl *VD = LVBase.get<const ValueDecl *>();
       result = (VD->getFormalLinkage() == Linkage::Module);
@@ -3484,22 +3480,22 @@ bool has_external_linkage(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool result = false;
-  if (R.getReflection().getKind() == ReflectionValue::RK_type) {
+  if (RV.isReflectedType()) {
     if (NamedDecl *typeDecl =
-            dyn_cast_or_null<NamedDecl>(findTypeDecl(R.getReflectedType())))
+            dyn_cast_or_null<NamedDecl>(findTypeDecl(RV.getReflectedType())))
       result = (typeDecl->getFormalLinkage() == Linkage::External ||
                 typeDecl->getFormalLinkage() == Linkage::UniqueExternal);
-  } else if (R.getReflection().getKind() == ReflectionValue::RK_declaration) {
-    if (const auto *ND = dyn_cast<NamedDecl>(R.getReflectedDecl()))
+  } else if (RV.isReflectedDecl()) {
+    if (const auto *ND = dyn_cast<NamedDecl>(RV.getReflectedDecl()))
       result = (ND->getFormalLinkage() == Linkage::External ||
                 ND->getFormalLinkage() == Linkage::UniqueExternal);
-  } else if (R.getReflection().getKind() == ReflectionValue::RK_object) {
-    if (APValue::LValueBase LVBase = R.getReflectedObject().getLValueBase();
+  } else if (RV.isReflectedObject()) {
+    if (APValue::LValueBase LVBase = RV.getReflectedObject().getLValueBase();
         LVBase.is<const ValueDecl *>()) {
       const ValueDecl *VD = LVBase.get<const ValueDecl *>();
       result = (VD->getFormalLinkage() == Linkage::External ||
@@ -3514,20 +3510,20 @@ bool has_linkage(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool result = false;
-  if (R.getReflection().getKind() == ReflectionValue::RK_type) {
+  if (RV.isReflectedType()) {
     if (NamedDecl *typeDecl =
-            dyn_cast_or_null<NamedDecl>(findTypeDecl(R.getReflectedType())))
+            dyn_cast_or_null<NamedDecl>(findTypeDecl(RV.getReflectedType())))
       result = typeDecl->hasLinkage();
-  } else if (R.getReflection().getKind() == ReflectionValue::RK_declaration) {
-    if (const auto *ND = dyn_cast<NamedDecl>(R.getReflectedDecl()))
+  } else if (RV.isReflectedDecl()) {
+    if (const auto *ND = dyn_cast<NamedDecl>(RV.getReflectedDecl()))
       result = ND->hasLinkage();
-  } else if (R.getReflection().getKind() == ReflectionValue::RK_object) {
-    if (APValue::LValueBase LVBase = R.getReflectedObject().getLValueBase();
+  } else if (RV.isReflectedObject()) {
+    if (APValue::LValueBase LVBase = RV.getReflectedObject().getLValueBase();
         LVBase.is<const ValueDecl *>()) {
       const ValueDecl *VD = LVBase.get<const ValueDecl *>();
       result = (VD->hasLinkage());
@@ -3549,7 +3545,7 @@ bool is_class_member(APValue &Result, Sema &S, EvalFn Evaluator,
   if (!parent_of(Scratch, S, Evaluator, SwallowDiags, S.Context.MetaInfoTy,
                  Range, Args)) {
     assert(Scratch.isReflection());
-    result = (Scratch.getReflection().getKind() == ReflectionValue::RK_type);
+    result = Scratch.isReflectedType();
   }
   return SetAndSucceed(Result, makeBool(S.Context, result));
 }
@@ -3567,8 +3563,7 @@ bool is_namespace_member(APValue &Result, Sema &S, EvalFn Evaluator,
   if (!parent_of(Scratch, S, Evaluator, SwallowDiags, S.Context.MetaInfoTy,
                  Range, Args)) {
     assert(Scratch.isReflection());
-    result = (Scratch.getReflection().getKind() ==
-              ReflectionValue::RK_namespace);
+    result = Scratch.isReflectedNamespace();
   }
   return SetAndSucceed(Result, makeBool(S.Context, result));
 }
@@ -3579,13 +3574,13 @@ bool is_nonstatic_data_member(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool result = false;
-  if (R.getReflection().getKind() == ReflectionValue::RK_declaration) {
-    result = isa<const FieldDecl>(R.getReflectedDecl());
+  if (RV.isReflectedDecl()) {
+    result = isa<const FieldDecl>(RV.getReflectedDecl());
   }
   return SetAndSucceed(Result, makeBool(S.Context, result));
 }
@@ -3596,22 +3591,22 @@ bool is_static_member(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool result = false;
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_declaration: {
-    const ValueDecl *D = cast<ValueDecl>(R.getReflectedDecl());
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Declaration: {
+    const ValueDecl *D = cast<ValueDecl>(RV.getReflectedDecl());
     if (const auto *MD = dyn_cast<CXXMethodDecl>(D))
       result = MD->isStatic();
     else if (const auto *VD = dyn_cast<VarDecl>(D))
       result = VD->isStaticDataMember();
     return SetAndSucceed(Result, makeBool(S.Context, result));
   }
-  case ReflectionValue::RK_template: {
-    const Decl *D = R.getReflectedTemplate().getAsTemplateDecl();
+  case ReflectionKind::Template: {
+    const Decl *D = RV.getReflectedTemplate().getAsTemplateDecl();
     if (const auto *FTD = dyn_cast<FunctionTemplateDecl>(D)) {
       if (const auto *MD = dyn_cast<CXXMethodDecl>(FTD->getTemplatedDecl()))
         result = MD->isStatic();
@@ -3621,13 +3616,13 @@ bool is_static_member(APValue &Result, Sema &S, EvalFn Evaluator,
     }
     return SetAndSucceed(Result, makeBool(S.Context, result));
   }
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_type:
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
-  case ReflectionValue::RK_namespace:
-  case ReflectionValue::RK_base_specifier:
-  case ReflectionValue::RK_data_member_spec:
+  case ReflectionKind::Null:
+  case ReflectionKind::Type:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
+  case ReflectionKind::Namespace:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::DataMemberSpec:
     return SetAndSucceed(Result, makeBool(S.Context, result));
   }
   llvm_unreachable("unknown reflection kind");
@@ -3638,14 +3633,12 @@ bool is_base(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   return SetAndSucceed(Result,
-                       makeBool(S.Context,
-                                R.getReflection().getKind() ==
-                                      ReflectionValue::RK_base_specifier));
+                       makeBool(S.Context, RV.isReflectedBaseSpecifier()));
 }
 
 bool is_data_member_spec(APValue &Result, Sema &S, EvalFn Evaluator,
@@ -3654,14 +3647,12 @@ bool is_data_member_spec(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   return SetAndSucceed(Result,
-                       makeBool(S.Context,
-                                R.getReflection().getKind() ==
-                                      ReflectionValue::RK_data_member_spec));
+                       makeBool(S.Context, RV.isReflectedDataMemberSpec()));
 }
 
 bool is_namespace(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
@@ -3669,13 +3660,11 @@ bool is_namespace(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
-  return SetAndSucceed(Result, makeBool(S.Context,
-                                        R.getReflection().getKind() ==
-                                              ReflectionValue::RK_namespace));
+  return SetAndSucceed(Result, makeBool(S.Context, RV.isReflectedNamespace()));
 }
 
 bool is_function(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
@@ -3683,14 +3672,13 @@ bool is_function(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool result = false;
-  if (R.getReflection().getKind() == ReflectionValue::RK_declaration) {
-    result = isa<const FunctionDecl>(R.getReflectedDecl());
-  }
+  if (RV.isReflectedDecl())
+    result = isa<const FunctionDecl>(RV.getReflectedDecl());
   return SetAndSucceed(Result, makeBool(S.Context, result));
 }
 
@@ -3699,14 +3687,13 @@ bool is_variable(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool result = false;
-  if (R.getReflection().getKind() == ReflectionValue::RK_declaration) {
-    result = isa<const VarDecl>(R.getReflectedDecl());
-  }
+  if (RV.isReflectedDecl())
+    result = isa<const VarDecl>(RV.getReflectedDecl());
   return SetAndSucceed(Result, makeBool(S.Context, result));
 }
 
@@ -3715,13 +3702,11 @@ bool is_type(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
-  return SetAndSucceed(Result, makeBool(S.Context,
-                                        R.getReflection().getKind() ==
-                                              ReflectionValue::RK_type));
+  return SetAndSucceed(Result, makeBool(S.Context, RV.isReflectedType()));
 }
 
 bool is_alias(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
@@ -3729,30 +3714,30 @@ bool is_alias(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_type: {
-    bool result = isTypeAlias(R.getReflectedType());
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Type: {
+    bool result = isTypeAlias(RV.getReflectedType());
     return SetAndSucceed(Result, makeBool(S.Context, result));
   }
-  case ReflectionValue::RK_namespace: {
-    bool result = isa<NamespaceAliasDecl>(R.getReflectedNamespace());
+  case ReflectionKind::Namespace: {
+    bool result = isa<NamespaceAliasDecl>(RV.getReflectedNamespace());
     return SetAndSucceed(Result, makeBool(S.Context, result));
   }
-  case ReflectionValue::RK_template: {
-    TemplateDecl *TDecl = R.getReflectedTemplate().getAsTemplateDecl();
+  case ReflectionKind::Template: {
+    TemplateDecl *TDecl = RV.getReflectedTemplate().getAsTemplateDecl();
     bool result = isa<TypeAliasTemplateDecl>(TDecl);
     return SetAndSucceed(Result, makeBool(S.Context, result));
   }
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
-  case ReflectionValue::RK_declaration:
-  case ReflectionValue::RK_base_specifier:
-  case ReflectionValue::RK_data_member_spec:
+  case ReflectionKind::Null:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
+  case ReflectionKind::Declaration:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::DataMemberSpec:
     return SetAndSucceed(Result, makeBool(S.Context, false));
   }
   llvm_unreachable("unknown reflection kind");
@@ -3764,18 +3749,18 @@ bool is_incomplete_type(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool result = false;
-  if (R.getReflection().getKind() == ReflectionValue::RK_type) {
+  if (RV.isReflectedType()) {
     // If this is a declared type with a reachable definition, ensure that the
     // type is instantiated.
-    if (Decl *typeDecl = findTypeDecl(R.getReflectedType()))
+    if (Decl *typeDecl = findTypeDecl(RV.getReflectedType()))
       (void) ensureInstantiated(S, typeDecl, Range);
 
-    result = R.getReflectedType()->isIncompleteType();
+    result = RV.getReflectedType()->isIncompleteType();
   }
   return SetAndSucceed(Result, makeBool(S.Context, result));
 }
@@ -3785,13 +3770,11 @@ bool is_template(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
-  return SetAndSucceed(Result, makeBool(S.Context,
-                                        R.getReflection().getKind() ==
-                                              ReflectionValue::RK_template));
+  return SetAndSucceed(Result, makeBool(S.Context, RV.isReflectedTemplate()));
 }
 
 bool is_function_template(APValue &Result, Sema &S, EvalFn Evaluator,
@@ -3800,13 +3783,13 @@ bool is_function_template(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool IsFnTemplate = false;
-  if (R.getReflection().getKind() == ReflectionValue::RK_template) {
-    const TemplateDecl *TD = R.getReflectedTemplate().getAsTemplateDecl();
+  if (RV.isReflectedTemplate()) {
+    const TemplateDecl *TD = RV.getReflectedTemplate().getAsTemplateDecl();
     IsFnTemplate = isa<FunctionTemplateDecl>(TD);
   }
   return SetAndSucceed(Result, makeBool(S.Context, IsFnTemplate));
@@ -3818,13 +3801,13 @@ bool is_variable_template(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool IsVarTemplate = false;
-  if (R.getReflection().getKind() == ReflectionValue::RK_template) {
-    const TemplateDecl *TD = R.getReflectedTemplate().getAsTemplateDecl();
+  if (RV.isReflectedTemplate()) {
+    const TemplateDecl *TD = RV.getReflectedTemplate().getAsTemplateDecl();
     IsVarTemplate = isa<VarTemplateDecl>(TD);
   }
   return SetAndSucceed(Result, makeBool(S.Context, IsVarTemplate));
@@ -3836,13 +3819,13 @@ bool is_class_template(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool IsClsTemplate = false;
-  if (R.getReflection().getKind() == ReflectionValue::RK_template) {
-    const TemplateDecl *TD = R.getReflectedTemplate().getAsTemplateDecl();
+  if (RV.isReflectedTemplate()) {
+    const TemplateDecl *TD = RV.getReflectedTemplate().getAsTemplateDecl();
     IsClsTemplate = isa<ClassTemplateDecl>(TD);
   }
   return SetAndSucceed(Result, makeBool(S.Context, IsClsTemplate));
@@ -3854,13 +3837,13 @@ bool is_alias_template(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool IsAliasTemplate = false;
-  if (R.getReflection().getKind() == ReflectionValue::RK_template) {
-    const TemplateDecl *TD = R.getReflectedTemplate().getAsTemplateDecl();
+  if (RV.isReflectedTemplate()) {
+    const TemplateDecl *TD = RV.getReflectedTemplate().getAsTemplateDecl();
     IsAliasTemplate = TD->isTypeAlias();
   }
   return SetAndSucceed(Result, makeBool(S.Context, IsAliasTemplate));
@@ -3872,13 +3855,13 @@ bool is_conversion_function_template(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool IsConversionTemplate = false;
-  if (R.getReflection().getKind() == ReflectionValue::RK_template) {
-    const TemplateDecl *TD = R.getReflectedTemplate().getAsTemplateDecl();
+  if (RV.isReflectedTemplate()) {
+    const TemplateDecl *TD = RV.getReflectedTemplate().getAsTemplateDecl();
     if (auto *FTD = dyn_cast<FunctionTemplateDecl>(TD))
       IsConversionTemplate = isa<CXXConversionDecl>(FTD->getTemplatedDecl());
   }
@@ -3891,13 +3874,13 @@ bool is_operator_function_template(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool IsOperatorTemplate = false;
-  if (R.getReflection().getKind() == ReflectionValue::RK_template) {
-    const TemplateDecl *TD = R.getReflectedTemplate().getAsTemplateDecl();
+  if (RV.isReflectedTemplate()) {
+    const TemplateDecl *TD = RV.getReflectedTemplate().getAsTemplateDecl();
     if (auto *FTD = dyn_cast<FunctionTemplateDecl>(TD))
       IsOperatorTemplate = (FTD->getTemplatedDecl()->getOverloadedOperator() !=
                             OO_None);
@@ -3911,13 +3894,13 @@ bool is_literal_operator_template(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool IsLiteralOperator = false;
-  if (R.getReflection().getKind() == ReflectionValue::RK_template) {
-    const TemplateDecl *TD = R.getReflectedTemplate().getAsTemplateDecl();
+  if (RV.isReflectedTemplate()) {
+    const TemplateDecl *TD = RV.getReflectedTemplate().getAsTemplateDecl();
     if (auto *FTD = dyn_cast<FunctionTemplateDecl>(TD))
       IsLiteralOperator = FTD->getDeclName().getNameKind() ==
                           DeclarationName::CXXLiteralOperatorName;
@@ -3931,13 +3914,13 @@ bool is_constructor_template(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool IsCtorTemplate = false;
-  if (R.getReflection().getKind() == ReflectionValue::RK_template) {
-    const TemplateDecl *TD = R.getReflectedTemplate().getAsTemplateDecl();
+  if (RV.isReflectedTemplate()) {
+    const TemplateDecl *TD = RV.getReflectedTemplate().getAsTemplateDecl();
     if (auto *FTD = dyn_cast<FunctionTemplateDecl>(TD))
       IsCtorTemplate = isa<CXXConstructorDecl>(FTD->getTemplatedDecl());
   }
@@ -3949,13 +3932,13 @@ bool is_concept(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool IsConcept = false;
-  if (R.getReflection().getKind() == ReflectionValue::RK_template)
-    IsConcept = isa<ConceptDecl>(R.getReflectedTemplate().getAsTemplateDecl());
+  if (RV.isReflectedTemplate())
+    IsConcept = isa<ConceptDecl>(RV.getReflectedTemplate().getAsTemplateDecl());
 
   return SetAndSucceed(Result, makeBool(S.Context, IsConcept));
 }
@@ -3966,14 +3949,13 @@ bool is_structured_binding(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool result = false;
-  if (R.getReflection().getKind() == ReflectionValue::RK_declaration) {
-    result = isa<const BindingDecl>(R.getReflectedDecl());
-  }
+  if (RV.isReflectedDecl())
+    result = isa<BindingDecl>(RV.getReflectedDecl());
 
   return SetAndSucceed(Result, makeBool(S.Context, result));
 }
@@ -3983,12 +3965,11 @@ bool is_value(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
-  bool IsValue = (R.getReflection().getKind() == ReflectionValue::RK_value);
-  return SetAndSucceed(Result, makeBool(S.Context, IsValue));
+  return SetAndSucceed(Result, makeBool(S.Context, RV.isReflectedValue()));
 }
 
 bool is_object(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
@@ -3996,16 +3977,13 @@ bool is_object(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
-  bool IsObject = (R.getReflection().getKind() == ReflectionValue::RK_object);
-  if (R.getReflection().getKind() == ReflectionValue::RK_declaration) {
-    Decl *D = R.getReflectedDecl();
-    if (isa<TemplateParamObjectDecl>(D))
-      IsObject = true;
-  }
+  bool IsObject = RV.isReflectedObject();
+  if (RV.isReflectedDecl())
+    IsObject = isa<TemplateParamObjectDecl>(RV.getReflectedDecl());
 
   return SetAndSucceed(Result, makeBool(S.Context, IsObject));
 }
@@ -4016,20 +3994,20 @@ bool has_template_arguments(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_type: {
-    QualType QT = R.getReflectedType();
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Type: {
+    QualType QT = RV.getReflectedType();
     bool result = isTemplateSpecialization(QT);
     return SetAndSucceed(Result, makeBool(S.Context, result));
   }
-  case ReflectionValue::RK_declaration: {
+  case ReflectionKind::Declaration: {
     bool result = false;
 
-    Decl *D = R.getReflectedDecl();
+    Decl *D = RV.getReflectedDecl();
     if (auto *FD = dyn_cast<FunctionDecl>(D))
       result = (FD->getTemplateSpecializationArgs() != nullptr);
     else if (auto *VTSD = dyn_cast<VarTemplateSpecializationDecl>(D))
@@ -4037,13 +4015,13 @@ bool has_template_arguments(APValue &Result, Sema &S, EvalFn Evaluator,
 
     return SetAndSucceed(Result, makeBool(S.Context, result));
   }
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
-  case ReflectionValue::RK_template:
-  case ReflectionValue::RK_namespace:
-  case ReflectionValue::RK_base_specifier:
-  case ReflectionValue::RK_data_member_spec:
+  case ReflectionKind::Null:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
+  case ReflectionKind::Template:
+  case ReflectionKind::Namespace:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::DataMemberSpec:
     return SetAndSucceed(Result, makeBool(S.Context, false));
   }
   llvm_unreachable("unknown reflection kind");
@@ -4055,13 +4033,13 @@ bool has_default_member_initializer(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool HasInitializer = false;
-  if (R.getReflection().getKind() == ReflectionValue::RK_declaration)
-    if (auto *FD = dyn_cast<FieldDecl>(R.getReflectedDecl()))
+  if (RV.isReflectedDecl())
+    if (auto *FD = dyn_cast<FieldDecl>(RV.getReflectedDecl()))
       HasInitializer = FD->hasInClassInitializer();
 
   return SetAndSucceed(Result, makeBool(S.Context, HasInitializer));
@@ -4073,13 +4051,13 @@ bool is_conversion_function(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool IsConversion = false;
-  if (R.getReflection().getKind() == ReflectionValue::RK_declaration)
-    IsConversion = isa<CXXConversionDecl>(R.getReflectedDecl());
+  if (RV.isReflectedDecl())
+    IsConversion = isa<CXXConversionDecl>(RV.getReflectedDecl());
 
   return SetAndSucceed(Result, makeBool(S.Context, IsConversion));
 }
@@ -4090,13 +4068,13 @@ bool is_operator_function(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool IsOperator = false;
-  if (R.getReflection().getKind() == ReflectionValue::RK_declaration)
-    if (auto *FD = dyn_cast<FunctionDecl>(R.getReflectedDecl()))
+  if (RV.isReflectedDecl())
+    if (auto *FD = dyn_cast<FunctionDecl>(RV.getReflectedDecl()))
       IsOperator = (FD->getOverloadedOperator() != OO_None);
 
   return SetAndSucceed(Result, makeBool(S.Context, IsOperator));
@@ -4108,13 +4086,13 @@ bool is_literal_operator(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool IsLiteralOperator = false;
-  if (R.getReflection().getKind() == ReflectionValue::RK_declaration)
-    if (auto *FD = dyn_cast<FunctionDecl>(R.getReflectedDecl()))
+  if (RV.isReflectedDecl())
+    if (auto *FD = dyn_cast<FunctionDecl>(RV.getReflectedDecl()))
       IsLiteralOperator = FD->getDeclName().getNameKind() ==
                           DeclarationName::CXXLiteralOperatorName;
 
@@ -4127,22 +4105,22 @@ bool is_constructor(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_type:
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
-  case ReflectionValue::RK_namespace:
-  case ReflectionValue::RK_template:
-  case ReflectionValue::RK_base_specifier:
-  case ReflectionValue::RK_data_member_spec:
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Null:
+  case ReflectionKind::Type:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
+  case ReflectionKind::Namespace:
+  case ReflectionKind::Template:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::DataMemberSpec:
     return SetAndSucceed(Result, makeBool(S.Context, false));
-  case ReflectionValue::RK_declaration: {
-    bool result = isa<CXXConstructorDecl>(R.getReflectedDecl());
+  case ReflectionKind::Declaration: {
+    bool result = isa<CXXConstructorDecl>(RV.getReflectedDecl());
     return SetAndSucceed(Result, makeBool(S.Context, result));
   }
   }
@@ -4155,13 +4133,13 @@ bool is_default_constructor(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool result = false;
-  if (R.getReflection().getKind() == ReflectionValue::RK_declaration)
-    if (auto *CtorD = dyn_cast<CXXConstructorDecl>(R.getReflectedDecl()))
+  if (RV.isReflectedDecl())
+    if (auto *CtorD = dyn_cast<CXXConstructorDecl>(RV.getReflectedDecl()))
       result = CtorD->isDefaultConstructor();
 
   return SetAndSucceed(Result, makeBool(S.Context, result));
@@ -4173,13 +4151,13 @@ bool is_copy_constructor(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool result = false;
-  if (R.getReflection().getKind() == ReflectionValue::RK_declaration)
-    if (auto *CtorD = dyn_cast<CXXConstructorDecl>(R.getReflectedDecl()))
+  if (RV.isReflectedDecl())
+    if (auto *CtorD = dyn_cast<CXXConstructorDecl>(RV.getReflectedDecl()))
       result = CtorD->isCopyConstructor();
 
   return SetAndSucceed(Result, makeBool(S.Context, result));
@@ -4191,13 +4169,13 @@ bool is_move_constructor(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool result = false;
-  if (R.getReflection().getKind() == ReflectionValue::RK_declaration)
-    if (auto *CtorD = dyn_cast<CXXConstructorDecl>(R.getReflectedDecl()))
+  if (RV.isReflectedDecl())
+    if (auto *CtorD = dyn_cast<CXXConstructorDecl>(RV.getReflectedDecl()))
       result = CtorD->isMoveConstructor();
 
   return SetAndSucceed(Result, makeBool(S.Context, result));
@@ -4209,13 +4187,13 @@ bool is_assignment(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool result = false;
-  if (R.getReflection().getKind() == ReflectionValue::RK_declaration)
-    if (auto *FD = dyn_cast<FunctionDecl>(R.getReflectedDecl()))
+  if (RV.isReflectedDecl())
+    if (auto *FD = dyn_cast<FunctionDecl>(RV.getReflectedDecl()))
       result = (FD->getOverloadedOperator() == OO_Equal);
 
   return SetAndSucceed(Result, makeBool(S.Context, result));
@@ -4227,13 +4205,13 @@ bool is_copy_assignment(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool result = false;
-  if (R.getReflection().getKind() == ReflectionValue::RK_declaration)
-    if (auto *MD = dyn_cast<CXXMethodDecl>(R.getReflectedDecl()))
+  if (RV.isReflectedDecl())
+    if (auto *MD = dyn_cast<CXXMethodDecl>(RV.getReflectedDecl()))
       result = MD->isCopyAssignmentOperator();
 
   return SetAndSucceed(Result, makeBool(S.Context, result));
@@ -4245,13 +4223,13 @@ bool is_move_assignment(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool result = false;
-  if (R.getReflection().getKind() == ReflectionValue::RK_declaration)
-    if (auto *MD = dyn_cast<CXXMethodDecl>(R.getReflectedDecl()))
+  if (RV.isReflectedDecl())
+    if (auto *MD = dyn_cast<CXXMethodDecl>(RV.getReflectedDecl()))
       result = MD->isMoveAssignmentOperator();
 
   return SetAndSucceed(Result, makeBool(S.Context, result));
@@ -4263,22 +4241,22 @@ bool is_destructor(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_type:
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
-  case ReflectionValue::RK_template:
-  case ReflectionValue::RK_namespace:
-  case ReflectionValue::RK_base_specifier:
-  case ReflectionValue::RK_data_member_spec:
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Null:
+  case ReflectionKind::Type:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
+  case ReflectionKind::Template:
+  case ReflectionKind::Namespace:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::DataMemberSpec:
     return SetAndSucceed(Result, makeBool(S.Context, false));
-  case ReflectionValue::RK_declaration: {
-    bool result = isa<CXXDestructorDecl>(R.getReflectedDecl());
+  case ReflectionKind::Declaration: {
+    bool result = isa<CXXDestructorDecl>(RV.getReflectedDecl());
     return SetAndSucceed(Result, makeBool(S.Context, result));
   }
   }
@@ -4291,29 +4269,29 @@ bool is_special_member(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_type:
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
-  case ReflectionValue::RK_namespace:
-  case ReflectionValue::RK_base_specifier:
-  case ReflectionValue::RK_data_member_spec:
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Null:
+  case ReflectionKind::Type:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
+  case ReflectionKind::Namespace:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::DataMemberSpec:
     return SetAndSucceed(Result, makeBool(S.Context, false));
-  case ReflectionValue::RK_declaration: {
+  case ReflectionKind::Declaration: {
     bool IsSpecial = false;
-    if (auto *FD = dyn_cast<FunctionDecl>(R.getReflectedDecl()))
+    if (auto *FD = dyn_cast<FunctionDecl>(RV.getReflectedDecl()))
       IsSpecial = isSpecialMember(FD);
 
     return SetAndSucceed(Result, makeBool(S.Context, IsSpecial));
   }
-  case ReflectionValue::RK_template: {
+  case ReflectionKind::Template: {
     bool result = false;
-    TemplateDecl *TDecl = R.getReflectedTemplate().getAsTemplateDecl();
+    TemplateDecl *TDecl = RV.getReflectedTemplate().getAsTemplateDecl();
     if (auto *FTD = dyn_cast<FunctionTemplateDecl>(TDecl))
       result = isSpecialMember(FTD->getTemplatedDecl());
     return SetAndSucceed(Result, makeBool(S.Context, result));
@@ -4328,13 +4306,13 @@ bool is_user_provided(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool IsUserProvided = false;
-  if (R.getReflection().getKind() == ReflectionValue::RK_declaration)
-    if (auto *FD = dyn_cast<FunctionDecl>(R.getReflectedDecl())) {
+  if (RV.isReflectedDecl())
+    if (auto *FD = dyn_cast<FunctionDecl>(RV.getReflectedDecl())) {
       FD = cast<FunctionDecl>(FD->getFirstDecl());
       IsUserProvided = !(FD->isImplicit() || FD->isDeleted() ||
                          FD->isDefaulted());
@@ -4351,7 +4329,7 @@ bool reflect_result(APValue &Result, Sema &S, EvalFn Evaluator,
   APValue ArgTy;
   if (!Evaluator(ArgTy, Args[0], true))
     return true;
-  assert(ArgTy.getReflection().getKind() == ReflectionValue::RK_type);
+  assert(ArgTy.isReflectedType());
   bool IsLValue = isa<ReferenceType>(ArgTy.getReflectedType());
 
   if (!IsLValue && !ArgTy.getReflectedType()->isStructuralType())
@@ -4386,15 +4364,7 @@ bool reflect_result(APValue &Result, Sema &S, EvalFn Evaluator,
             makeReflection(
                 const_cast<ValueDecl *>(LVBase.get<const ValueDecl *>())));
 
-  if (IsLValue) {
-    ReflectionValue RV(ReflectionValue::RK_object,
-                       new (S.Context) APValue(Arg));
-    return SetAndSucceed(Result, APValue(RV));
-  }
-
-  ReflectionValue RV(ReflectionValue::RK_value,
-                     new (S.Context) APValue(Arg), Args[1]->getType());
-  return SetAndSucceed(Result, APValue(RV));
+  return SetAndSucceed(Result, Arg.Lift(Args[1]->getType()));
 }
 
 bool reflect_invoke(APValue &Result, Sema &S, EvalFn Evaluator,
@@ -4408,7 +4378,7 @@ bool reflect_invoke(APValue &Result, Sema &S, EvalFn Evaluator,
       Args[3]->getType()->getPointeeOrArrayElementType()->isReflectionType());
   assert(Args[4]->getType()->isIntegerType());
 
-  using ReflectionVector = SmallVector<ReflectionValue, 4>;
+  using ReflectionVector = SmallVector<APValue, 4>;
   auto UnpackReflectionsIntoVector = [&](ReflectionVector &Out,
                                          Expr *DataExpr, Expr *SzExpr) -> bool {
     APValue Scratch;
@@ -4433,7 +4403,7 @@ bool reflect_invoke(APValue &Result, Sema &S, EvalFn Evaluator,
 
       if (!Evaluator(Scratch, Synthesized, true) || !Scratch.isReflection())
         return false;
-      Out.push_back(Scratch.getReflection());
+      Out.push_back(Scratch);
     }
 
     return true;
@@ -4442,12 +4412,12 @@ bool reflect_invoke(APValue &Result, Sema &S, EvalFn Evaluator,
   TemplateArgumentListInfo ExplicitTAListInfo;
   SmallVector<TemplateArgument, 4> ExplicitTArgs;
   {
-    SmallVector<ReflectionValue, 4> Reflections;
+    SmallVector<APValue, 4> Reflections;
     if (!UnpackReflectionsIntoVector(Reflections, Args[1], Args[2]))
       llvm_unreachable("failed to unpack template arguments from vector?");
 
     SmallVector<TemplateArgument, 4> ExplicitTArgs;
-    for (ReflectionValue RV : Reflections) {
+    for (APValue RV : Reflections) {
       if (!CanActAsTemplateArg(RV))
         return Diagnoser(Range.getBegin(), diag::metafn_cannot_be_arg)
             << DescriptionOf(RV) << 1 << Range;
@@ -4464,25 +4434,26 @@ bool reflect_invoke(APValue &Result, Sema &S, EvalFn Evaluator,
 
   SmallVector<Expr *, 4> ArgExprs;
   {
-    SmallVector<ReflectionValue, 4> Reflections;
+    SmallVector<APValue, 4> Reflections;
     if (!UnpackReflectionsIntoVector(Reflections, Args[3], Args[4]))
       llvm_unreachable("failed to unpack function arguments from vector?");
 
-    for (ReflectionValue RV : Reflections) {
-      if (RV.getKind() == ReflectionValue::RK_object) {
-        Expr *OVE = new (S.Context) OpaqueValueExpr(Range.getBegin(),
-                                                    RV.getResultType(),
-                                                    VK_LValue);
-        Expr *CE = ConstantExpr::Create(S.Context, OVE, RV.getAsObject());
+    for (APValue RV : Reflections) {
+      if (RV.isReflectedObject()) {
+        Expr *OVE = new (S.Context) OpaqueValueExpr(
+                Range.getBegin(), RV.getTypeOfReflectedResult(S.Context),
+                VK_LValue);
+        Expr *CE = ConstantExpr::Create(S.Context, OVE,
+                                        RV.getReflectedObject());
         ArgExprs.push_back(CE);
-      } else if (RV.getKind() == ReflectionValue::RK_value) {
-        Expr *OVE = new (S.Context) OpaqueValueExpr(Range.getBegin(),
-                                                    RV.getResultType(),
-                                                    VK_PRValue);
-        Expr *CE = ConstantExpr::Create(S.Context, OVE, RV.getAsValue());
+      } else if (RV.isReflectedValue()) {
+        Expr *OVE = new (S.Context) OpaqueValueExpr(
+                Range.getBegin(), RV.getTypeOfReflectedResult(S.Context),
+                VK_PRValue);
+        Expr *CE = ConstantExpr::Create(S.Context, OVE, RV.getReflectedValue());
         ArgExprs.push_back(CE);
-      } else if (RV.getKind() == ReflectionValue::RK_declaration) {
-        ValueDecl *D = RV.getAsDecl();
+      } else if (RV.isReflectedDecl()) {
+        ValueDecl *D = RV.getReflectedDecl();
         ArgExprs.push_back(
               DeclRefExpr::Create(S.Context, NestedNameSpecifierLoc(),
                                   SourceLocation(), D, false, Range.getBegin(),
@@ -4498,36 +4469,36 @@ bool reflect_invoke(APValue &Result, Sema &S, EvalFn Evaluator,
   if (!Evaluator(Scratch, Args[0], true))
     return true;
 
-  if (ExplicitTAListInfo.size() > 0 &&
-      Scratch.getReflection().getKind() != ReflectionValue::RK_template)
+  if (ExplicitTAListInfo.size() > 0 && !Scratch.isReflectedTemplate())
     return DiagnoseReflectionKind(Diagnoser, Range, "a template",
-                                  DescriptionOf(Scratch.getReflection()));
+                                  DescriptionOf(Scratch));
 
   Expr *FnRefExpr = nullptr;
-  switch (Scratch.getReflection().getKind()) {
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_type:
-  case ReflectionValue::RK_namespace:
-  case ReflectionValue::RK_base_specifier:
-  case ReflectionValue::RK_data_member_spec:
+  switch (Scratch.getReflectionKind()) {
+  case ReflectionKind::Null:
+  case ReflectionKind::Type:
+  case ReflectionKind::Namespace:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::DataMemberSpec:
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_invoke)
-        << DescriptionOf(Scratch.getReflection()) << Range;
-  case ReflectionValue::RK_object: {
+        << DescriptionOf(Scratch) << Range;
+  case ReflectionKind::Object: {
     Expr *OVE = new (S.Context) OpaqueValueExpr(
-          Range.getBegin(), Scratch.getReflection().getResultType(), VK_LValue);
+          Range.getBegin(), Scratch.getTypeOfReflectedResult(S.Context),
+          VK_LValue);
     FnRefExpr = ConstantExpr::Create(S.Context, OVE,
                                      Scratch.getReflectedObject());
     break;
   }
-  case ReflectionValue::RK_value: {
+  case ReflectionKind::Value: {
     Expr *OVE = new (S.Context) OpaqueValueExpr(
-          Range.getBegin(), Scratch.getReflection().getResultType(),
+          Range.getBegin(), Scratch.getTypeOfReflectedResult(S.Context),
           VK_PRValue);
     FnRefExpr = ConstantExpr::Create(S.Context, OVE,
                                      Scratch.getReflectedValue());
     break;
   }
-  case ReflectionValue::RK_declaration: {
+  case ReflectionKind::Declaration: {
     ValueDecl *D = Scratch.getReflectedDecl();
     ensureInstantiated(S, D, Range);
 
@@ -4537,12 +4508,12 @@ bool reflect_invoke(APValue &Result, Sema &S, EvalFn Evaluator,
                               D->getType(), VK_LValue, D, nullptr);
     break;
   }
-  case ReflectionValue::RK_template: {
+  case ReflectionKind::Template: {
     TemplateDecl *TDecl = Scratch.getReflectedTemplate().getAsTemplateDecl();
     auto *FTD = dyn_cast<FunctionTemplateDecl>(TDecl);
     if (!FTD) {
       return Diagnoser(Range.getBegin(), diag::metafn_cannot_invoke)
-          << DescriptionOf(Scratch.getReflection()) << Range;
+          << DescriptionOf(Scratch) << Range;
     }
 
     FunctionDecl *Specialization;
@@ -4617,16 +4588,7 @@ bool reflect_invoke(APValue &Result, Sema &S, EvalFn Evaluator,
               makeReflection(
                   const_cast<ValueDecl *>(LVBase.get<const ValueDecl *>())));
 
-  if (ResultExpr->isLValue()) {
-    ReflectionValue RV(ReflectionValue::RK_object,
-                       new (S.Context) APValue(EvalResult.Val));
-    return SetAndSucceed(Result, APValue(RV));
-  }
-
-  ReflectionValue RV(ReflectionValue::RK_value,
-                     new (S.Context) APValue(EvalResult.Val),
-                     ResultExpr->getType());
-  return SetAndSucceed(Result, APValue(RV));
+  return SetAndSucceed(Result, EvalResult.Val.Lift(ResultExpr->getType()));
 }
 
 bool data_member_spec(APValue &Result, Sema &S, EvalFn Evaluator,
@@ -4638,8 +4600,7 @@ bool data_member_spec(APValue &Result, Sema &S, EvalFn Evaluator,
   size_t ArgIdx = 0;
 
   // Extract the data member type.
-  if (!Evaluator(Scratch, Args[ArgIdx++], true) ||
-      Scratch.getReflection().getKind() != ReflectionValue::RK_type)
+  if (!Evaluator(Scratch, Args[ArgIdx++], true) || !Scratch.isReflectedType())
     return true;
   QualType MemberTy = Scratch.getReflectedType();
 
@@ -4747,9 +4708,9 @@ bool define_class(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   APValue Scratch;
   if (!Evaluator(Scratch, Args[0], true))
     return true;
-  if (Scratch.getReflection().getKind() != ReflectionValue::RK_type)
+  if (!Scratch.isReflectedType())
     return DiagnoseReflectionKind(Diagnoser, Range, "an incomplete class type",
-                                  DescriptionOf(Scratch.getReflection()));
+                                  DescriptionOf(Scratch));
 
   QualType ToComplete = Scratch.getReflectedType();
   TagDecl *OGTag, *Tag;
@@ -4904,12 +4865,11 @@ bool define_class(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
 
     if (!Evaluator(Scratch, Synthesized, true))
       return true;
-    if (Scratch.getReflection().getKind() !=
-        ReflectionValue::RK_data_member_spec) {
+    if (!Scratch.isReflectedDataMemberSpec()) {
       RestoreDC();
       return DiagnoseReflectionKind(Diagnoser, Range,
                                     "a description of a data member",
-                                    DescriptionOf(Scratch.getReflection()));
+                                    DescriptionOf(Scratch));
     }
     TagDataMemberSpec *TDMS = Scratch.getReflectedDataMemberSpec();
 
@@ -4994,23 +4954,23 @@ bool offset_of(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.getSizeType());
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_type:
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
-  case ReflectionValue::RK_template:
-  case ReflectionValue::RK_namespace:
-  case ReflectionValue::RK_base_specifier:
-  case ReflectionValue::RK_data_member_spec:
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Null:
+  case ReflectionKind::Type:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
+  case ReflectionKind::Template:
+  case ReflectionKind::Namespace:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::DataMemberSpec:
     return DiagnoseReflectionKind(Diagnoser, Range, "a non-static data member",
-                                  DescriptionOf(R.getReflection()));
-  case ReflectionValue::RK_declaration: {
-    if (const FieldDecl *FD = dyn_cast<const FieldDecl>(R.getReflectedDecl())) {
+                                  DescriptionOf(RV));
+  case ReflectionKind::Declaration: {
+    if (const FieldDecl *FD = dyn_cast<FieldDecl>(RV.getReflectedDecl())) {
       size_t Offset = getBitOffsetOfField(S.Context, FD) /
                       S.Context.getTypeSize(S.Context.CharTy);
       return SetAndSucceed(
@@ -5018,7 +4978,7 @@ bool offset_of(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
               APValue(S.Context.MakeIntValue(Offset, S.Context.getSizeType())));
     }
     return DiagnoseReflectionKind(Diagnoser, Range, "a non-static data member",
-                                  DescriptionOf(R.getReflection()));
+                                  DescriptionOf(RV));
   }
   }
   llvm_unreachable("unknown reflection kind");
@@ -5029,46 +4989,46 @@ bool size_of(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.getSizeType());
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_type: {
-    QualType QT = R.getReflectedType();
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Type: {
+    QualType QT = RV.getReflectedType();
     size_t Sz = S.Context.getTypeSizeInChars(QT).getQuantity();
     return SetAndSucceed(
             Result,
             APValue(S.Context.MakeIntValue(Sz, S.Context.getSizeType())));
   }
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value: {
-    QualType QT = R.getReflection().getResultType();
+  case ReflectionKind::Object:
+  case ReflectionKind::Value: {
+    QualType QT = RV.getTypeOfReflectedResult(S.Context);
     size_t Sz = S.Context.getTypeSizeInChars(QT).getQuantity();
     return SetAndSucceed(
             Result,
             APValue(S.Context.MakeIntValue(Sz, S.Context.getSizeType())));
   }
-  case ReflectionValue::RK_declaration: {
-    ValueDecl *VD = R.getReflectedDecl();
+  case ReflectionKind::Declaration: {
+    ValueDecl *VD = RV.getReflectedDecl();
     size_t Sz = S.Context.getTypeSizeInChars(VD->getType()).getQuantity();
     return SetAndSucceed(
             Result,
             APValue(S.Context.MakeIntValue(Sz, S.Context.getSizeType())));
   }
-  case ReflectionValue::RK_data_member_spec: {
-    TagDataMemberSpec *TDMS = R.getReflectedDataMemberSpec();
+  case ReflectionKind::DataMemberSpec: {
+    TagDataMemberSpec *TDMS = RV.getReflectedDataMemberSpec();
     size_t Sz = S.Context.getTypeSizeInChars(TDMS->Ty).getQuantity();
     return SetAndSucceed(
             Result,
             APValue(S.Context.MakeIntValue(Sz, S.Context.getSizeType())));
   }
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_template:
-  case ReflectionValue::RK_namespace:
-  case ReflectionValue::RK_base_specifier:
+  case ReflectionKind::Null:
+  case ReflectionKind::Template:
+  case ReflectionKind::Namespace:
+  case ReflectionKind::BaseSpecifier:
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
-        << 3 << DescriptionOf(R.getReflection());
+        << 3 << DescriptionOf(RV);
   }
   llvm_unreachable("unknown reflection kind");
 }
@@ -5079,23 +5039,23 @@ bool bit_offset_of(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.getSizeType());
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_type:
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
-  case ReflectionValue::RK_template:
-  case ReflectionValue::RK_namespace:
-  case ReflectionValue::RK_base_specifier:
-  case ReflectionValue::RK_data_member_spec:
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Null:
+  case ReflectionKind::Type:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
+  case ReflectionKind::Template:
+  case ReflectionKind::Namespace:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::DataMemberSpec:
     return DiagnoseReflectionKind(Diagnoser, Range, "a non-static data member",
-                                  DescriptionOf(R.getReflection()));
-  case ReflectionValue::RK_declaration: {
-    if (const FieldDecl *FD = dyn_cast<const FieldDecl>(R.getReflectedDecl())) {
+                                  DescriptionOf(RV));
+  case ReflectionKind::Declaration: {
+    if (FieldDecl *FD = dyn_cast<FieldDecl>(RV.getReflectedDecl())) {
       size_t Offset = getBitOffsetOfField(S.Context, FD) %
                       S.Context.getTypeSize(S.Context.CharTy);
       return SetAndSucceed(
@@ -5103,7 +5063,7 @@ bool bit_offset_of(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
               APValue(S.Context.MakeIntValue(Offset, S.Context.getSizeType())));
     }
     return DiagnoseReflectionKind(Diagnoser, Range, "a non-static data member",
-                                  DescriptionOf(R.getReflection()));
+                                  DescriptionOf(RV));
   }
   }
   llvm_unreachable("unknown reflection kind");
@@ -5114,27 +5074,27 @@ bool bit_size_of(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.getSizeType());
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_type: {
-    QualType QT = R.getReflectedType();
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Type: {
+    QualType QT = RV.getReflectedType();
     size_t Sz = S.Context.getTypeSize(QT);
     return SetAndSucceed(
             Result,
             APValue(S.Context.MakeIntValue(Sz, S.Context.getSizeType())));
   }
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value: {
-    size_t Sz = S.Context.getTypeSize(R.getReflection().getResultType());
+  case ReflectionKind::Object:
+  case ReflectionKind::Value: {
+    size_t Sz = S.Context.getTypeSize(RV.getTypeOfReflectedResult(S.Context));
     return SetAndSucceed(
             Result,
             APValue(S.Context.MakeIntValue(Sz, S.Context.getSizeType())));
   }
-  case ReflectionValue::RK_declaration: {
-    const ValueDecl *VD = cast<ValueDecl>(R.getReflectedDecl());
+  case ReflectionKind::Declaration: {
+    const ValueDecl *VD = cast<ValueDecl>(RV.getReflectedDecl());
     size_t Sz = S.Context.getTypeSize(VD->getType());
 
     if (const FieldDecl *FD = dyn_cast<const FieldDecl>(VD))
@@ -5145,8 +5105,8 @@ bool bit_size_of(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
             Result,
             APValue(S.Context.MakeIntValue(Sz, S.Context.getSizeType())));
   }
-  case ReflectionValue::RK_data_member_spec: {
-    TagDataMemberSpec *TDMS = R.getReflectedDataMemberSpec();
+  case ReflectionKind::DataMemberSpec: {
+    TagDataMemberSpec *TDMS = RV.getReflectedDataMemberSpec();
 
     size_t Sz = TDMS->BitWidth.value_or(S.Context.getTypeSize(TDMS->Ty));
     return SetAndSucceed(
@@ -5154,12 +5114,12 @@ bool bit_size_of(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
             APValue(S.Context.MakeIntValue(Sz, S.Context.getSizeType())));
   }
 
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_template:
-  case ReflectionValue::RK_namespace:
-  case ReflectionValue::RK_base_specifier:
+  case ReflectionKind::Null:
+  case ReflectionKind::Template:
+  case ReflectionKind::Namespace:
+  case ReflectionKind::BaseSpecifier:
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
-        << 3 << DescriptionOf(R.getReflection());
+        << 3 << DescriptionOf(RV);
   }
   llvm_unreachable("unknown reflection kind");
 }
@@ -5170,28 +5130,28 @@ bool alignment_of(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.getSizeType());
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_type: {
-    QualType QT = R.getReflectedType();
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Type: {
+    QualType QT = RV.getReflectedType();
     size_t Align = S.Context.getTypeAlignInChars(QT).getQuantity();
     return SetAndSucceed(
             Result,
             APValue(S.Context.MakeIntValue(Align, S.Context.getSizeType())));
   }
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value: {
-    QualType QT = R.getReflection().getResultType();
+  case ReflectionKind::Object:
+  case ReflectionKind::Value: {
+    QualType QT = RV.getTypeOfReflectedResult(S.Context);
     size_t Align = S.Context.getTypeAlignInChars(QT).getQuantity();
     return SetAndSucceed(
             Result,
             APValue(S.Context.MakeIntValue(Align, S.Context.getSizeType())));
   }
-  case ReflectionValue::RK_declaration: {
-    const ValueDecl *VD = cast<ValueDecl>(R.getReflectedDecl());
+  case ReflectionKind::Declaration: {
+    const ValueDecl *VD = cast<ValueDecl>(RV.getReflectedDecl());
     size_t Align = S.Context.getTypeAlignInChars(VD->getType()).getQuantity();
 
     if (const FieldDecl *FD = dyn_cast<const FieldDecl>(VD)) {
@@ -5204,8 +5164,8 @@ bool alignment_of(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
             Result,
             APValue(S.Context.MakeIntValue(Align, S.Context.getSizeType())));
   }
-  case ReflectionValue::RK_data_member_spec: {
-    TagDataMemberSpec *TDMS = R.getReflectedDataMemberSpec();
+  case ReflectionKind::DataMemberSpec: {
+    TagDataMemberSpec *TDMS = RV.getReflectedDataMemberSpec();
     if (TDMS->BitWidth)
       return true;
 
@@ -5216,12 +5176,12 @@ bool alignment_of(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
             Result,
             APValue(S.Context.MakeIntValue(Align, S.Context.getSizeType())));
   }
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_template:
-  case ReflectionValue::RK_namespace:
-  case ReflectionValue::RK_base_specifier:
+  case ReflectionKind::Null:
+  case ReflectionKind::Template:
+  case ReflectionKind::Namespace:
+  case ReflectionKind::BaseSpecifier:
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
-        << 4 << DescriptionOf(R.getReflection());
+        << 4 << DescriptionOf(RV);
   }
   llvm_unreachable("unknown reflection kind");
 }
@@ -5293,23 +5253,23 @@ bool get_ith_parameter_of(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.MetaInfoTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   APValue Sentinel;
   if (!Evaluator(Sentinel, Args[1], true))
     return true;
-  assert(Sentinel.getReflection().getKind() == ReflectionValue::RK_type);
+  assert(Sentinel.isReflectedType());
 
   APValue Idx;
   if (!Evaluator(Idx, Args[2], true))
     return true;
   size_t idx = Idx.getInt().getExtValue();
 
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_type: {
-    if (auto FT = dyn_cast<FunctionProtoType>(R.getReflectedType())) {
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Type: {
+    if (auto FT = dyn_cast<FunctionProtoType>(RV.getReflectedType())) {
       unsigned numParams = FT->getNumParams();
       if (idx >= numParams)
         return SetAndSucceed(Result, Sentinel);
@@ -5319,8 +5279,8 @@ bool get_ith_parameter_of(APValue &Result, Sema &S, EvalFn Evaluator,
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_introspect_type)
         << 2 << 2;
   }
-  case ReflectionValue::RK_declaration: {
-    if (auto FD = dyn_cast<FunctionDecl>(R.getReflectedDecl())) {
+  case ReflectionKind::Declaration: {
+    if (auto FD = dyn_cast<FunctionDecl>(RV.getReflectedDecl())) {
       unsigned numParams = FD->getNumParams();
       if (idx >= numParams)
         return SetAndSucceed(Result, Sentinel);
@@ -5328,19 +5288,19 @@ bool get_ith_parameter_of(APValue &Result, Sema &S, EvalFn Evaluator,
       return SetAndSucceed(Result, makeReflection(FD->getParamDecl(idx)));
     }
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
-          << 5 << DescriptionOf(R.getReflection()) << Range;
+          << 5 << DescriptionOf(RV) << Range;
   }
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_template:
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
-  case ReflectionValue::RK_namespace:
-  case ReflectionValue::RK_base_specifier:
-  case ReflectionValue::RK_data_member_spec:
+  case ReflectionKind::Null:
+  case ReflectionKind::Template:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
+  case ReflectionKind::Namespace:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::DataMemberSpec:
     return true;
   }
   return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
-      << 5 << DescriptionOf(R.getReflection()) << Range;
+      << 5 << DescriptionOf(RV) << Range;
 }
 
 bool has_consistent_identifier(APValue &Result, Sema &S, EvalFn Evaluator,
@@ -5349,27 +5309,27 @@ bool has_consistent_identifier(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_declaration:
-    if (auto *PVD = dyn_cast<ParmVarDecl>(R.getReflectedDecl())) {
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Declaration:
+    if (auto *PVD = dyn_cast<ParmVarDecl>(RV.getReflectedDecl())) {
       [[maybe_unused]] std::string Unused;
       bool Consistent = getParameterName(PVD, Unused);
 
       return SetAndSucceed(Result, makeBool(S.Context, Consistent));
     }
     [[fallthrough]];
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_type:
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
-  case ReflectionValue::RK_template:
-  case ReflectionValue::RK_namespace:
-  case ReflectionValue::RK_base_specifier:
-  case ReflectionValue::RK_data_member_spec:
+  case ReflectionKind::Null:
+  case ReflectionKind::Type:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
+  case ReflectionKind::Template:
+  case ReflectionKind::Namespace:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::DataMemberSpec:
     return has_identifier(Result, S, Evaluator, Diagnoser, ResultTy, Range,
                           Args);
   }
@@ -5382,34 +5342,34 @@ bool has_ellipsis_parameter(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
-  case ReflectionValue::RK_template:
-  case ReflectionValue::RK_namespace:
-  case ReflectionValue::RK_base_specifier:
-  case ReflectionValue::RK_data_member_spec:
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Null:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
+  case ReflectionKind::Template:
+  case ReflectionKind::Namespace:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::DataMemberSpec:
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
-      << 5 << DescriptionOf(R.getReflection()) << Range;
-  case ReflectionValue::RK_type:
-    if (auto *FPT = dyn_cast<FunctionProtoType>(R.getReflectedType())) {
+      << 5 << DescriptionOf(RV) << Range;
+  case ReflectionKind::Type:
+    if (auto *FPT = dyn_cast<FunctionProtoType>(RV.getReflectedType())) {
       bool HasEllipsis = FPT->isVariadic();
       return SetAndSucceed(Result, makeBool(S.Context, HasEllipsis));
     }
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_introspect_type)
         << 2 << 2;
-  case ReflectionValue::RK_declaration: {
-    if (auto *FD = dyn_cast<FunctionDecl>(R.getReflectedDecl())) {
+  case ReflectionKind::Declaration: {
+    if (auto *FD = dyn_cast<FunctionDecl>(RV.getReflectedDecl())) {
       bool HasEllipsis = FD->getEllipsisLoc().isValid();
       return SetAndSucceed(Result, makeBool(S.Context, HasEllipsis));
     }
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
-      << 5 << DescriptionOf(R.getReflection()) << Range;
+      << 5 << DescriptionOf(RV) << Range;
   }
   }
   llvm_unreachable("unknown reflection kind");
@@ -5421,26 +5381,26 @@ bool has_default_argument(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_declaration: {
-    if (auto *PVD = dyn_cast<ParmVarDecl>(R.getReflectedDecl())) {
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Declaration: {
+    if (auto *PVD = dyn_cast<ParmVarDecl>(RV.getReflectedDecl())) {
       return SetAndSucceed(Result, makeBool(S.Context, PVD->hasDefaultArg()));
     }
     [[fallthrough]];
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_type:
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
-  case ReflectionValue::RK_template:
-  case ReflectionValue::RK_namespace:
-  case ReflectionValue::RK_base_specifier:
-  case ReflectionValue::RK_data_member_spec:
+  case ReflectionKind::Null:
+  case ReflectionKind::Type:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
+  case ReflectionKind::Template:
+  case ReflectionKind::Namespace:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::DataMemberSpec:
     return DiagnoseReflectionKind(Diagnoser, Range, "a function parameter",
-                                  DescriptionOf(R.getReflection()));
+                                  DescriptionOf(RV));
   }
   }
   llvm_unreachable("unknown reflection kind");
@@ -5452,13 +5412,13 @@ bool is_explicit_object_parameter(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool result = false;
-  if (R.getReflection().getKind() == ReflectionValue::RK_declaration) {
-    if (auto *PVD = dyn_cast<ParmVarDecl>(R.getReflectedDecl()))
+  if (RV.isReflectedDecl()) {
+    if (auto *PVD = dyn_cast<ParmVarDecl>(RV.getReflectedDecl()))
       result = PVD->isExplicitObjectParameter();
   }
   return SetAndSucceed(Result, makeBool(S.Context, result));
@@ -5470,13 +5430,13 @@ bool is_function_parameter(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
   bool result = false;
-  if (R.getReflection().getKind() == ReflectionValue::RK_declaration) {
-    result = isa<const ParmVarDecl>(R.getReflectedDecl());
+  if (RV.isReflectedDecl()) {
+    result = isa<const ParmVarDecl>(RV.getReflectedDecl());
   }
   return SetAndSucceed(Result, makeBool(S.Context, result));
 }
@@ -5487,31 +5447,31 @@ bool return_type_of(APValue &Result, Sema &S, EvalFn Evaluator,
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.MetaInfoTy);
 
-  APValue R;
-  if (!Evaluator(R, Args[0], true))
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
     return true;
 
-  switch (R.getReflection().getKind()) {
-  case ReflectionValue::RK_type:
-    if (auto *FPT = dyn_cast<FunctionProtoType>(R.getReflectedType()))
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Type:
+    if (auto *FPT = dyn_cast<FunctionProtoType>(RV.getReflectedType()))
       return SetAndSucceed(Result, makeReflection(FPT->getReturnType()));
 
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_introspect_type)
         << 3 << 2;
-  case ReflectionValue::RK_declaration:
-    if (auto *FD = dyn_cast<FunctionDecl>(R.getReflectedDecl());
+  case ReflectionKind::Declaration:
+    if (auto *FD = dyn_cast<FunctionDecl>(RV.getReflectedDecl());
         FD && !isa<CXXConstructorDecl>(FD) && !isa<CXXDestructorDecl>(FD))
       return SetAndSucceed(Result, makeReflection(FD->getReturnType()));
     [[fallthrough]];
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
-  case ReflectionValue::RK_template:
-  case ReflectionValue::RK_namespace:
-  case ReflectionValue::RK_base_specifier:
-  case ReflectionValue::RK_data_member_spec:
+  case ReflectionKind::Null:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
+  case ReflectionKind::Template:
+  case ReflectionKind::Namespace:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::DataMemberSpec:
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
-        << 6 << DescriptionOf(R.getReflection()) << Range;
+        << 6 << DescriptionOf(RV) << Range;
   }
   llvm_unreachable("unknown reflection kind");
 }

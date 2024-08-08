@@ -7054,8 +7054,8 @@ public:
 /// Represents a type formed by evaluating a reflection splice (C++2c, P2996).
 ///
 /// A reflection splice wraps a potentially dependent constant expression whose
-/// resulting APValue holds a ReflectionValue; this is expected to hold a type
-/// in the context of a 'ReflectionSpliceType'.
+/// resulting APValue is a reflection; this is expected to hold a type in the
+/// context of a 'ReflectionSpliceType'.
 class ReflectionSpliceType : public Type {
   Expr *Operand;
   QualType UnderlyingTy;

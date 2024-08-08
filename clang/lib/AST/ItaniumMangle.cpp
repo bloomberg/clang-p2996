@@ -606,7 +606,7 @@ private:
   void mangleInitListElements(const InitListExpr *InitList);
   void mangleRequirement(SourceLocation RequiresExprLoc,
                          const concepts::Requirement *Req);
-  void mangleReflection(const ReflectionValue &R);
+  void mangleReflection(const APValue &R);
   void mangleExpression(const Expr *E, unsigned Arity = UnknownArity,
                         bool AsTemplateArg = false);
   void mangleCXXCtorType(CXXCtorType T, const CXXRecordDecl *InheritedFrom);
@@ -4676,16 +4676,18 @@ void CXXNameMangler::mangleRequirement(SourceLocation RequiresExprLoc,
   }
 }
 
-void CXXNameMangler::mangleReflection(const ReflectionValue &R) {
+void CXXNameMangler::mangleReflection(const APValue &R) {
+  assert(R.isReflection());
+
   Out << 'M';
 
-  switch (R.getKind()) {
-  case ReflectionValue::RK_null:
+  switch (R.getReflectionKind()) {
+  case ReflectionKind::Null:
     Out << '0';
     break;
-  case ReflectionValue::RK_type: {
+  case ReflectionKind::Type: {
     Out << 't';
-    QualType QT = R.getAsType();
+    QualType QT = R.getReflectedType();
 
     if (const TypedefType *TDT = dyn_cast<TypedefType>(QT)) {
       mangleQualifiers(QT.getQualifiers());
@@ -4695,18 +4697,20 @@ void CXXNameMangler::mangleReflection(const ReflectionValue &R) {
     Context.mangleCanonicalTypeName(QT, Out, false);
     break;
   }
-  case ReflectionValue::RK_object:
+  case ReflectionKind::Object:
     Out << 'o';
-    mangleValueInTemplateArg(R.getResultType(), R.getAsObject(), false, true);
+    mangleValueInTemplateArg(R.getTypeOfReflectedResult(getASTContext()),
+                             R.getReflectedObject(), false, true);
     break;
-  case ReflectionValue::RK_value:
+  case ReflectionKind::Value:
     Out << "v";
-    mangleValueInTemplateArg(R.getResultType(), R.getAsValue(), false, true);
+    mangleValueInTemplateArg(R.getTypeOfReflectedResult(getASTContext()),
+                             R.getReflectedValue(), false, true);
     break;
-  case ReflectionValue::RK_declaration: {
+  case ReflectionKind::Declaration: {
     Out << 'd';
 
-    Decl *D = R.getAsDecl();
+    Decl *D = R.getReflectedDecl();
     if (auto * ED = dyn_cast<EnumConstantDecl>(D)) {
       mangleIntegerLiteral(ED->getType(), ED->getInitVal());
     } else if (auto *CD = dyn_cast<CXXConstructorDecl>(D)) {
@@ -4729,31 +4733,31 @@ void CXXNameMangler::mangleReflection(const ReflectionValue &R) {
     }
     break;
   }
-  case ReflectionValue::RK_template: {
+  case ReflectionKind::Template: {
     Out << 't';
 
     ArrayRef<TemplateArgument> Args;
-    mangleTemplateName(R.getAsTemplate().getAsTemplateDecl(), Args);
+    mangleTemplateName(R.getReflectedTemplate().getAsTemplateDecl(), Args);
     break;
   }
-  case ReflectionValue::RK_namespace: {
+  case ReflectionKind::Namespace: {
     Out << 'n';
-    if (auto *ND = dyn_cast<NamedDecl>(R.getAsNamespace()))
+    if (auto *ND = dyn_cast<NamedDecl>(R.getReflectedNamespace()))
       mangleNameWithAbiTags(ND, nullptr);
     // Otherwise, this is the global namespace.
     Out << '$';
     break;
   }
-  case ReflectionValue::RK_base_specifier: {
+  case ReflectionKind::BaseSpecifier: {
     Out << 'b';
-    Context.mangleCanonicalTypeName(R.getAsBaseSpecifier()->getType(), Out,
-                                    false);
+    Context.mangleCanonicalTypeName(R.getReflectedBaseSpecifier()->getType(),
+                                    Out, false);
     break;
   }
-  case ReflectionValue::RK_data_member_spec: {
+  case ReflectionKind::DataMemberSpec: {
     Out << "sdm";
 
-    TagDataMemberSpec *TDMS = R.getAsDataMemberSpec();
+    TagDataMemberSpec *TDMS = R.getReflectedDataMemberSpec();
     Context.mangleCanonicalTypeName(TDMS->Ty, Out, false);
     if (TDMS->Name)
       Out << "N$" << (*TDMS->Name) << '$';
@@ -6851,7 +6855,7 @@ void CXXNameMangler::mangleValueInTemplateArg(QualType T, const APValue &V,
   }
 
   case APValue::Reflection: {
-    mangleReflection(V.getReflection());
+    mangleReflection(V);
     break;
   }
   }

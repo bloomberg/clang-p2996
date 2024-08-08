@@ -5328,26 +5328,28 @@ class CXXReflectExpr : public Expr {
 
   // The operand of the expression.
   OperandKind Kind;
-  llvm::AlignedCharArrayUnion<ReflectionValue, Expr *> Operand;
+  llvm::AlignedCharArrayUnion<APValue, Expr *> Operand;
 
   // Source locations.
   SourceLocation OperatorLoc;
   SourceRange OperandRange;
 
-  CXXReflectExpr(const ASTContext &C, QualType ExprTy, ReflectionValue RV);
+  CXXReflectExpr(const ASTContext &C, QualType ExprTy, APValue RV);
   CXXReflectExpr(const ASTContext &C, QualType ExprTy, Expr *DepSubExpr);
 
 public:
   static CXXReflectExpr *Create(ASTContext &C, SourceLocation OperatorLoc,
-                                SourceRange OperandRange, ReflectionValue RV);
+                                SourceRange OperandRange, APValue RV);
   static CXXReflectExpr *Create(ASTContext &C, SourceLocation OperatorLoc,
                                 Expr *DepSubExpr);
 
   /// Returns the operand of the reflection expression.
-  ReflectionValue getReflection() const {
-    return *(const ReflectionValue *)(const char *)&Operand;
+  APValue getReflection() const {
+    assert(Kind == OperandKind::Reflection);
+    return *(const APValue *)(const char *)&Operand;
   }
   Expr *getDependentSubExpr() const {
+    assert(Kind == OperandKind::DependentExpr);
     return *(Expr **)const_cast<char *>((const char *)&Operand);
   }
   bool hasDependentSubExpr() const {

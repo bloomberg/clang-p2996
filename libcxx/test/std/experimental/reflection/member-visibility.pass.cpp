@@ -18,6 +18,10 @@
 #include <experimental/meta>
 
 
+constexpr auto get_ctx_repr(std::meta::access_context ctx) {
+  return ctx.[:nonstatic_data_members_of(^decltype(ctx))[0]:];
+}
+
 struct PublicBase { int mem; };
 struct ProtectedBase { int mem; };
 struct PrivateBase { int mem; };
@@ -25,7 +29,9 @@ struct PrivateBase { int mem; };
 struct Access
     : public PublicBase, protected ProtectedBase, private PrivateBase {
 public:
-    static consteval std::meta::access_context token() { return {}; }
+    static consteval std::meta::access_context token() {
+      return std::meta::access_context::current();
+    }
 
     int pub;
     struct PublicCls {};
@@ -180,23 +186,24 @@ consteval std::meta::access_context FriendFnOfAccess() {
   static_assert(is_accessible(bases_of(^Access)[1]));  // ProtectedBase
   static_assert(is_accessible(bases_of(^Access)[2]));  // PrivateBase
 
-  return std::meta::access_context{};
+  return std::meta::access_context::current();
 }
 
                             // =====================
                             // new_accessibility_api
                             // =====================
 
-static_assert(std::meta::access_context().repr == ^::);
-namespace alt_accessibility_api {
-static_assert(std::meta::access_context().repr == ^::alt_accessibility_api);
+static_assert(get_ctx_repr(std::meta::access_context::current()) == ^::);
+namespace new_accessibility_api {
+static_assert(get_ctx_repr(std::meta::access_context::current()) ==
+              ^::new_accessibility_api);
 
 void fn() {
-  static_assert(std::meta::access_context().repr == ^fn);
+  static_assert(get_ctx_repr(std::meta::access_context::current()) == ^fn);
   [] {
-    constexpr auto l = std::meta::access_context().repr;
-    static_assert(is_function(l));
-    static_assert(l != ^fn);
+    constexpr auto repr = get_ctx_repr(std::meta::access_context::current());
+    static_assert(is_function(repr));
+    static_assert(repr != ^fn);
   }();
 }
 
@@ -210,7 +217,7 @@ static_assert(
     is_accessible((members_of(^Access) |
                       std::views::filter(std::meta::is_private)).front(),
                   Access::token()));
-}  // namespace alt_accessibility_api
+}  // namespace new_accessibility_api
 
                               // ================
                               // nonsense_queries

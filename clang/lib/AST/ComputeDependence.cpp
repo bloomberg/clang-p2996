@@ -945,11 +945,11 @@ ExprDependence clang::computeDependence(CXXReflectExpr *E,
   if (E->hasDependentSubExpr())
     return E->getDependentSubExpr()->getDependence();
 
-  ReflectionValue RV = E->getReflection();
+  APValue RV = E->getReflection();
   ExprDependence D = ExprDependence::None;
-  switch (RV.getKind()) {
-  case ReflectionValue::RK_type: {
-    QualType T = RV.getAsType();
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Type: {
+    QualType T = RV.getReflectedType();
 
     if (T->isDependentType())
       D |= ExprDependence::ValueInstantiation;
@@ -957,16 +957,16 @@ ExprDependence clang::computeDependence(CXXReflectExpr *E,
       D |= ExprDependence::UnexpandedPack;
     return D;
   }
-  case ReflectionValue::RK_declaration: {
-    ValueDecl *VD = RV.getAsDecl();
+  case ReflectionKind::Declaration: {
+    ValueDecl *VD = RV.getReflectedDecl();
     if (VD->getType()->isDependentType())
       D |= ExprDependence::ValueInstantiation;
     if (VD->getType()->containsUnexpandedParameterPack())
       D |= ExprDependence::UnexpandedPack;
     return D | computeDeclDependence(VD, Ctx);
   }
-  case ReflectionValue::RK_template: {
-    const TemplateName Template = RV.getAsTemplate();
+  case ReflectionKind::Template: {
+    const TemplateName Template = RV.getReflectedTemplate();
 
     if (Template.isDependent())
       D |= ExprDependence::ValueInstantiation;
@@ -976,12 +976,12 @@ ExprDependence clang::computeDependence(CXXReflectExpr *E,
       D |= ExprDependence::UnexpandedPack;
     return D;
   }
-  case ReflectionValue::RK_null:
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
-  case ReflectionValue::RK_namespace:
-  case ReflectionValue::RK_base_specifier:
-  case ReflectionValue::RK_data_member_spec:
+  case ReflectionKind::Null:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
+  case ReflectionKind::Namespace:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::DataMemberSpec:
     return ExprDependence::None;
   }
   llvm_unreachable("unknown reflection kind while computing dependence");

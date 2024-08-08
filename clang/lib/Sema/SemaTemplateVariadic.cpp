@@ -109,12 +109,12 @@ namespace {
       if (E->hasDependentSubExpr())
         return true;
 
-      if (E->getReflection().getKind() == ReflectionValue::RK_declaration) {
-        ValueDecl *VD = E->getReflection().getAsDecl();
+      if (E->getReflection().isReflectedDecl()) {
+        ValueDecl *VD = E->getReflection().getReflectedDecl();
         if (VD->isParameterPack())
           addUnexpanded(VD, E->getExprLoc());
-      } else if (E->getReflection().getKind() == ReflectionValue::RK_template) {
-        TemplateName TName = E->getReflection().getAsTemplate();
+      } else if (E->getReflection().isReflectedTemplate()) {
+        TemplateName TName = E->getReflection().getReflectedTemplate();
         if (TName.containsUnexpandedParameterPack()) {
           addUnexpanded(TName.getAsTemplateDecl());
         }
@@ -1101,10 +1101,8 @@ static bool isParameterPack(Expr *PackExpression) {
     ValueDecl *VD = D->getDecl();
     return VD->isParameterPack();
   } else if (auto *R = dyn_cast<CXXReflectExpr>(PackExpression)) {
-    if (!R->hasDependentSubExpr() &&
-        R->getReflection().getKind() == ReflectionValue::RK_declaration) {
-      return R->getReflection().getAsDecl()->isParameterPack();
-    }
+    if (!R->hasDependentSubExpr() && R->getReflection().isReflectedDecl())
+      return R->getReflection().getReflectedDecl()->isParameterPack();
   }
   return false;
 }

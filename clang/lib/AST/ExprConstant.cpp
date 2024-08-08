@@ -66,6 +66,7 @@
 #include <cstring>
 #include <functional>
 #include <optional>
+#include <iostream>
 
 #define DEBUG_TYPE "exprconstant"
 
@@ -8482,9 +8483,9 @@ bool ExprEvaluatorBase<Derived>::VisitStackLocationExpr(
   if (!Frame)
     return Error(E);
 
-  ReflectionValue RV(ReflectionValue::RK_declaration,
-                     const_cast<FunctionDecl *>(Frame->Callee));
-  return DerivedSuccess(APValue(RV), E);
+  APValue RV(ReflectionKind::Declaration,
+             const_cast<FunctionDecl *>(Frame->Callee));
+  return DerivedSuccess(RV, E);
 }
 
 } // namespace
@@ -14028,12 +14029,16 @@ EvaluateComparisonBinaryOperator(EvalInfo &Info, const BinaryOperator *E,
 
   if (LHSTy->isReflectionType() && RHSTy->isReflectionType()) {
     APValue LHSValue, RHSValue;
+    llvm::FoldingSetNodeID LID, RID;
     if (!Evaluate(LHSValue, Info, E->getLHS()))
       return false;
+    LHSValue.Profile(LID);
+
     if (!Evaluate(RHSValue, Info, E->getRHS()))
       return false;
+    RHSValue.Profile(RID);
 
-    if (LHSValue.getReflection() == RHSValue.getReflection())
+    if (LID == RID)
       return Success(CmpResult::Equal, E);
     else
       return Success(CmpResult::Unequal, E);
@@ -15927,7 +15932,7 @@ public:
   }
 
   bool ZeroInitialization(const Expr *E) {
-    Result = APValue(ReflectionValue{});
+    Result = APValue(ReflectionKind::Null, nullptr);
     return true;
   }
 
