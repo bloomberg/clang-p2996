@@ -19,6 +19,18 @@ constexpr bool is_same_v = false;
 template <typename T1>
 constexpr bool is_same_v<T1, T1> = true;
 
+template <typename T1, typename T2>
+concept same_as = is_same_v<T1, T2>;
+
+template <bool B, class T = void>
+struct enable_if {};
+
+template <class T>
+struct enable_if<true, T> { typedef T type; };
+
+template <bool B, class T = void>
+using enable_if_t = typename enable_if<B,T>::type;
+
                                  // ===========
                                  // idempotency
                                  // ===========
@@ -225,3 +237,147 @@ struct T : [:Rs:]... {};
 using A = T<^B1, ^B2, ^B3>;
 static_assert(A::value1 + A::value2 + A::value3 == 6);
 }  // namespace base_class_specifiers
+
+namespace requires_clause {
+struct Addable {
+  friend Addable operator+(const Addable l, const Addable r) {
+    return {};
+  }
+};
+
+struct NonAddable {};
+
+namespace Namespace {
+  using requires_clause::Addable;
+  using requires_clause::NonAddable;
+}
+
+struct HasNested {
+  struct Nested {};
+};
+
+struct NoNested {};
+
+template<typename T, typename = enable_if_t<is_same_v<float, T>>>
+struct RequiresFloat {};
+
+template<typename T, typename = enable_if_t<is_same_v<float, T>>>
+using AliasFloat = T;
+
+
+// Simple requirement
+template <typename T>
+constexpr auto simple_addable = requires(T a, T b) { [:^a:] + b; };
+template <typename T>
+constexpr auto simple_addable2 = requires(T a, T b) { a + [:^b:]; };
+template <typename T>
+constexpr auto simple_addable3 = requires(T a, T b) { [:^a:] + [:^b:]; };
+template <typename T>
+constexpr auto simple_addable_nns = 
+  requires(T b) { [:^Namespace:]::Addable() + b; };
+constexpr auto simple_addable_nns2 = requires { [:^Namespace:]::Addable(); };
+template <typename T>
+constexpr auto simple_dep_nns = requires { typename [:^T:]::Nested(); };
+
+static_assert(simple_addable<Addable>);
+static_assert(!simple_addable<NonAddable>);
+
+static_assert(simple_addable2<Addable>);
+static_assert(!simple_addable2<NonAddable>);
+
+static_assert(simple_addable3<Addable>);
+static_assert(!simple_addable3<NonAddable>);
+
+static_assert(simple_addable_nns<Addable>);
+static_assert(!simple_addable_nns<NonAddable>);
+
+static_assert(simple_addable_nns2);
+
+static_assert(simple_dep_nns<HasNested>);
+static_assert(!simple_dep_nns<NoNested>);
+
+// Type requirement
+template <typename T>
+constexpr auto type = requires { typename [:^T:]; };
+
+template <typename T>
+constexpr auto type_nested = requires { typename [:^T:]::Nested; };
+
+template <typename T>
+constexpr auto type_class_is_float = 
+  requires { typename RequiresFloat<[:^T:]>; };
+
+template <typename T>
+constexpr auto type_class_is_float2 = 
+  requires { typename [:^RequiresFloat<T>:]; };
+
+template <typename T>
+constexpr auto type_alias_is_float = 
+  requires { typename AliasFloat<[:^T:]>; };
+
+template <typename T>
+constexpr auto type_alias_is_float2 = 
+  requires { typename [:^AliasFloat<T>:]; };
+
+static_assert(type<int>);
+
+static_assert(type_nested<HasNested>);
+static_assert(!type_nested<NoNested>);
+
+static_assert(type_class_is_float<float>);
+static_assert(!type_class_is_float<int>);
+static_assert(type_class_is_float2<float>);
+static_assert(!type_class_is_float2<int>);
+
+static_assert(type_alias_is_float<float>);
+static_assert(!type_alias_is_float<int>);
+static_assert(type_alias_is_float2<float>);
+static_assert(!type_alias_is_float2<int>);
+
+// Compound requirements
+template <typename T>
+constexpr auto compound_returns_addable = 
+  requires { {[:^T:]()} -> same_as<Addable>; };
+// #error doesn't work w/o typename - why?
+
+template <typename T>
+constexpr auto compound_returns_addable2 =
+  requires { {T()} -> same_as<[:^Addable:]>; };
+
+template <typename T>
+constexpr auto compound_returns_addable3 = 
+  requires { {[:^Namespace:]::Addable()} -> same_as<[:^T:]>; };
+
+template <typename T>
+constexpr auto compound_returns_addable4 = 
+  requires { {T()} -> same_as<[:^Namespace:]::Addable>; };
+
+static_assert(compound_returns_addable<Addable>);
+static_assert(!compound_returns_addable<NonAddable>);
+
+static_assert(compound_returns_addable2<Addable>);
+static_assert(!compound_returns_addable2<NonAddable>);
+
+static_assert(compound_returns_addable3<Addable>);
+static_assert(!compound_returns_addable3<NonAddable>);
+
+static_assert(compound_returns_addable4<Addable>);
+static_assert(!compound_returns_addable4<NonAddable>);
+
+// Nested requirements
+template <typename T>
+constexpr auto nested_addable = requires { 
+  requires same_as<T, [:^Addable:]>;
+};
+template <typename T>
+constexpr auto nested_addable2 = requires { 
+  requires same_as<T, [:^Namespace:]::Addable>;
+};
+
+static_assert(nested_addable<Addable>);
+static_assert(!nested_addable<NonAddable>);
+
+static_assert(nested_addable2<Addable>);
+static_assert(!nested_addable2<NonAddable>);
+
+}
