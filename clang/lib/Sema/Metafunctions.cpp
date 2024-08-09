@@ -4598,9 +4598,8 @@ bool reflect_invoke(APValue &Result, Sema &S, EvalFn Evaluator,
 
       TemplateDeductionResult Result = S.DeduceTemplateArguments(
           FTD, &ExplicitTAListInfo,
-          exclude_first_arg
-              ? SmallVector<Expr *, 4>(ArgExprs.begin() + 1, ArgExprs.end())
-              : ArgExprs,
+          ArrayRef(ArgExprs.begin() + (exclude_first_arg ? 1 : 0),
+                   ArgExprs.end()),
           Specialization, Info, false, true, QualType(), Expr::Classification(),
           [](ArrayRef<QualType>) { return false; });
       if (Result != TemplateDeductionResult::Success)
@@ -4633,9 +4632,10 @@ bool reflect_invoke(APValue &Result, Sema &S, EvalFn Evaluator,
           CXXConstructionKind::Complete, Range);
     } else {
       auto *FnExpr = FnRefExpr;
-      auto FnArgExprs = ArgExprs;
+      bool exclude_first_arg = false;
 
       if (DRE && is_nonstatic_member_function(DRE->getDecl())) {
+        exclude_first_arg = true;
         auto *MD = cast<CXXMethodDecl>(DRE->getDecl());
 
         if (ArgExprs.size() < 1) {
@@ -4690,12 +4690,13 @@ bool reflect_invoke(APValue &Result, Sema &S, EvalFn Evaluator,
         }
 
         FnExpr = MemberAccessResult.get();
-        // exclude first argument because it's an object
-        FnArgExprs = {ArgExprs.begin() + 1, ArgExprs.end()};
       }
 
-      ER = S.ActOnCallExpr(S.getCurScope(), FnExpr, Range.getBegin(),
-                           FnArgExprs, Range.getEnd(), /*ExecConfig=*/nullptr);
+      ER = S.ActOnCallExpr(
+          S.getCurScope(), FnExpr, Range.getBegin(),
+          MutableArrayRef(ArgExprs.begin() + (exclude_first_arg ? 1 : 0),
+                          ArgExprs.end()),
+          Range.getEnd(), /*ExecConfig=*/nullptr);
     }
   }
 
