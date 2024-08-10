@@ -238,6 +238,10 @@ using A = T<^B1, ^B2, ^B3>;
 static_assert(A::value1 + A::value2 + A::value3 == 6);
 }  // namespace base_class_specifiers
 
+                               // ===============
+                               // requires_clause
+                               // ===============
+
 namespace requires_clause {
 struct Addable {
   friend Addable operator+(const Addable l, const Addable r) {
@@ -379,4 +383,4 @@ static_assert(!nested_addable<NonAddable>);
 static_assert(nested_addable2<Addable>);
 static_assert(!nested_addable2<NonAddable>);
 
-}
+} // namespace requires_clause
