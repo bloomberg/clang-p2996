@@ -4650,6 +4650,10 @@ bool reflect_invoke(APValue &Result, Sema &S, EvalFn Evaluator,
 
         if (ObjType->isPointerType()) {
           ObjType = ObjType->getPointeeType();
+          // convert lvalue to rvalue if needed
+          // since Sema::BuildMemberExpr inside Sema::ActOnMemberAccessExpr
+          // expects prvalue
+          ObjExpr = S.DefaultFunctionArrayLvalueConversion(ObjExpr).get();
         }
 
         if (!ObjType->getAsCXXRecordDecl()) {
@@ -4673,17 +4677,20 @@ bool reflect_invoke(APValue &Result, Sema &S, EvalFn Evaluator,
                  << Range;
         }
 
+        SourceLocation DummyLoc;
+        // Hack below is needed to prevent lookup or overload resolution of
+        // given method reflection. Because this problem has been solved before
+        // for splice expressions, wrap our decl ref into splice expr and reuse
+        // specific overload of Sema::ActOnMemberAccessExpr
+        auto MethodAsSpliceExpr = CXXSpliceExpr::Create(
+            S.Context, DRE->getValueKind(), DummyLoc, DummyLoc, DRE, DummyLoc,
+            &ExplicitTAListInfo, /* this arg is not used */ false);
+
         SourceLocation ObjLoc = ObjExpr->getExprLoc();
-        UnqualifiedId Name;
-        Name.setIdentifier(MD->getIdentifier(), ObjLoc);
-
-        CXXScopeSpec SS;
-        SourceLocation TemplateKWLoc;
-
         ExprResult MemberAccessResult = S.ActOnMemberAccessExpr(
-            S.getCurScope(), S.MakeFullExpr(ObjExpr).get(), ObjLoc,
-            ObjExpr->getType()->isPointerType() ? tok::arrow : tok::period, SS,
-            TemplateKWLoc, Name, nullptr);
+            S.getCurScope(), ObjExpr, ObjLoc,
+            ObjExpr->getType()->isPointerType() ? tok::arrow : tok::period,
+            MethodAsSpliceExpr, DummyLoc);
 
         if (MemberAccessResult.isInvalid()) {
           return true;
