@@ -35,7 +35,9 @@ struct A {
 struct B {};
 
 int main() {
- // non-static member functions
+              // ======================
+              // non-static member functions
+              // ======================
  constexpr A expectedClass{};
  reflect_invoke(^A::fn, {^expectedClass}); // ok
 
