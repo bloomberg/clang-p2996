@@ -4664,8 +4664,7 @@ bool reflect_invoke(APValue &Result, Sema &S, EvalFn Evaluator,
         }
 
         // check that method belongs to class
-        if (ObjType->getAsCXXRecordDecl()->getDeclName() !=
-            MD->getParent()->getDeclName()) {
+        if (ObjType->getAsCXXRecordDecl() != MD->getParent()) {
           return Diagnoser(Range.getBegin(),
                            diag::metafn_function_is_not_member_of_object)
                  << Range;
