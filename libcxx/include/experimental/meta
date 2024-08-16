@@ -140,6 +140,8 @@ consteval auto is_volatile(info) -> bool;
 consteval auto is_lvalue_reference_qualified(info) -> bool;
 consteval auto is_rvalue_reference_qualified(info) -> bool;
 consteval auto has_static_storage_duration(info) -> bool;
+consteval auto has_thread_storage_duration(info r) -> bool;
+consteval auto has_automatic_storage_duration(info r) -> bool;
 consteval auto has_internal_linkage(info) -> bool;
 consteval auto has_module_linkage(info) -> bool;
 consteval auto has_external_linkage(info) -> bool;
@@ -446,6 +448,8 @@ enum : unsigned {
   __metafn_is_lvalue_reference_qualified,
   __metafn_is_rvalue_reference_qualified,
   __metafn_has_static_storage_duration,
+  __metafn_has_thread_storage_duration,
+  __metafn_has_automatic_storage_duration,
   __metafn_has_internal_linkage,
   __metafn_has_module_linkage,
   __metafn_has_external_linkage,
@@ -1019,6 +1023,18 @@ consteval auto is_rvalue_reference_qualified(info r) -> bool {
 // duration.
 consteval auto has_static_storage_duration(info r) -> bool {
   return __metafunction(detail::__metafn_has_static_storage_duration, r);
+}
+
+// Returns whether the reflected entity is a variable having thread storage
+// duration.
+consteval auto has_thread_storage_duration(info r) -> bool {
+  return __metafunction(detail::__metafn_has_thread_storage_duration, r);
+}
+
+// Returns whether the reflected entity is a variable having automatic storage
+// duration.
+consteval auto has_automatic_storage_duration(info r) -> bool {
+  return __metafunction(detail::__metafn_has_automatic_storage_duration, r);
 }
 
 // Returns whether the reflected entity has internal linkage.

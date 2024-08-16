@@ -209,6 +209,16 @@ static bool has_static_storage_duration(APValue &Result, Sema &S,
                                         QualType ResultTy, SourceRange Range,
                                         ArrayRef<Expr *> Args);
 
+static bool has_thread_storage_duration(APValue &Result, Sema &S,
+                                        EvalFn Evaluator, DiagFn Diagnoser,
+                                        QualType ResultTy, SourceRange Range,
+                                        ArrayRef<Expr *> Args);
+
+static bool has_automatic_storage_duration(APValue &Result, Sema &S,
+                                        EvalFn Evaluator, DiagFn Diagnoser,
+                                        QualType ResultTy, SourceRange Range,
+                                        ArrayRef<Expr *> Args);
+
 static bool has_internal_linkage(APValue &Result, Sema &S, EvalFn Evaluator,
                                  DiagFn Diagnoser, QualType ResultTy,
                                  SourceRange Range, ArrayRef<Expr *> Args);
@@ -518,6 +528,8 @@ static constexpr Metafunction Metafunctions[] = {
   { Metafunction::MFRK_bool, 1, 1, is_lvalue_reference_qualified },
   { Metafunction::MFRK_bool, 1, 1, is_rvalue_reference_qualified },
   { Metafunction::MFRK_bool, 1, 1, has_static_storage_duration },
+  { Metafunction::MFRK_bool, 1, 1, has_thread_storage_duration },
+  { Metafunction::MFRK_bool, 1, 1, has_automatic_storage_duration },
   { Metafunction::MFRK_bool, 1, 1, has_internal_linkage },
   { Metafunction::MFRK_bool, 1, 1, has_module_linkage },
   { Metafunction::MFRK_bool, 1, 1, has_external_linkage },
@@ -3415,6 +3427,44 @@ bool has_static_storage_duration(APValue &Result, Sema &S, EvalFn Evaluator,
       result = true;
   } else if (RV.isReflectedObject()) {
     result = true;
+  }
+  return SetAndSucceed(Result, makeBool(S.Context, result));
+}
+
+bool has_thread_storage_duration(APValue &Result, Sema &S,
+                                 EvalFn Evaluator, DiagFn Diagnoser,
+                                 QualType ResultTy, SourceRange Range,
+                                 ArrayRef<Expr *> Args) {
+  assert(Args[0]->getType()->isReflectionType());
+  assert(ResultTy == S.Context.BoolTy);
+
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
+    return true;
+
+  bool result = false;
+  if (RV.isReflectedDecl()) {
+    if (const auto *VD = dyn_cast<VarDecl>(RV.getReflectedDecl()))
+      result = VD->getStorageDuration() == SD_Thread;
+  }
+  return SetAndSucceed(Result, makeBool(S.Context, result));
+}
+
+bool has_automatic_storage_duration(APValue &Result, Sema &S,
+                                    EvalFn Evaluator, DiagFn Diagnoser,
+                                    QualType ResultTy, SourceRange Range,
+                                    ArrayRef<Expr *> Args) {
+  assert(Args[0]->getType()->isReflectionType());
+  assert(ResultTy == S.Context.BoolTy);
+
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
+    return true;
+
+  bool result = false;
+  if (RV.isReflectedDecl()) {
+    if (const auto *VD = dyn_cast<VarDecl>(RV.getReflectedDecl()))
+      result = VD->getStorageDuration() == SD_Automatic;
   }
   return SetAndSucceed(Result, makeBool(S.Context, result));
 }
