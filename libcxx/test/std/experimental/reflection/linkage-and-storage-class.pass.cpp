@@ -129,12 +129,17 @@ void foo(float parameter_var) {
 
 template <auto V> struct TCls {};
 static_assert(!has_static_storage_duration(template_arguments_of(^TCls<5>)[0]));
-static_assert(!has_thread_storage_duration(template_arguments_of(^TCls<5>)[0]));
-static_assert(!has_automatic_storage_duration(template_arguments_of(^TCls<5>)[0]));
+static_assert(
+  !has_thread_storage_duration(template_arguments_of(^TCls<5>)[0]));
+static_assert(
+  !has_automatic_storage_duration(template_arguments_of(^TCls<5>)[0]));
 
-static_assert(has_static_storage_duration(template_arguments_of(^TCls<S{}>)[0]));
-static_assert(!has_thread_storage_duration(template_arguments_of(^TCls<S{}>)[0]));
-static_assert(!has_automatic_storage_duration(template_arguments_of(^TCls<S{}>)[0]));
+static_assert(
+  has_static_storage_duration(template_arguments_of(^TCls<S{}>)[0]));
+static_assert(
+  !has_thread_storage_duration(template_arguments_of(^TCls<S{}>)[0]));
+static_assert(
+  !has_automatic_storage_duration(template_arguments_of(^TCls<S{}>)[0]));
 
 template <auto K> constexpr auto R = ^K;
 static_assert(has_static_storage_duration(R<S{}>));
