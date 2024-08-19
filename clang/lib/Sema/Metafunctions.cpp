@@ -215,9 +215,9 @@ static bool has_thread_storage_duration(APValue &Result, Sema &S,
                                         ArrayRef<Expr *> Args);
 
 static bool has_automatic_storage_duration(APValue &Result, Sema &S,
-                                        EvalFn Evaluator, DiagFn Diagnoser,
-                                        QualType ResultTy, SourceRange Range,
-                                        ArrayRef<Expr *> Args);
+                                           EvalFn Evaluator, DiagFn Diagnoser,
+                                           QualType ResultTy, SourceRange Range,
+                                           ArrayRef<Expr *> Args);
 
 static bool has_internal_linkage(APValue &Result, Sema &S, EvalFn Evaluator,
                                  DiagFn Diagnoser, QualType ResultTy,
