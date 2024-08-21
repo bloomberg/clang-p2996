@@ -241,42 +241,57 @@ static_assert(
 
 namespace non_static_member_functions {
 
-class Number {
+struct Number {
 public:
   constexpr Number(int v) : value(v) {}
 
-  consteval int plus(int a) const { return plus_impl(a); }
+  constexpr int plus(int a) const { return plus_impl(a); }
 
-  consteval int get_value() const { return value; }
+  constexpr int get_value() const { return value; }
+
+  constexpr Number operator+(int num) const { return Number(plus_impl(num)); }
 
   template <typename T>
-  consteval T multiply(T x) const {
+  constexpr T multiply(T x) const {
     return value * x;
   }
 
-private:
-  consteval int plus_impl(int a) const {
-    return value + a;
-  }
-
   const int value;
+
+private:
+  constexpr int plus_impl(int a) const { return value + a; }
 };
 
 constexpr Number num{42};
 constexpr auto num_ref = &num;
 
+// member function with input arguments
 static_assert(std::meta::reflect_value(84) ==
               reflect_invoke(^Number::plus,
                              {^num, std::meta::reflect_value(42)}));
-static_assert(std::meta::reflect_value(42) ==
-              reflect_invoke(^Number::get_value, {^num}));
 
-static_assert(std::meta::reflect_value(42) ==
-              reflect_invoke(^Number::get_value, {^num_ref}));
-
+// operator overload
 static_assert(std::meta::reflect_value(84) ==
-              reflect_invoke(^Number::multiply, {^int},
+              reflect_invoke(^Number::get_value,
+                             {reflect_invoke(^Number::operator+,
+                                                {^num, std::meta::reflect_value(42)})}));
+
+// member function without input arguments
+static_assert(std::meta::reflect_value(42) ==
+              reflect_invoke(^Number::get_value,
+                             {^num}));
+
+// member function called with object reference
+static_assert(std::meta::reflect_value(42) ==
+              reflect_invoke(^Number::get_value,
+                             {^num_ref}));
+
+// template member function
+static_assert(std::meta::reflect_value(84) ==
+              reflect_invoke(^Number::multiply,
+                             {^int},
                              {^num, std::meta::reflect_value(2)}));
+
 } // namespace non_static_member_functions
 
 int main() { }
