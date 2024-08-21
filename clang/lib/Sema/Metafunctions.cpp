@@ -284,9 +284,9 @@ static bool is_alias(APValue &Result, Sema &S, EvalFn Evaluator,
                      DiagFn Diagnoser, QualType ResultTy, SourceRange Range,
                      ArrayRef<Expr *> Args);
 
-static bool is_incomplete_type(APValue &Result, Sema &S, EvalFn Evaluator,
-                               DiagFn Diagnoser, QualType ResultTy,
-                               SourceRange Range, ArrayRef<Expr *> Args);
+static bool is_complete_type(APValue &Result, Sema &S, EvalFn Evaluator,
+                             DiagFn Diagnoser, QualType ResultTy,
+                             SourceRange Range, ArrayRef<Expr *> Args);
 
 static bool is_template(APValue &Result, Sema &S, EvalFn Evaluator,
                         DiagFn Diagnoser, QualType ResultTy, SourceRange Range,
@@ -551,7 +551,7 @@ static constexpr Metafunction Metafunctions[] = {
   { Metafunction::MFRK_bool, 1, 1, is_variable },
   { Metafunction::MFRK_bool, 1, 1, is_type },
   { Metafunction::MFRK_bool, 1, 1, is_alias },
-  { Metafunction::MFRK_bool, 1, 1, is_incomplete_type },
+  { Metafunction::MFRK_bool, 1, 1, is_complete_type },
   { Metafunction::MFRK_bool, 1, 1, is_template },
   { Metafunction::MFRK_bool, 1, 1, is_function_template },
   { Metafunction::MFRK_bool, 1, 1, is_variable_template },
@@ -3856,9 +3856,9 @@ bool is_alias(APValue &Result, Sema &S, EvalFn Evaluator, DiagFn Diagnoser,
   llvm_unreachable("unknown reflection kind");
 }
 
-bool is_incomplete_type(APValue &Result, Sema &S, EvalFn Evaluator,
-                        DiagFn Diagnoser, QualType ResultTy, SourceRange Range,
-                        ArrayRef<Expr *> Args) {
+bool is_complete_type(APValue &Result, Sema &S, EvalFn Evaluator,
+                      DiagFn Diagnoser, QualType ResultTy, SourceRange Range,
+                      ArrayRef<Expr *> Args) {
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == S.Context.BoolTy);
 
@@ -3873,7 +3873,7 @@ bool is_incomplete_type(APValue &Result, Sema &S, EvalFn Evaluator,
     if (Decl *typeDecl = findTypeDecl(RV.getReflectedType()))
       (void) ensureInstantiated(S, typeDecl, Range);
 
-    result = RV.getReflectedType()->isIncompleteType();
+    result = !RV.getReflectedType()->isIncompleteType();
   }
   return SetAndSucceed(Result, makeBool(S.Context, result));
 }

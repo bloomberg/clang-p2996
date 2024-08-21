@@ -158,7 +158,7 @@ consteval auto is_variable(info) -> bool;
 consteval auto is_type(info) -> bool;
 consteval auto is_type_alias(info) -> bool;
 consteval auto is_namespace_alias(info) -> bool;
-consteval auto is_incomplete_type(info) -> bool;
+consteval auto is_complete_type(info) -> bool;
 consteval auto is_template(info) -> bool;
 consteval auto is_function_template(info) -> bool;
 consteval auto is_variable_template(info) -> bool;
@@ -467,7 +467,7 @@ enum : unsigned {
   __metafn_is_variable,
   __metafn_is_type,
   __metafn_is_alias,
-  __metafn_is_incomplete_type,
+  __metafn_is_complete_type,
   __metafn_is_template,
   __metafn_is_function_template,
   __metafn_is_variable_template,
@@ -1088,9 +1088,9 @@ consteval auto is_namespace_alias(info r) -> bool {
   return is_namespace(r) && __metafunction(detail::__metafn_is_alias, r);
 }
 
-// Returns true if the reflected entity is an incomplete type.
-consteval auto is_incomplete_type(info r) -> bool {
-  return __metafunction(detail::__metafn_is_incomplete_type, r);
+// Returns true if the reflected entity is a complete type.
+consteval auto is_complete_type(info r) -> bool {
+  return __metafunction(detail::__metafn_is_complete_type, r);
 }
 
 // Returns true if the reflected entity is a template.
