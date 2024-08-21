@@ -4429,8 +4429,6 @@ bool is_nonstatic_member_function(ValueDecl *FD) {
     return false;
   }
 
-  // todo: check that method is not special??
-
   auto *MD = dyn_cast<CXXMethodDecl>(FD);
   if (!MD) {
     return false;
@@ -4632,11 +4630,10 @@ bool reflect_invoke(APValue &Result, Sema &S, EvalFn Evaluator,
           CXXConstructionKind::Complete, Range);
     } else {
       auto *FnExpr = FnRefExpr;
-      bool exclude_first_arg = false;
+      bool handle_member_func =
+          DRE && is_nonstatic_member_function(DRE->getDecl());
 
-      if (DRE && is_nonstatic_member_function(DRE->getDecl())) {
-        exclude_first_arg = true;
-        auto *MD = cast<CXXMethodDecl>(DRE->getDecl());
+      if (handle_member_func) {
 
         if (ArgExprs.size() < 1) {
           // need to have object as a first argument
@@ -4663,6 +4660,8 @@ bool reflect_invoke(APValue &Result, Sema &S, EvalFn Evaluator,
                  << Range;
         }
 
+        auto *MD = cast<CXXMethodDecl>(DRE->getDecl());
+
         // check that method belongs to class
         if (ObjType->getAsCXXRecordDecl() != MD->getParent()) {
           return Diagnoser(Range.getBegin(),
@@ -4676,20 +4675,21 @@ bool reflect_invoke(APValue &Result, Sema &S, EvalFn Evaluator,
                  << Range;
         }
 
-        SourceLocation DummyLoc;
+        SourceLocation PlaceholderLoc;
         // Hack below is needed to prevent lookup or overload resolution of
         // given method reflection. Because this problem has been solved before
         // for splice expressions, wrap our decl ref into splice expr and reuse
         // specific overload of Sema::ActOnMemberAccessExpr
         auto MethodAsSpliceExpr = CXXSpliceExpr::Create(
-            S.Context, DRE->getValueKind(), DummyLoc, DummyLoc, DRE, DummyLoc,
-            &ExplicitTAListInfo, /* this arg is not used */ false);
+            S.Context, DRE->getValueKind(), PlaceholderLoc, PlaceholderLoc, DRE,
+            PlaceholderLoc, &ExplicitTAListInfo,
+            /* this arg is not used */ false);
 
         SourceLocation ObjLoc = ObjExpr->getExprLoc();
         ExprResult MemberAccessResult = S.ActOnMemberAccessExpr(
             S.getCurScope(), ObjExpr, ObjLoc,
             ObjExpr->getType()->isPointerType() ? tok::arrow : tok::period,
-            MethodAsSpliceExpr, DummyLoc);
+            MethodAsSpliceExpr, PlaceholderLoc);
 
         if (MemberAccessResult.isInvalid()) {
           return true;
@@ -4700,7 +4700,7 @@ bool reflect_invoke(APValue &Result, Sema &S, EvalFn Evaluator,
 
       ER = S.ActOnCallExpr(
           S.getCurScope(), FnExpr, Range.getBegin(),
-          MutableArrayRef(ArgExprs.begin() + (exclude_first_arg ? 1 : 0),
+          MutableArrayRef(ArgExprs.begin() + (handle_member_func ? 1 : 0),
                           ArgExprs.end()),
           Range.getEnd(), /*ExecConfig=*/nullptr);
     }
