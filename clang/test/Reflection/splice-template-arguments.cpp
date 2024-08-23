@@ -8,9 +8,9 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// RUN: %clang_cc1 %s -std=c++23 -freflection
+// RUN: %clang_cc1 %s -std=c++23 -freflection -freflection-new-syntax
 
-using info = decltype(^int);
+using info = decltype(^^int);
 
 template <typename T, unsigned Sz>
 struct ArrayCls { T elems[Sz]; };
@@ -39,7 +39,7 @@ concept Concept = requires { requires sizeof(C<T, Sz>) == sizeof(T) * Sz; };
 
 namespace non_dependent_arguments {
 constexpr unsigned x = 4;
-constexpr info R1a = ^ArrayCls, R1b = ^Array, R2 = ^int, R3 = ^x;
+constexpr info R1a = ^^ArrayCls, R1b = ^^Array, R2 = ^^int, R3 = ^^x;
 static_assert(TCls<[:R1a:], [:R2:], [:R3:]>::value == sizeof(int) * 4);
 static_assert(TCls<template [:R1a:], typename [:R2:], ([:R3:])>::value ==
               sizeof(int) * 4);
@@ -87,7 +87,7 @@ template <info TN, info T, info Sz>
 concept DependentConcept = Concept<[:TN:], [:T:], [:Sz:]>;
 
 constexpr unsigned x = 4;
-constexpr info R1a = ^ArrayCls, R1b = ^Array, R2 = ^int, R3 = ^x;
+constexpr info R1a = ^^ArrayCls, R1b = ^^Array, R2 = ^^int, R3 = ^^x;
 static_assert(szTCls<R1a, R2, R3>() == sizeof(int) * 4);
 static_assert(szTCls<R1b, R2, R3>() == sizeof(int) * 4);
 static_assert(constrainedSzTCls<R1a, R2, R3>() == sizeof(int) * 4);
@@ -141,7 +141,7 @@ constexpr unsigned depTotalSzVar = TotalSzVar<[:Rs:]...>;
 template <info... Rs>
 concept depHasThreeTypes = HasThreeTypes<[:Rs:]...>;
 
-constexpr info R1 = ^int, R2 = ^bool, R3 = ^char;
+constexpr info R1 = ^^int, R2 = ^^bool, R3 = ^^char;
 constexpr unsigned Expected = sizeof(int) + sizeof(bool) + sizeof(char);
 static_assert(TotalSzCls<[:R1:], [:R2:], [:R3:]>::sz == Expected);
 static_assert(TotalSzAlias<[:R1:], [:R2:], [:R3:]>::sz == Expected);
@@ -192,7 +192,7 @@ template <info... Rs>
 concept depSumMoreThan5 = SumMoreThan5<[:Rs:]...>;
 
 constexpr unsigned x = 1, y = 2, z = 3;
-constexpr info R1 = ^x, R2 = ^y, R3 = ^z;
+constexpr info R1 = ^^x, R2 = ^^y, R3 = ^^z;
 constexpr unsigned Expected = [:R1:] + [:R2:] + [:R3:];
 static_assert(SumCls<[:R1:], [:R2:], [:R3:]>::sz == Expected);
 static_assert(SumAlias<[:R1:], [:R2:], [:R3:]>::sz == Expected);
@@ -248,7 +248,7 @@ constexpr unsigned depCountVar = CountVar<[:Rs:]...>;
 template <info... Rs>
 concept depCountIs3 = CountIs3<[:Rs:]...>;
 
-constexpr info R1 = ^S1, R2 = ^S2, R3 = ^S3;
+constexpr info R1 = ^^S1, R2 = ^^S2, R3 = ^^S3;
 constexpr unsigned Expected = 3;
 static_assert(CountCls<[:R1:], [:R2:], [:R3:]>::sz == Expected);
 static_assert(CountAlias<[:R1:], [:R2:], [:R3:]>::sz == Expected);
@@ -279,7 +279,7 @@ template <info... Rs>
 constexpr unsigned szTVar = TVar<[:Rs:]...>;
 
 constexpr int x = 4;
-constexpr info R1a = ^ArrayCls, R1b = ^Array, R2 = ^int, R3 = ^x;
+constexpr info R1a = ^^ArrayCls, R1b = ^^Array, R2 = ^^int, R3 = ^^x;
 static_assert(szTCls<R1a, R2, R3>() == sizeof(int) * 4);
 static_assert(szTCls<R1b, R2, R3>() == sizeof(int) * 4);
 static_assert(szTFn<R1a, R2, R3>() == sizeof(int) * 4);

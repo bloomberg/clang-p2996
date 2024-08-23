@@ -100,7 +100,8 @@ def warn_toc_unsupported_type : Warning<"-mtocdata option is ignored "
 def err_fe_invalid_code_complete_file : Error<
     "cannot locate code-completion file %0">, DefaultFatal;
 def err_fe_reflection_incompatible_with_blocks : Error<
-    "cannot specify both '-freflection' and '-fblocks'">, DefaultFatal;
+    "cannot specify both '-freflection' and '-fblocks' without "
+    "'-freflection-new-syntax'">, DefaultFatal;
 def err_fe_parameter_reflection_without_reflection : Error<
     "cannot specify '-fparameter-reflection' without '-freflection'">,
     DefaultFatal;

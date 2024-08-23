@@ -10,6 +10,7 @@
 
 // UNSUPPORTED: c++03 || c++11 || c++14 || c++17 || c++20
 // ADDITIONAL_COMPILE_FLAGS: -freflection
+// ADDITIONAL_COMPILE_FLAGS: -freflection-new-syntax
 // ADDITIONAL_COMPILE_FLAGS: -Wno-inconsistent-missing-override
 
 // <experimental/reflection>
@@ -21,7 +22,7 @@
 struct S { unsigned i:2, j:6; };
 
 consteval auto member_number(int n) {
-  return std::meta::nonstatic_data_members_of(^S)[n];
+  return std::meta::nonstatic_data_members_of(^^S)[n];
 }
 
 int main() {

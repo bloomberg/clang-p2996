@@ -18,9 +18,7 @@
 #include "clang/Sema/EnterExpressionEvaluationContext.h"
 using namespace clang;
 
-ExprResult Parser::ParseCXXReflectExpression() {
-  assert(Tok.is(tok::caret) && "expected '^'");
-  SourceLocation OpLoc = ConsumeToken();
+ExprResult Parser::ParseCXXReflectExpression(SourceLocation OpLoc) {
   SourceLocation OperandLoc = Tok.getLocation();
 
   EnterExpressionEvaluationContext EvalContext(

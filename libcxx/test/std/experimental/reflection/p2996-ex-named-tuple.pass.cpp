@@ -10,6 +10,7 @@
 
 // UNSUPPORTED: c++03 || c++11 || c++14 || c++17 || c++20
 // ADDITIONAL_COMPILE_FLAGS: -freflection
+// ADDITIONAL_COMPILE_FLAGS: -freflection-new-syntax
 // ADDITIONAL_COMPILE_FLAGS: -Wno-inconsistent-missing-override
 
 // <experimental/reflection>
@@ -49,7 +50,7 @@ template <class... Tags>
 consteval auto make_named_tuple(std::meta::info type, Tags... tags) {
   std::vector<std::meta::info> nsdms;
   auto f = [&]<class Tag>(Tag){
-    nsdms.push_back(data_member_spec(dealias(^typename Tag::type),
+    nsdms.push_back(data_member_spec(dealias(^^typename Tag::type),
                                      {.name=Tag::name()}));
   };
   (f(tags), ...);
@@ -57,11 +58,11 @@ consteval auto make_named_tuple(std::meta::info type, Tags... tags) {
 }
 
 struct R;
-static_assert(is_type(make_named_tuple(^R, pair<int, "x">{},
+static_assert(is_type(make_named_tuple(^^R, pair<int, "x">{},
                                            pair<double, "y">{})));
 
-static_assert(type_of(nonstatic_data_members_of(^R)[0]) == ^int);
-static_assert(type_of(nonstatic_data_members_of(^R)[1]) == ^double);
+static_assert(type_of(nonstatic_data_members_of(^^R)[0]) == ^^int);
+static_assert(type_of(nonstatic_data_members_of(^^R)[1]) == ^^double);
 
 int main() {
   [[maybe_unused]] auto r = R{.x=1, .y=2.0};

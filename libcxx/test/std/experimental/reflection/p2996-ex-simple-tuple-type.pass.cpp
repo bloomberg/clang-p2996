@@ -10,6 +10,7 @@
 
 // UNSUPPORTED: c++03 || c++11 || c++14 || c++17 || c++20
 // ADDITIONAL_COMPILE_FLAGS: -freflection
+// ADDITIONAL_COMPILE_FLAGS: -freflection-new-syntax
 // ADDITIONAL_COMPILE_FLAGS: -Wno-inconsistent-missing-override
 
 // <experimental/reflection>
@@ -29,7 +30,7 @@
 template<typename... Ts> struct Tuple {
   struct storage;
 
-  static_assert(is_type(define_class(^storage, {data_member_spec(^Ts)...})));
+  static_assert(is_type(define_class(^^storage, {data_member_spec(^^Ts)...})));
   storage data;
 
   Tuple(): data{} {}
@@ -41,8 +42,9 @@ consteval std::meta::info get_nth_field(std::meta::info r, std::size_t n) {
 }
 
 template<std::size_t I, typename... Ts>
-constexpr auto get(Tuple<Ts...> &t) noexcept -> std::tuple_element_t<I, Tuple<Ts...>>& {
-  return t.data.[:get_nth_field(^decltype(t.data), I):];
+constexpr auto get(Tuple<Ts...> &t) noexcept ->
+    std::tuple_element_t<I, Tuple<Ts...>>& {
+  return t.data.[:get_nth_field(^^decltype(t.data), I):];
 }
 
 template<typename... Ts>
@@ -51,7 +53,7 @@ struct std::tuple_size<Tuple<Ts...>>
 
 template<std::size_t I, typename... Ts>
 struct std::tuple_element<I, Tuple<Ts...>> {
-  static constexpr std::array types = {^Ts...};
+  static constexpr std::array types = {^^Ts...};
   using type = [: types[I] :];
 };
 

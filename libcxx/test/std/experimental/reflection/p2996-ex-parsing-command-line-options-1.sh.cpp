@@ -10,6 +10,7 @@
 
 // UNSUPPORTED: c++03 || c++11 || c++14 || c++17 || c++20
 // ADDITIONAL_COMPILE_FLAGS: -freflection
+// ADDITIONAL_COMPILE_FLAGS: -freflection-new-syntax
 // ADDITIONAL_COMPILE_FLAGS: -Wno-inconsistent-missing-override
 
 // <experimental/reflection>
@@ -46,7 +47,7 @@ consteval auto expand(R range) {
   for (auto r : range) {
     args.push_back(std::meta::reflect_value(r));
   }
-  return substitute(^__impl::replicator, args);
+  return substitute(^^__impl::replicator, args);
 }
 // end 'expand' definition
 
@@ -55,7 +56,7 @@ template<typename Opts>
 auto parse_options(std::span<std::string_view const> args) -> Opts {
   Opts opts;
 
-  [: expand(nonstatic_data_members_of(^Opts)) :] >> [&]<auto dm>{
+  [: expand(nonstatic_data_members_of(^^Opts)) :] >> [&]<auto dm>{
     auto it = std::find_if(args.begin(), args.end(),
       [](std::string_view arg){
         return arg.starts_with("--") && arg.substr(2) == identifier_of(dm);
@@ -74,7 +75,7 @@ auto parse_options(std::span<std::string_view const> args) -> Opts {
     iss << it[1];
     if (iss >> opts.[:dm:]; !iss) {
       std::cerr << "Failed to parse option " << *it << " into a "
-                << display_string_of(^T) << '\n';
+                << display_string_of(^^T) << '\n';
       std::exit(EXIT_FAILURE);
     }
   };

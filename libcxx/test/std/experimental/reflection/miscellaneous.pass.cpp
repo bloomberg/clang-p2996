@@ -9,7 +9,9 @@
 //===----------------------------------------------------------------------===//
 
 // UNSUPPORTED: c++03 || c++11 || c++14 || c++17 || c++20
+// ADDITIONAL_COMPILE_FLAGS: -fblocks
 // ADDITIONAL_COMPILE_FLAGS: -freflection
+// ADDITIONAL_COMPILE_FLAGS: -freflection-new-syntax
 // ADDITIONAL_COMPILE_FLAGS: -Wno-inconsistent-missing-override
 
 // <experimental/reflection>
@@ -35,10 +37,10 @@
 namespace alexandrescu_lambda_to_tuple {
 consteval auto struct_to_tuple_type(std::meta::info type) -> std::meta::info {
   constexpr auto remove_cvref = [](std::meta::info r) consteval {
-    return substitute(^std::remove_cvref_t, {r});
+    return substitute(^^std::remove_cvref_t, {r});
   };
 
-  return substitute(^std::tuple,
+  return substitute(^^std::tuple,
                     nonstatic_data_members_of(type)
                     | std::views::transform(std::meta::type_of)
                     | std::views::transform(remove_cvref)
@@ -52,14 +54,15 @@ constexpr auto struct_to_tuple_helper(From const& from) -> To {
 
 template<typename From>
 consteval auto get_struct_to_tuple_helper() {
-  using To = [: struct_to_tuple_type(^From) :];
+  using To = [: struct_to_tuple_type(^^From) :];
 
-  std::vector args = {^To, ^From};
-  for (auto mem : nonstatic_data_members_of(^From)) {
+  std::vector args = {^^To, ^^From};
+  for (auto mem : nonstatic_data_members_of(^^From)) {
     args.push_back(reflect_value(mem));
   }
 
-  return extract<To(*)(From const&)>(substitute(^struct_to_tuple_helper, args));
+  return extract<To(*)(From const&)>(substitute(^^struct_to_tuple_helper,
+                                                args));
 }
 
 template <typename From>
@@ -92,15 +95,15 @@ void run_test() {
 namespace pdimov_sorted_type_list {
 template<class...> struct type_list { };
 
-consteval auto sorted_impl( std::vector<std::meta::info> v )
+consteval auto sorted_impl(std::vector<std::meta::info> v)
 {
-    std::ranges::sort( v, {}, std::meta::alignment_of );
+    std::ranges::sort(v, {}, std::meta::alignment_of);
     return v;
 }
 
 template<class... Ts> consteval auto sorted()
 {
-    using R = typename [: substitute( ^type_list, sorted_impl({ ^Ts... }) ) :];
+    using R = typename [:substitute(^^type_list, sorted_impl({^^Ts...})):];
     return R{};
 }
 
@@ -135,7 +138,7 @@ consteval auto expand(R range) {
   for (auto r : range) {
     args.push_back(std::meta::reflect_value(r));
   }
-  return substitute(^__impl::replicator, args);
+  return substitute(^^__impl::replicator, args);
 }
 
 template <typename T>
@@ -144,11 +147,11 @@ void do_swap_representations(T& lhs, T& rhs) {
   // data members --- still need to decide whether we support the latter
   if constexpr (std::is_class_v<T>) {
     // This implementation ensures that empty types do nothing
-    [: expand(bases_of(^T)) :] >> [&]<auto base> {
+    [: expand(bases_of(^^T)) :] >> [&]<auto base> {
       using Base = [:type_of(base):];
       do_swap_representations<Base>((Base &)lhs, (Base &)rhs);
     };
-    [: expand(nonstatic_data_members_of(^T)) :] >> [&]<auto mem>{
+    [: expand(nonstatic_data_members_of(^^T)) :] >> [&]<auto mem>{
       do_swap_representations<[:type_of(mem):]>(lhs.[:mem:], rhs.[:mem:]);
     };
   } else if constexpr (std::is_array_v<T>) {
@@ -202,7 +205,7 @@ void run_test() {
   };
 
   // RUN: grep "std::apply: Hello, world!" %t.stdout
-  std::apply([:^S::print:], std::tuple {"Hello, world!"});
+  std::apply([:^^S::print:], std::tuple {"Hello, world!"});
 }
 }  // namespace std_apply_with_function_splice
 
@@ -213,13 +216,27 @@ void run_test() {
 namespace array_with_default_initialized_reflections {
 consteval auto fn() {
     std::array<std::meta::info, 3> arr = {};
-    arr[0] = ^int;
+    arr[0] = ^^int;
 
     return arr;
 }
 
 [[maybe_unused]] constexpr auto rs = fn();
 }  // namespace array_with_default_initialized_reflections
+
+                           // ======================
+                           // compatible_with_blocks
+                           // ======================
+
+namespace compatible_with_blocks {
+constexpr auto block = std::meta::reflect_value(^int() { return 4; });
+static_assert(type_of(block) == ^^int(^)());
+
+void run_test() {
+  // RUN: grep "block result: 4" %t.stdout
+  std::println("block result: {}", [:block:]());
+}
+}  // namespace compatible_with_blocks
 
 
 template <std::meta::info... Tests>
@@ -229,9 +246,10 @@ void run_tests() {
 
 int main() {
   run_tests<
-      ^alexandrescu_lambda_to_tuple,
-      ^pdimov_sorted_type_list,
-      ^alisdair_universal_swap,
-      ^std_apply_with_function_splice
+      ^^alexandrescu_lambda_to_tuple,
+      ^^pdimov_sorted_type_list,
+      ^^alisdair_universal_swap,
+      ^^std_apply_with_function_splice,
+      ^^compatible_with_blocks
   >();
 }

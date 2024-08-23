@@ -10,6 +10,7 @@
 
 // UNSUPPORTED: c++03 || c++11 || c++14 || c++17 || c++20
 // ADDITIONAL_COMPILE_FLAGS: -freflection
+// ADDITIONAL_COMPILE_FLAGS: -freflection-new-syntax
 
 // <experimental/reflection>
 //
@@ -33,10 +34,10 @@ consteval auto make_named_tuple(
 }
 
 struct R;
-static_assert(is_type(make_named_tuple(^R, {{^int, "x"}, {^double, "y"}})));
+static_assert(is_type(make_named_tuple(^^R, {{^^int, "x"}, {^^double, "y"}})));
 
-static_assert(type_of(nonstatic_data_members_of(^R)[0]) == ^int);
-static_assert(type_of(nonstatic_data_members_of(^R)[1]) == ^double);
+static_assert(type_of(nonstatic_data_members_of(^^R)[0]) == ^^int);
+static_assert(type_of(nonstatic_data_members_of(^^R)[1]) == ^^double);
 
 int main() {
     [[maybe_unused]] auto r = R{.x=1, .y=2.0};

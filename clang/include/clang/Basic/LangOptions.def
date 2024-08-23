@@ -310,7 +310,8 @@ LANGOPT(HIPStdParInterposeAlloc, 1, 0, "Replace allocations / deallocations with
 
 LANGOPT(OpenACC           , 1, 0, "OpenACC Enabled")
 
-LANGOPT(Reflection         , 1, 0, "Experimental C++26 Reflection Enabled")
+LANGOPT(Reflection         , 1, 0, "Experimental C++26 Reflection")
+LANGOPT(ReflectionNewSyntax, 1, 0, "New syntax for C++26 Reflection")
 LANGOPT(ParameterReflection, 1, 0, "Augments C++26 Reflection with function parameter reflection")
 LANGOPT(ExpansionStatements, 1, 0, "Experimental C++26 Expansion Statements")
 

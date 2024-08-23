@@ -1537,6 +1537,18 @@ ExprResult Parser::ParseCastExpression(CastParseKind ParseKind,
     AllowSuffix = false;
     Res = ParseUnaryExprOrTypeTraitExpression();
     break;
+  case tok::caretcaret: {
+    if (!getLangOpts().Reflection || !getLangOpts().ReflectionNewSyntax) {
+      NotCastExpr = true;
+      return ExprError();
+    }
+
+    if (NotPrimaryExpression)
+      *NotPrimaryExpression = true;
+    AllowSuffix = false;
+    Res = ParseUnaryExprOrTypeTraitExpression();
+    break;
+  }
   case tok::ampamp: {      // unary-expression: '&&' identifier
     if (NotPrimaryExpression)
       *NotPrimaryExpression = true;
@@ -1874,8 +1886,8 @@ ExprResult Parser::ParseCastExpression(CastParseKind ParseKind,
   }
   case tok::caret:
     // '-freflection' and '-fblocks' are mutually exclusive.
-    if (getLangOpts().Reflection) {
-        return ParseCXXReflectExpression();
+    if (getLangOpts().Reflection && !getLangOpts().ReflectionNewSyntax) {
+        return ParseCXXReflectExpression(ConsumeToken());
     } else {
         Res = ParseBlockLiteralExpression();
     }
@@ -2619,10 +2631,11 @@ ExprResult Parser::ParseSYCLUniqueStableNameExpression() {
 /// [C++11] 'alignof' '(' type-id ')'
 /// \endverbatim
 ExprResult Parser::ParseUnaryExprOrTypeTraitExpression() {
-  assert(Tok.isOneOf(tok::kw_sizeof, tok::kw___datasizeof, tok::kw___alignof,
+  assert((Tok.isOneOf(tok::kw_sizeof, tok::kw___datasizeof, tok::kw___alignof,
                      tok::kw_alignof, tok::kw__Alignof, tok::kw_vec_step,
                      tok::kw___builtin_omp_required_simd_align,
-                     tok::kw___builtin_vectorelements) &&
+                     tok::kw___builtin_vectorelements) ||
+         (getLangOpts().ReflectionNewSyntax && Tok.is(tok::caretcaret))) &&
          "Not a sizeof/alignof/vec_step expression!");
   Token OpTok = Tok;
   ConsumeToken();
@@ -2679,6 +2692,9 @@ ExprResult Parser::ParseUnaryExprOrTypeTraitExpression() {
     Diag(OpTok, diag::warn_cxx98_compat_alignof);
   else if (getLangOpts().C23 && OpTok.is(tok::kw_alignof))
     Diag(OpTok, diag::warn_c23_compat_keyword) << OpTok.getName();
+
+  if (OpTok.is(tok::caretcaret))
+    return ParseCXXReflectExpression(OpTok.getLocation());
 
   EnterExpressionEvaluationContext Unevaluated(
       Actions, Sema::ExpressionEvaluationContext::Unevaluated,

@@ -8,13 +8,13 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// RUN: %clang_cc1 %s -std=c++23 -freflection
+// RUN: %clang_cc1 %s -std=c++23 -freflection -freflection-new-syntax
 
 struct S { unsigned i:2, j:6; };
 
 consteval auto member_number(int n) {
-  if (n == 0) return ^S::i;
-  else if (n == 1) return ^S::j;
+  if (n == 0) return ^^S::i;
+  else if (n == 1) return ^^S::j;
 }
 
 int main() {

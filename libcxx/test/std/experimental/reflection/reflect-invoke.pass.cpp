@@ -10,6 +10,7 @@
 
 // UNSUPPORTED: c++03 || c++11 || c++14 || c++17 || c++20
 // ADDITIONAL_COMPILE_FLAGS: -freflection
+// ADDITIONAL_COMPILE_FLAGS: -freflection-new-syntax
 // ADDITIONAL_COMPILE_FLAGS: -Wno-unneeded-internal-declaration
 
 // <experimental/reflection>
@@ -28,40 +29,42 @@
 namespace basic_functions {
 // No parameters.
 consteval int fn0() { return 42; }
-static_assert([:reflect_invoke(^fn0, {}):] == 42);
-static_assert(extract<int>(reflect_invoke(^fn0, {})) == 42);
+static_assert([:reflect_invoke(^^fn0, {}):] == 42);
+static_assert(extract<int>(reflect_invoke(^^fn0, {})) == 42);
 
 // Single parameter.
 consteval int fn1(int i1) { return i1 + 42; }
-static_assert([:reflect_invoke(^fn1,
+static_assert([:reflect_invoke(^^fn1,
                                {std::meta::reflect_value(fn0())}):] == 84);
-static_assert(extract<int>(reflect_invoke(^fn1, {reflect_invoke(^fn0, {})})) ==
-              84);
+static_assert(extract<int>(reflect_invoke(^^fn1,
+                                          {reflect_invoke(^^fn0, {})})) == 84);
 
 // Multiple parameters.
 consteval int f2(int i1, int i2) { return 42 + i1 + i2; }
-static_assert([:reflect_invoke(^f2, {std::meta::reflect_value(1),
+static_assert([:reflect_invoke(^^f2, {std::meta::reflect_value(1),
                                      std::meta::reflect_value(2)}):] == 45);
 static_assert(
-    extract<int>(reflect_invoke(^f2, {std::meta::reflect_value(1),
+    extract<int>(reflect_invoke(^^f2, {std::meta::reflect_value(1),
                                       std::meta::reflect_value(2)})) == 45);
 
 // 'std::meta::info'-type parameter.
 using Alias = int;
 consteval bool isType(std::meta::info R) { return is_type(R); }
-static_assert([:reflect_invoke(^isType, {reflect_value(^int)}):]);
-static_assert(![:reflect_invoke(^isType, {reflect_value(^isType)}):]);
-static_assert(extract<bool>(reflect_invoke(^isType, {reflect_value(^Alias)})));
+static_assert([:reflect_invoke(^^isType, {reflect_value(^^int)}):]);
+static_assert(![:reflect_invoke(^^isType, {reflect_value(^^isType)}):]);
+static_assert(extract<bool>(reflect_invoke(^^isType,
+                                           {reflect_value(^^Alias)})));
 
 // Static member function.
 struct Cls {
   static consteval int fn(int p) { return p * p; }
 };
-static_assert([:reflect_invoke(^Cls::fn, {std::meta::reflect_value(4)}):] == 16);
+static_assert([:reflect_invoke(^^Cls::fn,
+                               {std::meta::reflect_value(4)}):] == 16);
 
 // With reflection of constexpr variable as an argument.
 static constexpr int five = 5;
-static_assert([:reflect_invoke(^fn1, {^five}):] == 47);
+static_assert([:reflect_invoke(^^fn1, {^^five}):] == 47);
 
 // TODO(P2996): Support nonstatic member functions.
 }  // namespace basic_functions
@@ -74,11 +77,11 @@ namespace default_arguments {
 consteval int fn(int i1, int i2 = 10) { return 42 + i1 + i2; }
 
 // Explicitly providing all arguments.
-static_assert([:reflect_invoke(^fn, {std::meta::reflect_value(1),
+static_assert([:reflect_invoke(^^fn, {std::meta::reflect_value(1),
                                      std::meta::reflect_value(2)}):] == 45);
 
 // Leveraging default argument value for parameter 'i2'.
-static_assert([:reflect_invoke(^fn, {std::meta::reflect_value(5)}):] == 57);
+static_assert([:reflect_invoke(^^fn, {std::meta::reflect_value(5)}):] == 57);
 }  // namespace default_arguments
 
                              // ==================
@@ -109,22 +112,22 @@ template <typename T1, typename T2>
 consteval bool sumIsEven(T1 p1, T2 p2) { return (p1 + p2) % 2 == 0; }
 
 // Fully specialized function call.
-static_assert(![:reflect_invoke(^sumIsEven<int, long>,
+static_assert(![:reflect_invoke(^^sumIsEven<int, long>,
                                 {std::meta::reflect_value(3),
                                  std::meta::reflect_value(4l)}):]);
-static_assert([:reflect_invoke(^sumIsEven<int, long>,
+static_assert([:reflect_invoke(^^sumIsEven<int, long>,
                                {std::meta::reflect_value(3),
                                 std::meta::reflect_value(7)}):]);
 
 // Without specified template arguments.
-static_assert([:reflect_invoke(^sumIsEven,
+static_assert([:reflect_invoke(^^sumIsEven,
                                {std::meta::reflect_value(3),
                                 std::meta::reflect_value(4)}):] == false);
 
 // With a type parameter pack.
 template <typename... Ts>
 consteval bool sumIsOdd(Ts... ts) { return (... + ts) % 2 == 1; }
-static_assert([:reflect_invoke(^sumIsOdd,
+static_assert([:reflect_invoke(^^sumIsOdd,
                                {std::meta::reflect_value(2),
                                 std::meta::reflect_value(3l),
                                 std::meta::reflect_value(4ll)}):]);
@@ -133,8 +136,8 @@ static_assert([:reflect_invoke(^sumIsOdd,
 template <typename T, template <typename, size_t> class C, size_t Sz>
 consteval bool FirstElemZero(C<T, Sz> Container) { return Container[0] == 0; }
 static_assert(
-        [:reflect_invoke(substitute(^FirstElemZero,
-                                    {^int, ^std::array,
+        [:reflect_invoke(substitute(^^FirstElemZero,
+                                    {^^int, ^^std::array,
                                      std::meta::reflect_value(4)}),
                          {std::meta::reflect_value(std::array{0,2,3,4})}):]);
 
@@ -146,18 +149,18 @@ static_assert(
 
 namespace explicit_template_args {
 template <template <typename, size_t> class C, typename T, size_t Sz>
-consteval auto GetSubstitution() { return ^C<T, Sz>; }
+consteval auto GetSubstitution() { return ^^C<T, Sz>; }
 
-static_assert([:reflect_invoke(^GetSubstitution,
-                               {^std::array, ^int,
+static_assert([:reflect_invoke(^^GetSubstitution,
+                               {^^std::array, ^^int,
                                 std::meta::reflect_value(5)}, {}):] ==
-              ^std::array<int, 5>);
+              ^^std::array<int, 5>);
 
 template <typename... Ts> consteval auto sum(Ts... ts) { return (... + ts); }
 
-static_assert(type_of(reflect_invoke(^sum, {^long, ^long, ^long},
+static_assert(type_of(reflect_invoke(^^sum, {^^long, ^^long, ^^long},
               {std::meta::reflect_value(1), std::meta::reflect_value(2),
-               std::meta::reflect_value(3)})) == ^long);
+               std::meta::reflect_value(3)})) == ^^long);
 }  // namespace explicit_template_args
 
                                 // ============
@@ -173,12 +176,12 @@ struct Cls {
 };
 
 constexpr auto ctor = 
-  (members_of(^Cls) |
+  (members_of(^^Cls) |
       std::views::filter(std::meta::is_constructor) |
       std::views::filter(std::meta::is_user_provided)).front();
 
 constexpr auto ctor_template =
-  (members_of(^Cls) |
+  (members_of(^^Cls) |
       std::views::filter(std::meta::is_constructor_template)).front();
 
 // Non-template constructor.
@@ -186,7 +189,7 @@ static_assert([:reflect_invoke(ctor,
                                {std::meta::reflect_value(25)}):].value == 25);
 
 // Template constructor with template arguments specified.
-static_assert([:reflect_invoke(substitute(ctor_template, {^int}),
+static_assert([:reflect_invoke(substitute(ctor_template, {^^int}),
                                {std::meta::reflect_value(4ll)}):].value ==
               sizeof(int));
 
@@ -204,15 +207,15 @@ namespace returning_references {
 const int K = 0;
 consteval const int &fn() { return K; }
 
-constexpr auto r = reflect_invoke(^fn, {});
+constexpr auto r = reflect_invoke(^^fn, {});
 static_assert(is_object(r) && !is_value(r));
-static_assert(type_of(r) == ^const int);
+static_assert(type_of(r) == ^^const int);
 static_assert(!is_variable(r));
 static_assert(r != std::meta::reflect_value(0));
 
 constexpr auto v = value_of(r);
 static_assert(is_value(v) && !is_object(v));
-static_assert(type_of(v) == ^int);
+static_assert(type_of(v) == ^^int);
 static_assert(!is_variable(v));
 static_assert(v == std::meta::reflect_value(0));
 
@@ -221,7 +224,7 @@ consteval int &second(std::pair<int, int> &p) {
 }
 
 std::pair<int, int> p;
-static_assert(&[:reflect_invoke(^second, {^p}):] == &p.second);
+static_assert(&[:reflect_invoke(^^second, {^^p}):] == &p.second);
 
 }  // namespace returning_references
 
@@ -234,7 +237,7 @@ consteval auto sum(auto... vs) { return (... + vs); }
 
 static_assert(
     std::meta::reflect_value(20) ==
-    reflect_invoke(^sum, std::ranges::iota_view{1, 10} |
+    reflect_invoke(^^sum, std::ranges::iota_view{1, 10} |
                          std::views::filter([](int v) {
                            return v % 2 == 0;
                          }) |

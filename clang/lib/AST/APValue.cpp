@@ -758,8 +758,9 @@ ReflectionKind APValue::getReflectionKind() const {
           return ReflectionKind::Value;
 
         // The only other LValue-kind APValues that we consider values are those
-        // that are pointers. For anything else, consider it an object.
-        else if (!UnderlyingTy->isPointerType())
+        // that are pointers and blocks. For all others, consider it an object.
+        else if (!UnderlyingTy->isPointerType() &&
+                 !UnderlyingTy->isBlockPointerType())
           return ReflectionKind::Object;
 
         // We were give a pointer type, and we'll need to do some work to
@@ -783,11 +784,15 @@ ReflectionKind APValue::getReflectionKind() const {
           }
         }
 
-        // Otherwise, use the type of the LValueBase.
+        // Otherwise, infer from the LValueBase.
         if (!LVTy) {
           if (auto *B = getLValueBase().dyn_cast<const ValueDecl *>()) {
             LVTy = B->getType()->getCanonicalTypeUnqualified().getTypePtr();
           } else if (auto *B = getLValueBase().dyn_cast<const Expr *>()) {
+            // If the base expression isn't an lvalue, it must be an object.
+            if (!B->isLValue())
+              return ReflectionKind::Value;
+
             LVTy = B->getType()->getCanonicalTypeUnqualified().getTypePtr();
           }
         }

@@ -8,9 +8,9 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// RUN: %clang_cc1 %s -std=c++23 -freflection -verify
+// RUN: %clang_cc1 %s -std=c++23 -freflection -freflection-new-syntax -verify
 
-using info = decltype(^int);
+using info = decltype(^^int);
 
                          // ===========================
                          // with_implicit_member_access
@@ -25,14 +25,14 @@ struct S {
   void fn2() { }
 
   void fn() {
-    (void) [:^k:];  // expected-error {{cannot implicitly reference}} \
-                    // expected-note {{explicit 'this' pointer}}
-    (void) [:^S:]::k;  // expected-error {{cannot implicitly reference}} \
-                       // expected-note {{explicit 'this' pointer}}
-    [:^fn:]();  // expected-error {{cannot implicitly reference}} \
-                // expected-note {{explicit 'this' pointer}}
-    [:^S:]::fn2();  // expected-error {{cannot implicitly reference}} \
-                    // expected-note {{explicit 'this' pointer}}
+    (void) [:^^k:];  // expected-error {{cannot implicitly reference}} \
+                     // expected-note {{explicit 'this' pointer}}
+    (void) [:^^S:]::k;  // expected-error {{cannot implicitly reference}} \
+                        // expected-note {{explicit 'this' pointer}}
+    [:^^fn:]();  // expected-error {{cannot implicitly reference}} \
+                 // expected-note {{explicit 'this' pointer}}
+    [:^^S:]::fn2();  // expected-error {{cannot implicitly reference}} \
+                     // expected-note {{explicit 'this' pointer}}
   }
 };
 
@@ -44,10 +44,10 @@ struct D {
 
   template <typename T>
   void fn() {
-    (void) [:^T:]::k;  // expected-error {{cannot implicitly reference}} \
-                       // expected-note {{explicit 'this' pointer}}
-    [:^T:]::fn2();  // expected-error {{cannot implicitly reference}} \
-                    // expected-note {{explicit 'this' pointer}}
+    (void) [:^^T:]::k;  // expected-error {{cannot implicitly reference}} \
+                        // expected-note {{explicit 'this' pointer}}
+    [:^^T:]::fn2();  // expected-error {{cannot implicitly reference}} \
+                     // expected-note {{explicit 'this' pointer}}
   }
 };
 

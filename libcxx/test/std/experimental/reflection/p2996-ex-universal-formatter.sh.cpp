@@ -10,6 +10,7 @@
 
 // UNSUPPORTED: c++03 || c++11 || c++14 || c++17 || c++20
 // ADDITIONAL_COMPILE_FLAGS: -freflection
+// ADDITIONAL_COMPILE_FLAGS: -freflection-new-syntax
 // ADDITIONAL_COMPILE_FLAGS: -Wno-inconsistent-missing-override
 
 // <experimental/reflection>
@@ -42,7 +43,7 @@ consteval auto expand(R range) {
   for (auto r : range) {
     args.push_back(reflect_value(r));
   }
-  return substitute(^__impl::replicator, args);
+  return substitute(^^__impl::replicator, args);
 }
 
 struct universal_formatter {
@@ -50,7 +51,7 @@ struct universal_formatter {
 
   template <typename T>
   auto format(T const& t, auto& ctx) const {
-    auto out = std::format_to(ctx.out(), "{}{{", identifier_of(^T));
+    auto out = std::format_to(ctx.out(), "{}{{", identifier_of(^^T));
 
     auto delim = [first=true, &out]() mutable {
       if (!first) {
@@ -60,13 +61,13 @@ struct universal_formatter {
       first = false;
     };
 
-    [: expand(bases_of(^T)) :] >> [&]<auto base>{
+    [: expand(bases_of(^^T)) :] >> [&]<auto base>{
         delim();
         out = std::format_to(out, "{}",
                              (typename [: type_of(base) :] const&)(t));
     };
 
-    [: expand(nonstatic_data_members_of(^T)) :] >> [&]<auto mem>{
+    [: expand(nonstatic_data_members_of(^^T)) :] >> [&]<auto mem>{
       delim();
       out = std::format_to(out, ".{}={}", identifier_of(mem), t.[:mem:]);
     };
@@ -87,6 +88,7 @@ template <> struct std::formatter<Y> : universal_formatter { };
 template <> struct std::formatter<Z> : universal_formatter { };
 
 int main() {
-  // RUN: grep "Z{X{B{.m0=0}, .m1=1}, Y{B{.m0=0}, .m2=2}, .m3=3, .m4=4}" %t.stdout | wc -l
+  // RUN: grep "Z{X{B{.m0=0}, .m1=1}, Y{B{.m0=0}, .m2=2}, .m3=3, .m4=4}" \
+  // RUN:     %t.stdout | wc -l
   std::println("{}", Z());
 }

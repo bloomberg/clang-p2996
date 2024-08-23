@@ -231,6 +231,7 @@ PUNCTUATOR(greatergreater,      ">>")
 PUNCTUATOR(greaterequal,        ">=")
 PUNCTUATOR(greatergreaterequal, ">>=")
 PUNCTUATOR(caret,               "^")
+PUNCTUATOR(caretcaret,          "^^")
 PUNCTUATOR(caretequal,          "^=")
 PUNCTUATOR(pipe,                "|")
 PUNCTUATOR(pipepipe,            "||")
@@ -260,9 +261,6 @@ PUNCTUATOR(at,                  "@")
 // CUDA support.
 PUNCTUATOR(lesslessless,          "<<<")
 PUNCTUATOR(greatergreatergreater, ">>>")
-
-// CL support
-PUNCTUATOR(caretcaret,            "^^")
 
 // C99 6.4.1: Keywords.  These turn into kw_* tokens.
 // Flags allowed:

@@ -7,14 +7,14 @@ namespace Example {
                               // Null reflections
                               // ================
 
-export constexpr auto rNull = decltype(^::){};
+export constexpr auto rNull = decltype(^^::){};
 
                          // ===========================
                          // Reflections of type aliases
                          // ===========================
 
 export using Alias = int;
-export constexpr auto rAlias = ^Alias;
+export constexpr auto rAlias = ^^Alias;
 
                            // ======================
                            // Reflections of objects
@@ -36,14 +36,14 @@ export constexpr auto Splice = [:rRefl:];
                           // ========================
 
 export int v42 = 42;
-export constexpr auto r42 = ^v42;
+export constexpr auto r42 = ^^v42;
 
                           // ========================
                           // Reflections of templates
                           // ========================
 
 export template <auto V> int TVar = -V;
-export constexpr auto rTVar = ^TVar;
+export constexpr auto rTVar = ^^TVar;
 
 export template <typename T, auto M> auto fn(const T &t) {
   return t.[:M:];
@@ -53,7 +53,7 @@ export template <typename T, auto M> auto fn(const T &t) {
                           // Reflections of namespaces
                           // =========================
 
-export constexpr auto rGlobalNS = ^::;
+export constexpr auto rGlobalNS = ^^::;
 
                        // ==============================
                        // Reflections of base specifiers
@@ -63,13 +63,13 @@ export struct Base {
   static constexpr int K = 12;
 };
 export struct Child : private Empty, Base {};
-export constexpr auto rBase1 = bases_of(^Child)[0];
-export constexpr auto rBase2 = bases_of(^Child)[1];
+export constexpr auto rBase1 = bases_of(^^Child)[0];
+export constexpr auto rBase2 = bases_of(^^Child)[1];
 
                       // =================================
                       // Reflections of data members specs
                       // =================================
 
-export constexpr auto rTDMS = data_member_spec(^int, {.name="test"});
+export constexpr auto rTDMS = data_member_spec(^^int, {.name="test"});
 
 }  // namespace Example

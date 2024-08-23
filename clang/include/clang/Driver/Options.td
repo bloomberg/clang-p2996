@@ -3457,6 +3457,11 @@ defm reflection : BoolFOption<"reflection",
   PosFlag<SetTrue, [], [ClangOption, CC1Option],
           "Enable proposed C++26 reflection as described by P2996">,
   NegFlag<SetFalse>>;
+defm reflection_new_syntax : BoolFOption<"reflection-new-syntax",
+  LangOpts<"ReflectionNewSyntax">, DefaultFalse,
+  PosFlag<SetTrue, [], [ClangOption, CC1Option],
+          "Enable new syntax for proposed C++26 reflection">,
+  NegFlag<SetFalse>>;
 defm parameter_reflection : BoolFOption<"parameter-reflection",
   LangOpts<"ParameterReflection">, DefaultFalse,
   PosFlag<SetTrue, [], [ClangOption, CC1Option],

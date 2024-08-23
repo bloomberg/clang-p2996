@@ -10,6 +10,7 @@
 
 // UNSUPPORTED: c++03 || c++11 || c++14 || c++17 || c++20
 // ADDITIONAL_COMPILE_FLAGS: -freflection
+// ADDITIONAL_COMPILE_FLAGS: -freflection-new-syntax
 
 // <experimental/reflection>
 //
@@ -29,7 +30,7 @@
 
 namespace std::meta {
     consteval auto type_tuple_size(info type) -> size_t {
-        return extract<size_t>(substitute(^std::tuple_size_v, {type}));
+        return extract<size_t>(substitute(^^std::tuple_size_v, {type}));
     }
 }
 
@@ -73,13 +74,13 @@ consteval auto make_indexer(std::vector<std::size_t> sizes)
         }
     }
 
-    return subst_by_value(^Indexer, args);
+    return subst_by_value(^^Indexer, args);
 }
 
 template<typename... Tuples>
 auto my_tuple_cat(Tuples&&... tuples) {
     constexpr typename [: make_indexer({
-        type_tuple_size(type_remove_cvref(^Tuples))...
+        type_tuple_size(type_remove_cvref(^^Tuples))...
     }) :] indexer;
     return indexer(std::forward_as_tuple(std::forward<Tuples>(tuples)...));
 }
@@ -87,8 +88,8 @@ auto my_tuple_cat(Tuples&&... tuples) {
 int r;
 auto x = my_tuple_cat(std::make_tuple(10, std::ref(r)),
                       std::make_tuple(21.1, 22, 23, 24));
-static_assert(dealias(^decltype(x)) ==
-              ^std::tuple<int, int&, double, int, int, int>);
+static_assert(dealias(^^decltype(x)) ==
+              ^^std::tuple<int, int&, double, int, int, int>);
 
 int main() {
   // RUN: grep "10, 21.1, 22, 23, 24" %t.stdout

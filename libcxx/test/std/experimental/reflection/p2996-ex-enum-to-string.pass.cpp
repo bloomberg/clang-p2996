@@ -10,6 +10,7 @@
 
 // UNSUPPORTED: c++03 || c++11 || c++14 || c++17 || c++20
 // ADDITIONAL_COMPILE_FLAGS: -freflection
+// ADDITIONAL_COMPILE_FLAGS: -freflection-new-syntax
 // ADDITIONAL_COMPILE_FLAGS: -Wno-inconsistent-missing-override
 
 // <experimental/reflection>
@@ -42,7 +43,7 @@ consteval auto expand(R range) {
   for (auto r : range) {
     args.push_back(std::meta::reflect_value(r));
   }
-  return substitute(^__impl::replicator, args);
+  return substitute(^^__impl::replicator, args);
 }
 // end 'expand' definition
 
@@ -51,7 +52,7 @@ template <typename E>
   requires std::is_enum_v<E>
 constexpr std::string enum_to_string(E value) {
     std::string result = "<unnamed>";
-    [:expand(enumerators_of(^E)):] >> [&] <auto e> {
+    [:expand(enumerators_of(^^E)):] >> [&] <auto e> {
         if (value == [:e:]) {
             result = std::string(identifier_of(e));
         }
@@ -63,7 +64,7 @@ template <typename E>
   requires std::is_enum_v<E>
 constexpr std::optional<E> string_to_enum(std::string_view name) {
   std::optional<E> result = std::nullopt;
-  [:expand(enumerators_of(^E)):] >> [&] <auto e> {
+  [:expand(enumerators_of(^^E)):] >> [&] <auto e> {
     if (name == identifier_of(e)) {
       result = [:e:];
     }

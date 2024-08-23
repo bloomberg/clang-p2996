@@ -1,8 +1,10 @@
 // FILE_DEPENDENCIES: example-module.cppm
 //
-// RUN: %{cxx} %{compile_flags} -std=c++26 -freflection -fparameter-reflection \
+// RUN: %{cxx} %{compile_flags} -std=c++26 \
+// RUN:     -freflection -freflection-new-syntax -fparameter-reflection \
 // RUN:     --precompile example-module.cppm -o %t/example-module.pcm
-// RUN: %{cxx} %{compile_flags} %{link_flags} -std=c++26 -freflection -fparameter-reflection \
+// RUN: %{cxx} %{compile_flags} %{link_flags} -std=c++26 \
+// RUN:     -freflection -freflection-new-syntax -fparameter-reflection \
 // RUN:     -fmodule-file=Example=%t/example-module.pcm %t/example-module.pcm \
 // RUN:     module-imports.sh.cpp -o %t/module-imports.sh.cpp.tsk
 // RUN: %t/module-imports.sh.cpp.tsk > %t/stdout.txt
@@ -26,14 +28,14 @@ static_assert(Example::rNull == std::meta::info{});
 
 static_assert(is_type(Example::rAlias));
 static_assert(is_type_alias(Example::rAlias));
-static_assert(dealias(Example::rAlias) == ^int);
+static_assert(dealias(Example::rAlias) == ^^int);
 
                            // ======================
                            // Reflections of objects
                            // ======================
 
 static_assert(is_object(Example::rObj));
-static_assert(type_of(Example::rObj) == ^int);
+static_assert(type_of(Example::rObj) == ^^int);
 
                             // =====================
                             // Reflections of values
@@ -61,7 +63,7 @@ static_assert(is_template(Example::rTVar));
                           // =========================
 
 static_assert(is_namespace(Example::rGlobalNS));
-static_assert(Example::rGlobalNS == ^::);
+static_assert(Example::rGlobalNS == ^^::);
 
                        // ==============================
                        // Reflections of base specifiers
@@ -75,10 +77,10 @@ static_assert(is_public(Example::rBase2));
                       // ================================
 
 static_assert(is_data_member_spec(Example::rTDMS));
-static_assert(type_of(Example::rTDMS) == ^int);
+static_assert(type_of(Example::rTDMS) == ^^int);
 
 struct S;
-static_assert(is_type(define_class(^S, {Example::rTDMS})));
+static_assert(is_type(define_class(^^S, {Example::rTDMS})));
 
                                // ==============
                                // Driver program
@@ -92,5 +94,5 @@ static_assert(is_type(define_class(^S, {Example::rTDMS})));
                [:Example::r42:] + template [:Example::rTVar:]<2> +
                    [:Example::rGlobalNS:]::Example::v42 + [:Example::rValue:] +
                    [:Example::rObj:] + [:type_of(Example::rBase2):]::K +
-                   s.test + Example::fn<S, ^S::test>(s));
+                   s.test + Example::fn<S, ^^S::test>(s));
 }

@@ -10,6 +10,7 @@
 
 // UNSUPPORTED: c++03 || c++11 || c++14 || c++17 || c++20
 // ADDITIONAL_COMPILE_FLAGS: -freflection
+// ADDITIONAL_COMPILE_FLAGS: -freflection-new-syntax
 // ADDITIONAL_COMPILE_FLAGS: -Wno-inconsistent-missing-override
 
 // <experimental/reflection>
@@ -36,41 +37,41 @@ struct S {
   struct Inner {};
 };
 
-static_assert(is_class_member(^S::mem));
-static_assert(!is_namespace_member(^S::mem));
+static_assert(is_class_member(^^S::mem));
+static_assert(!is_namespace_member(^^S::mem));
 
-static_assert(is_class_member(^S::memfn));
-static_assert(!is_namespace_member(^S::memfn));
+static_assert(is_class_member(^^S::memfn));
+static_assert(!is_namespace_member(^^S::memfn));
 
-static_assert(is_class_member(^S::TMemFn));
-static_assert(!is_namespace_member(^S::TMemFn));
+static_assert(is_class_member(^^S::TMemFn));
+static_assert(!is_namespace_member(^^S::TMemFn));
 
-static_assert(is_class_member(^S::TMemFn<int>));
-static_assert(!is_namespace_member(^S::TMemFn<int>));
+static_assert(is_class_member(^^S::TMemFn<int>));
+static_assert(!is_namespace_member(^^S::TMemFn<int>));
 
-static_assert(is_class_member(^S::Inner));
-static_assert(!is_namespace_member(^S::Inner));
+static_assert(is_class_member(^^S::Inner));
+static_assert(!is_namespace_member(^^S::Inner));
 
-static_assert(!is_class_member(^x));
-static_assert(is_namespace_member(^x));
+static_assert(!is_class_member(^^x));
+static_assert(is_namespace_member(^^x));
 
-static_assert(!is_class_member(^fn));
-static_assert(is_namespace_member(^fn));
+static_assert(!is_class_member(^^fn));
+static_assert(is_namespace_member(^^fn));
 
-static_assert(!is_class_member(^inner));
-static_assert(is_namespace_member(^inner));
+static_assert(!is_class_member(^^inner));
+static_assert(is_namespace_member(^^inner));
 
-static_assert(!is_class_member(^TFn));
-static_assert(is_namespace_member(^TFn));
+static_assert(!is_class_member(^^TFn));
+static_assert(is_namespace_member(^^TFn));
 
-static_assert(!is_class_member(^S));
-static_assert(is_namespace_member(^S));
+static_assert(!is_class_member(^^S));
+static_assert(is_namespace_member(^^S));
 
-static_assert(!is_class_member(^class_or_namespace_members));
-static_assert(is_namespace_member(^class_or_namespace_members));
+static_assert(!is_class_member(^^class_or_namespace_members));
+static_assert(is_namespace_member(^^class_or_namespace_members));
 
-static_assert(!is_class_member(^::));
-static_assert(!is_namespace_member(^::));
+static_assert(!is_class_member(^^::));
+static_assert(!is_namespace_member(^^::));
 
 static_assert(!is_class_member(std::meta::reflect_value(4)));
 static_assert(!is_namespace_member(std::meta::reflect_value(4)));
@@ -89,17 +90,17 @@ struct S {
   static int static_func();
 };
 
-static_assert(!is_static_member(^S::nonstatic_mem));
-static_assert(is_nonstatic_data_member(^S::nonstatic_mem));
+static_assert(!is_static_member(^^S::nonstatic_mem));
+static_assert(is_nonstatic_data_member(^^S::nonstatic_mem));
 
-static_assert(!is_nonstatic_data_member(^S::static_mem));
-static_assert(is_static_member(^S::static_mem));
+static_assert(!is_nonstatic_data_member(^^S::static_mem));
+static_assert(is_static_member(^^S::static_mem));
 
-static_assert(!is_nonstatic_data_member(^S::nonstatic_func));
-static_assert(!is_static_member(^S::nonstatic_func));
+static_assert(!is_nonstatic_data_member(^^S::nonstatic_func));
+static_assert(!is_static_member(^^S::nonstatic_func));
 
-static_assert(!is_nonstatic_data_member(^S::static_func));
-static_assert(is_static_member(^S::static_func));
+static_assert(!is_nonstatic_data_member(^^S::static_func));
+static_assert(is_static_member(^^S::static_func));
 
 int x;
 void fn();
@@ -107,18 +108,18 @@ namespace inner {}
 template <typename T> void TFn();
 
 static_assert(!is_nonstatic_data_member(std::meta::reflect_value(3)));
-static_assert(!is_nonstatic_data_member(^int));
-static_assert(!is_nonstatic_data_member(^TFn));
-static_assert(!is_nonstatic_data_member(^TFn<int>));
-static_assert(!is_nonstatic_data_member(^::));
-static_assert(!is_nonstatic_data_member(^inner));
+static_assert(!is_nonstatic_data_member(^^int));
+static_assert(!is_nonstatic_data_member(^^TFn));
+static_assert(!is_nonstatic_data_member(^^TFn<int>));
+static_assert(!is_nonstatic_data_member(^^::));
+static_assert(!is_nonstatic_data_member(^^inner));
 
 static_assert(!is_static_member(std::meta::reflect_value(3)));
-static_assert(!is_static_member(^int));
-static_assert(!is_static_member(^TFn));
-static_assert(!is_static_member(^TFn<int>));
-static_assert(!is_static_member(^::));
-static_assert(!is_static_member(^inner));
+static_assert(!is_static_member(^^int));
+static_assert(!is_static_member(^^TFn));
+static_assert(!is_static_member(^^TFn<int>));
+static_assert(!is_static_member(^^::));
+static_assert(!is_static_member(^^inner));
 }  // static_and_nonstatic_data_members
 
                        // ==============================
@@ -146,58 +147,58 @@ struct Derived : Base {
   virtual void pure_virt();
 };
 
-static_assert(!is_virtual(^Base::nonvirt));
-static_assert(is_virtual(^Base::virt_no_override));
-static_assert(is_virtual(^Base::virt_implicit_override));
-static_assert(is_virtual(^Base::virt_explicit_override));
-static_assert(is_virtual(^Base::pure_virt));
-static_assert(!is_virtual(^Derived::nonvirt));
-static_assert(is_virtual(^Derived::virt_no_override));
-static_assert(is_virtual(^Derived::virt_implicit_override));
-static_assert(is_virtual(^Derived::virt_explicit_override));
-static_assert(is_virtual(^Derived::pure_virt));
+static_assert(!is_virtual(^^Base::nonvirt));
+static_assert(is_virtual(^^Base::virt_no_override));
+static_assert(is_virtual(^^Base::virt_implicit_override));
+static_assert(is_virtual(^^Base::virt_explicit_override));
+static_assert(is_virtual(^^Base::pure_virt));
+static_assert(!is_virtual(^^Derived::nonvirt));
+static_assert(is_virtual(^^Derived::virt_no_override));
+static_assert(is_virtual(^^Derived::virt_implicit_override));
+static_assert(is_virtual(^^Derived::virt_explicit_override));
+static_assert(is_virtual(^^Derived::pure_virt));
 static_assert(!is_virtual(std::meta::reflect_value(3)));
-static_assert(!is_virtual(^int));
-static_assert(!is_virtual(^TFn));
-static_assert(!is_virtual(^TFn<int>));
-static_assert(!is_virtual(^::));
-static_assert(!is_virtual(^inner));
+static_assert(!is_virtual(^^int));
+static_assert(!is_virtual(^^TFn));
+static_assert(!is_virtual(^^TFn<int>));
+static_assert(!is_virtual(^^::));
+static_assert(!is_virtual(^^inner));
 
-static_assert(!is_pure_virtual(^Base::nonvirt));
-static_assert(!is_pure_virtual(^Base::virt_no_override));
-static_assert(!is_pure_virtual(^Base::virt_implicit_override));
-static_assert(!is_pure_virtual(^Base::virt_explicit_override));
-static_assert(is_pure_virtual(^Base::pure_virt));
-static_assert(!is_override(^Derived::nonvirt));
-static_assert(!is_override(^Derived::virt_no_override));
-static_assert(is_override(^Derived::virt_implicit_override));
-static_assert(is_override(^Derived::virt_explicit_override));
-static_assert(is_override(^Derived::pure_virt));
+static_assert(!is_pure_virtual(^^Base::nonvirt));
+static_assert(!is_pure_virtual(^^Base::virt_no_override));
+static_assert(!is_pure_virtual(^^Base::virt_implicit_override));
+static_assert(!is_pure_virtual(^^Base::virt_explicit_override));
+static_assert(is_pure_virtual(^^Base::pure_virt));
+static_assert(!is_override(^^Derived::nonvirt));
+static_assert(!is_override(^^Derived::virt_no_override));
+static_assert(is_override(^^Derived::virt_implicit_override));
+static_assert(is_override(^^Derived::virt_explicit_override));
+static_assert(is_override(^^Derived::pure_virt));
 static_assert(!is_pure_virtual(std::meta::reflect_value(3)));
-static_assert(!is_pure_virtual(^int));
-static_assert(!is_pure_virtual(^TFn));
-static_assert(!is_pure_virtual(^TFn<int>));
-static_assert(!is_pure_virtual(^::));
-static_assert(!is_pure_virtual(^inner));
+static_assert(!is_pure_virtual(^^int));
+static_assert(!is_pure_virtual(^^TFn));
+static_assert(!is_pure_virtual(^^TFn<int>));
+static_assert(!is_pure_virtual(^^::));
+static_assert(!is_pure_virtual(^^inner));
 static_assert(!is_pure_virtual(std::meta::info{}));
-static_assert(!is_pure_virtual(^int));
+static_assert(!is_pure_virtual(^^int));
 
-static_assert(!is_override(^Base::nonvirt));
-static_assert(!is_override(^Base::virt_no_override));
-static_assert(!is_override(^Base::virt_implicit_override));
-static_assert(!is_override(^Base::virt_explicit_override));
-static_assert(!is_override(^Base::pure_virt));
-static_assert(!is_override(^Derived::nonvirt));
-static_assert(!is_override(^Derived::virt_no_override));
-static_assert(is_override(^Derived::virt_implicit_override));
-static_assert(is_override(^Derived::virt_explicit_override));
-static_assert(is_override(^Derived::pure_virt));
+static_assert(!is_override(^^Base::nonvirt));
+static_assert(!is_override(^^Base::virt_no_override));
+static_assert(!is_override(^^Base::virt_implicit_override));
+static_assert(!is_override(^^Base::virt_explicit_override));
+static_assert(!is_override(^^Base::pure_virt));
+static_assert(!is_override(^^Derived::nonvirt));
+static_assert(!is_override(^^Derived::virt_no_override));
+static_assert(is_override(^^Derived::virt_implicit_override));
+static_assert(is_override(^^Derived::virt_explicit_override));
+static_assert(is_override(^^Derived::pure_virt));
 static_assert(!is_override(std::meta::reflect_value(3)));
-static_assert(!is_override(^int));
-static_assert(!is_override(^TFn));
-static_assert(!is_override(^TFn<int>));
-static_assert(!is_override(^::));
-static_assert(!is_override(^inner));
+static_assert(!is_override(^^int));
+static_assert(!is_override(^^TFn));
+static_assert(!is_override(^^TFn<int>));
+static_assert(!is_override(^^::));
+static_assert(!is_override(^^inner));
 }  // namespace virtual_and_overridden_members
 
                                 // =============
@@ -214,12 +215,12 @@ struct B1 {};
 struct B2 {};
 struct D : B1, virtual B2 { };
 
-static_assert(!is_virtual(bases_of(^D)[0]));
-static_assert(is_virtual(bases_of(^D)[1]));
+static_assert(!is_virtual(bases_of(^^D)[0]));
+static_assert(is_virtual(bases_of(^^D)[1]));
 
-static_assert(!is_virtual(^B1));
-static_assert(!is_virtual(^B2));
-static_assert(!is_virtual(^D));
+static_assert(!is_virtual(^^B1));
+static_assert(!is_virtual(^^B2));
+static_assert(!is_virtual(^^D));
 }  // namespace virtual_bases
 
                                // ===============
@@ -241,30 +242,30 @@ struct S {
   template <typename T> void TMemFn();
   struct Inner {};
 };
-static_assert((members_of(^S) | std::views::filter(std::meta::is_constructor) |
+static_assert((members_of(^^S) | std::views::filter(std::meta::is_constructor) |
                                 std::ranges::to<std::vector>()).size() == 4);
-static_assert((members_of(^S) | std::views::filter(std::meta::is_destructor) |
+static_assert((members_of(^^S) | std::views::filter(std::meta::is_destructor) |
                                 std::ranges::to<std::vector>()).size() == 1);
 static_assert(
-    (members_of(^S) |
+    (members_of(^^S) |
          std::views::filter(std::meta::is_special_member_function) |
          std::ranges::to<std::vector>()).size() == 6);
 
-static_assert(!is_special_member_function(^S::mem));
-static_assert(!is_special_member_function(^S::memfn));
-static_assert(!is_special_member_function(^S::TMemFn));
-static_assert(!is_special_member_function(^S::Inner));
+static_assert(!is_special_member_function(^^S::mem));
+static_assert(!is_special_member_function(^^S::memfn));
+static_assert(!is_special_member_function(^^S::TMemFn));
+static_assert(!is_special_member_function(^^S::Inner));
 
 int x;
 void fn();
 namespace inner {}
 template <typename T> void TFn();
 static_assert(!is_special_member_function(std::meta::reflect_value(3)));
-static_assert(!is_special_member_function(^int));
-static_assert(!is_special_member_function(^TFn));
-static_assert(!is_special_member_function(^TFn<int>));
-static_assert(!is_special_member_function(^::));
-static_assert(!is_special_member_function(^inner));
+static_assert(!is_special_member_function(^^int));
+static_assert(!is_special_member_function(^^TFn));
+static_assert(!is_special_member_function(^^TFn<int>));
+static_assert(!is_special_member_function(^^::));
+static_assert(!is_special_member_function(^^inner));
 }  // special_members
 
                         // =============================
@@ -277,52 +278,52 @@ void not_deleted();
 struct S {
     ~S() = delete;
 };
-static_assert(is_deleted(^deleted));
-static_assert(is_deleted(^S::~S));
-static_assert(!is_deleted(^not_deleted));
+static_assert(is_deleted(^^deleted));
+static_assert(is_deleted(^^S::~S));
+static_assert(!is_deleted(^^not_deleted));
 
 struct not_dflt {
     ~not_dflt();
 };
-static_assert(!is_defaulted(^not_dflt::~not_dflt));
+static_assert(!is_defaulted(^^not_dflt::~not_dflt));
 
 struct explicit_dflt {
     ~explicit_dflt() = default;
 };
-static_assert(is_defaulted(^explicit_dflt::~explicit_dflt));
+static_assert(is_defaulted(^^explicit_dflt::~explicit_dflt));
 
 struct implicit_dflt {
 };
-static_assert(is_defaulted(^implicit_dflt::~implicit_dflt));
+static_assert(is_defaulted(^^implicit_dflt::~implicit_dflt));
 
 struct impl_dflt {
     ~impl_dflt();
 };
-static_assert(!is_defaulted(^impl_dflt::~impl_dflt));
+static_assert(!is_defaulted(^^impl_dflt::~impl_dflt));
 impl_dflt::~impl_dflt() = default;
-static_assert(is_defaulted(^impl_dflt::~impl_dflt));
+static_assert(is_defaulted(^^impl_dflt::~impl_dflt));
 
 int x;
 void fn();
 namespace inner {}
 template <typename T> void TFn();
 static_assert(!is_deleted(std::meta::reflect_value(3)));
-static_assert(!is_deleted(^int));
-static_assert(!is_deleted(^TFn));
-static_assert(!is_deleted(^TFn<int>));
-static_assert(!is_deleted(^::));
-static_assert(!is_deleted(^inner));
+static_assert(!is_deleted(^^int));
+static_assert(!is_deleted(^^TFn));
+static_assert(!is_deleted(^^TFn<int>));
+static_assert(!is_deleted(^^::));
+static_assert(!is_deleted(^^inner));
 static_assert(!is_defaulted(std::meta::reflect_value(3)));
-static_assert(!is_defaulted(^int));
-static_assert(!is_defaulted(^TFn));
-static_assert(!is_defaulted(^TFn<int>));
-static_assert(!is_defaulted(^::));
-static_assert(!is_defaulted(^inner));
+static_assert(!is_defaulted(^^int));
+static_assert(!is_defaulted(^^TFn));
+static_assert(!is_defaulted(^^TFn<int>));
+static_assert(!is_defaulted(^^::));
+static_assert(!is_defaulted(^^inner));
 
 static_assert(!is_deleted(std::meta::info{}));
-static_assert(!is_deleted(^int));
+static_assert(!is_deleted(^^int));
 static_assert(!is_defaulted(std::meta::info{}));
-static_assert(!is_defaulted(^int));
+static_assert(!is_defaulted(^^int));
 }  // namespace defaulted_and_deleted_members
 
                              // ==================
@@ -346,36 +347,36 @@ struct S {
   explicit operator bool();
   template <typename T> explicit operator char();
 };
-static_assert(!is_explicit(^S::mem));
-static_assert(!is_explicit(^S::memfn));
-static_assert(!is_explicit(^S::TMemFn));
+static_assert(!is_explicit(^^S::mem));
+static_assert(!is_explicit(^^S::memfn));
+static_assert(!is_explicit(^^S::TMemFn));
 static_assert(
-    !is_explicit((members_of(^S) |
+    !is_explicit((members_of(^^S) |
                       std::views::filter(std::meta::is_constructor) |
                       std::ranges::to<std::vector>())[0]));
 static_assert(
-    !is_explicit((members_of(^S) |
+    !is_explicit((members_of(^^S) |
                       std::views::filter(std::meta::is_constructor_template) |
                       std::ranges::to<std::vector>())[0]));
 static_assert(
-    is_explicit((members_of(^S) |
+    is_explicit((members_of(^^S) |
                      std::views::filter(std::meta::is_constructor) |
                      std::ranges::to<std::vector>())[1]));
 
-static_assert(!is_explicit(^S::operator int));
+static_assert(!is_explicit(^^S::operator int));
 static_assert(
-    !is_explicit((members_of(^S) |
+    !is_explicit((members_of(^^S) |
                       std::views::filter(std::meta::is_template) |
                       std::ranges::to<std::vector>())[3]));
-static_assert(is_explicit(^S::operator bool));
+static_assert(is_explicit(^^S::operator bool));
 
 // P2996R3 removes support for checking 'explicit' on templates.
 static_assert(
-    !is_explicit((members_of(^S) |
+    !is_explicit((members_of(^^S) |
                       std::views::filter(std::meta::is_constructor) |
                       std::ranges::to<std::vector>())[3]));
 static_assert(
-    !is_explicit((members_of(^S) |
+    !is_explicit((members_of(^^S) |
                       std::views::filter(std::meta::is_template) |
                       std::ranges::to<std::vector>())[4]));
 
@@ -384,11 +385,11 @@ void fn();
 namespace inner {}
 template <typename T> void TFn();
 static_assert(!is_explicit(std::meta::reflect_value(3)));
-static_assert(!is_explicit(^int));
-static_assert(!is_explicit(^TFn));
-static_assert(!is_explicit(^TFn<int>));
-static_assert(!is_explicit(^::));
-static_assert(!is_explicit(^inner));
+static_assert(!is_explicit(^^int));
+static_assert(!is_explicit(^^TFn));
+static_assert(!is_explicit(^^TFn<int>));
+static_assert(!is_explicit(^^::));
+static_assert(!is_explicit(^^inner));
 }  // namespace explicit_functions
 
                              // ==================
@@ -447,64 +448,64 @@ void not_noexcept_template_function();
 
 // Everything mentioned in the proposal
 // (no-)noexcept member functions
-static_assert(is_noexcept(^S::noexcept_method));
-static_assert(is_noexcept(^S::noexcept_true_method));
-static_assert(!is_noexcept(^S::noexcept_false_method));
-static_assert(!is_noexcept(^S::not_noexcept_method));
+static_assert(is_noexcept(^^S::noexcept_method));
+static_assert(is_noexcept(^^S::noexcept_true_method));
+static_assert(!is_noexcept(^^S::noexcept_false_method));
+static_assert(!is_noexcept(^^S::not_noexcept_method));
 
 // (no-)noexcept member function types
-static_assert(is_noexcept(type_of(^S::noexcept_method)));
-static_assert(is_noexcept(type_of(^S::noexcept_true_method)));
-static_assert(!is_noexcept(type_of(^S::noexcept_false_method)));
-static_assert(!is_noexcept(type_of(^S::not_noexcept_method)));
+static_assert(is_noexcept(type_of(^^S::noexcept_method)));
+static_assert(is_noexcept(type_of(^^S::noexcept_true_method)));
+static_assert(!is_noexcept(type_of(^^S::noexcept_false_method)));
+static_assert(!is_noexcept(type_of(^^S::not_noexcept_method)));
 
 // (no-)noexcept virtual method
-static_assert(is_noexcept(^S::noexcept_virtual_method));
-static_assert(is_noexcept(^S::noexcept_true_virtual_method));
-static_assert(!is_noexcept(^S::noexcept_false_virtual_method));
-static_assert(!is_noexcept(^S::not_noexcept_virtual_method));
+static_assert(is_noexcept(^^S::noexcept_virtual_method));
+static_assert(is_noexcept(^^S::noexcept_true_virtual_method));
+static_assert(!is_noexcept(^^S::noexcept_false_virtual_method));
+static_assert(!is_noexcept(^^S::not_noexcept_virtual_method));
 
 // (no-)noexcept virtual method types
-static_assert(is_noexcept(type_of(^S::noexcept_virtual_method)));
-static_assert(is_noexcept(type_of(^S::noexcept_true_virtual_method)));
-static_assert(!is_noexcept(type_of(^S::noexcept_false_virtual_method)));
-static_assert(!is_noexcept(type_of(^S::not_noexcept_virtual_method)));
+static_assert(is_noexcept(type_of(^^S::noexcept_virtual_method)));
+static_assert(is_noexcept(type_of(^^S::noexcept_true_virtual_method)));
+static_assert(!is_noexcept(type_of(^^S::noexcept_false_virtual_method)));
+static_assert(!is_noexcept(type_of(^^S::not_noexcept_virtual_method)));
 
 // (no-)noexcept instantiated template methods
-static_assert(is_noexcept(^S::noexcept_template_method<int>));
-static_assert(is_noexcept(^S::noexcept_true_template_method<int>));
-static_assert(!is_noexcept(^S::noexcept_false_template_method<int>));
-static_assert(!is_noexcept(^S::not_noexcept_template_method<int>));
+static_assert(is_noexcept(^^S::noexcept_template_method<int>));
+static_assert(is_noexcept(^^S::noexcept_true_template_method<int>));
+static_assert(!is_noexcept(^^S::noexcept_false_template_method<int>));
+static_assert(!is_noexcept(^^S::not_noexcept_template_method<int>));
 
 // (no-)noexcept instantiated template method types
-static_assert(is_noexcept(type_of(^S::noexcept_template_method<int>)));
-static_assert(is_noexcept(type_of(^S::noexcept_true_template_method<int>)));
-static_assert(!is_noexcept(type_of(^S::noexcept_false_template_method<int>)));
-static_assert(!is_noexcept(type_of(^S::not_noexcept_template_method<int>)));
+static_assert(is_noexcept(type_of(^^S::noexcept_template_method<int>)));
+static_assert(is_noexcept(type_of(^^S::noexcept_true_template_method<int>)));
+static_assert(!is_noexcept(type_of(^^S::noexcept_false_template_method<int>)));
+static_assert(!is_noexcept(type_of(^^S::not_noexcept_template_method<int>)));
 
 // (no-)noexcept function
-static_assert(is_noexcept(^noexcept_function));
-static_assert(is_noexcept(^noexcept_true_function));
-static_assert(!is_noexcept(^noexcept_false_function));
-static_assert(!is_noexcept(^not_noexcept_function));
+static_assert(is_noexcept(^^noexcept_function));
+static_assert(is_noexcept(^^noexcept_true_function));
+static_assert(!is_noexcept(^^noexcept_false_function));
+static_assert(!is_noexcept(^^not_noexcept_function));
 
 // (no-)noexcept function type
-static_assert(is_noexcept(type_of(^noexcept_function)));
-static_assert(is_noexcept(type_of(^noexcept_true_function)));
-static_assert(!is_noexcept(type_of(^noexcept_false_function)));
-static_assert(!is_noexcept(type_of(^not_noexcept_function)));
+static_assert(is_noexcept(type_of(^^noexcept_function)));
+static_assert(is_noexcept(type_of(^^noexcept_true_function)));
+static_assert(!is_noexcept(type_of(^^noexcept_false_function)));
+static_assert(!is_noexcept(type_of(^^not_noexcept_function)));
 
 // (no-)noexcept instantiated template functions
-static_assert(is_noexcept(^noexcept_template_function<int>));
-static_assert(is_noexcept(^noexcept_true_template_function<int>));
-static_assert(!is_noexcept(^noexcept_false_template_function<int>));
-static_assert(!is_noexcept(^not_noexcept_template_function<int>));
+static_assert(is_noexcept(^^noexcept_template_function<int>));
+static_assert(is_noexcept(^^noexcept_true_template_function<int>));
+static_assert(!is_noexcept(^^noexcept_false_template_function<int>));
+static_assert(!is_noexcept(^^not_noexcept_template_function<int>));
 
 // (no-)noexcept instantiated template function types
-static_assert(is_noexcept(type_of(^noexcept_template_function<int>)));
-static_assert(is_noexcept(type_of(^noexcept_true_template_function<int>)));
-static_assert(!is_noexcept(type_of(^noexcept_false_template_function<int>)));
-static_assert(!is_noexcept(type_of(^not_noexcept_template_function<int>)));
+static_assert(is_noexcept(type_of(^^noexcept_template_function<int>)));
+static_assert(is_noexcept(type_of(^^noexcept_true_template_function<int>)));
+static_assert(!is_noexcept(type_of(^^noexcept_false_template_function<int>)));
+static_assert(!is_noexcept(type_of(^^not_noexcept_template_function<int>)));
 
 // The rest (should all be false regardless of noexcept specifier)
 // (no-)noexcept member function pointers
@@ -565,12 +566,12 @@ static_assert(!is_noexcept(
   type_of(std::meta::reflect_value(&S::not_noexcept_template_method<int>))));
 
 // (no-)noexcept lambdas
-static_assert(!is_noexcept(^noexcept_lambda));
-static_assert(!is_noexcept(^not_noexcept_lambda));
+static_assert(!is_noexcept(^^noexcept_lambda));
+static_assert(!is_noexcept(^^not_noexcept_lambda));
 
 // (no-)noexcept closure types
-static_assert(!is_noexcept(type_of(^noexcept_lambda)));
-static_assert(!is_noexcept(type_of(^not_noexcept_lambda)));
+static_assert(!is_noexcept(type_of(^^noexcept_lambda)));
+static_assert(!is_noexcept(type_of(^^not_noexcept_lambda)));
 
 // (no-)noexcept function pointer
 static_assert(!is_noexcept(std::meta::reflect_value(&noexcept_function)));
@@ -609,23 +610,23 @@ static_assert(!is_noexcept(
   type_of(std::meta::reflect_value(&not_noexcept_template_function<int>))));
 
 // (no-)noexcept non-instantiated template methods
-static_assert(!is_noexcept(^S::noexcept_template_method));
-static_assert(!is_noexcept(^S::not_noexcept_template_method));
+static_assert(!is_noexcept(^^S::noexcept_template_method));
+static_assert(!is_noexcept(^^S::not_noexcept_template_method));
 
 // (no-)noexcept generic closure types
-static_assert(!is_noexcept(^noexcept_generic_lambda));
-static_assert(!is_noexcept(^not_noexcept_generic_lambda));
-static_assert(!is_noexcept(type_of(^noexcept_generic_lambda)));
-static_assert(!is_noexcept(type_of(^not_noexcept_generic_lambda)));
+static_assert(!is_noexcept(^^noexcept_generic_lambda));
+static_assert(!is_noexcept(^^not_noexcept_generic_lambda));
+static_assert(!is_noexcept(type_of(^^noexcept_generic_lambda)));
+static_assert(!is_noexcept(type_of(^^not_noexcept_generic_lambda)));
 
 // (no-)noexcept non-instantiated template functions
-static_assert(!is_noexcept(^noexcept_template_function));
-static_assert(!is_noexcept(^not_noexcept_template_function));
+static_assert(!is_noexcept(^^noexcept_template_function));
+static_assert(!is_noexcept(^^not_noexcept_template_function));
 
 // Expressions that can't be noexcept
 // Namespaces
-static_assert(!is_noexcept(^::));
-static_assert(!is_noexcept(^noexcept_functions));
+static_assert(!is_noexcept(^^::));
+static_assert(!is_noexcept(^^noexcept_functions));
 
 // Non callable id-expressions & their types
 struct T {
@@ -652,35 +653,35 @@ int c_array[] = {1, 2};
 auto [structured_binding1, structured_binding2] = c_array;
 
 // a variable
-static_assert(!is_noexcept(^static_x));
-static_assert(!is_noexcept(type_of(^static_x)));
-static_assert(!is_noexcept(^non_static_x));
-static_assert(!is_noexcept(type_of(^non_static_x)));
+static_assert(!is_noexcept(^^static_x));
+static_assert(!is_noexcept(type_of(^^static_x)));
+static_assert(!is_noexcept(^^non_static_x));
+static_assert(!is_noexcept(type_of(^^non_static_x)));
 
 // a static data member
-static_assert(!is_noexcept(^T::static_mem));
-static_assert(!is_noexcept(type_of(^T::static_mem)));
+static_assert(!is_noexcept(^^T::static_mem));
+static_assert(!is_noexcept(type_of(^^T::static_mem)));
 
 // a structured binding
-static_assert(!is_noexcept(^structured_binding1));
+static_assert(!is_noexcept(^^structured_binding1));
 
 // a non static data member
-static_assert(!is_noexcept(^T::non_static_mem));
-static_assert(!is_noexcept(type_of(^T::non_static_mem)));
+static_assert(!is_noexcept(^^T::non_static_mem));
+static_assert(!is_noexcept(type_of(^^T::non_static_mem)));
 
 // a template
-static_assert(!is_noexcept(^TT));
-static_assert(!is_noexcept(^template_t));
-static_assert(!is_noexcept(type_of(^template_t)));
+static_assert(!is_noexcept(^^TT));
+static_assert(!is_noexcept(^^template_t));
+static_assert(!is_noexcept(type_of(^^template_t)));
 
 // an enum
-static_assert(!is_noexcept(^EC));
-static_assert(!is_noexcept(^EC::Something));
-static_assert(!is_noexcept(type_of(^EC::Something)));
+static_assert(!is_noexcept(^^EC));
+static_assert(!is_noexcept(^^EC::Something));
+static_assert(!is_noexcept(type_of(^^EC::Something)));
 
-static_assert(!is_noexcept(^E));
-static_assert(!is_noexcept(^E_Something));
-static_assert(!is_noexcept(type_of(^E_Something)));
+static_assert(!is_noexcept(^^E));
+static_assert(!is_noexcept(^^E_Something));
+static_assert(!is_noexcept(type_of(^^E_Something)));
 } // namespace noexcept_functions
 
                               // ================
@@ -694,18 +695,18 @@ struct S {
   static inline int k;
 };
 
-static_assert(is_bit_field(^S::i));
-static_assert(!is_bit_field(^S::j));
-static_assert(!is_bit_field(^S::k));
+static_assert(is_bit_field(^^S::i));
+static_assert(!is_bit_field(^^S::j));
+static_assert(!is_bit_field(^^S::k));
 
-static_assert(!is_bit_field(^S));
-static_assert(!is_bit_field(^int));
+static_assert(!is_bit_field(^^S));
+static_assert(!is_bit_field(^^int));
 static_assert(!is_bit_field(std::meta::reflect_value(4)));
-static_assert(!is_bit_field(^std::meta::extract));
+static_assert(!is_bit_field(^^std::meta::extract));
 
-static_assert(!is_bit_field(data_member_spec(^int, {})));
-static_assert(is_bit_field(data_member_spec(^int, {.width=0})));
-static_assert(is_bit_field(data_member_spec(^int, {.width=5})));
+static_assert(!is_bit_field(data_member_spec(^^int, {})));
+static_assert(is_bit_field(data_member_spec(^^int, {.width=0})));
+static_assert(is_bit_field(data_member_spec(^^int, {.width=5})));
 }  // namespace bitfield_members
 
                            // =======================
@@ -719,27 +720,27 @@ struct S {
   void fn3() &&;
 };
 
-static_assert(!is_lvalue_reference_qualified(^S::fn1));
-static_assert(!is_rvalue_reference_qualified(^S::fn1));
+static_assert(!is_lvalue_reference_qualified(^^S::fn1));
+static_assert(!is_rvalue_reference_qualified(^^S::fn1));
 
-static_assert(is_lvalue_reference_qualified(^S::fn2));
-static_assert(!is_rvalue_reference_qualified(^S::fn2));
+static_assert(is_lvalue_reference_qualified(^^S::fn2));
+static_assert(!is_rvalue_reference_qualified(^^S::fn2));
 
-static_assert(!is_lvalue_reference_qualified(^S::fn3));
-static_assert(is_rvalue_reference_qualified(^S::fn3));
+static_assert(!is_lvalue_reference_qualified(^^S::fn3));
+static_assert(is_rvalue_reference_qualified(^^S::fn3));
 
-static_assert(!is_lvalue_reference_qualified(^void(int)));
-static_assert(!is_rvalue_reference_qualified(^void(int)));
+static_assert(!is_lvalue_reference_qualified(^^void(int)));
+static_assert(!is_rvalue_reference_qualified(^^void(int)));
 
-static_assert(is_lvalue_reference_qualified(^void(int) &));
-static_assert(!is_rvalue_reference_qualified(^void(int) &));
+static_assert(is_lvalue_reference_qualified(^^void(int) &));
+static_assert(!is_rvalue_reference_qualified(^^void(int) &));
 
-static_assert(!is_lvalue_reference_qualified(^void(int) &&));
-static_assert(is_rvalue_reference_qualified(^void(int) &&));
+static_assert(!is_lvalue_reference_qualified(^^void(int) &&));
+static_assert(is_rvalue_reference_qualified(^^void(int) &&));
 
 static_assert(!is_lvalue_reference_qualified(std::meta::info{}));
-static_assert(!is_lvalue_reference_qualified(^int));
-static_assert(!is_lvalue_reference_qualified(^::));
+static_assert(!is_lvalue_reference_qualified(^^int));
+static_assert(!is_lvalue_reference_qualified(^^::));
 }  // namespace ref_qualified_functions
 
                             // ====================
@@ -768,7 +769,7 @@ struct S {
 };
 
 static_assert(
-    (members_of(^S) | std::views::filter(std::meta::is_user_provided) |
+    (members_of(^^S) | std::views::filter(std::meta::is_user_provided) |
                       std::views::transform(std::meta::is_default_constructor) |
                       std::ranges::to<std::vector>()) ==
     std::vector {true, true,
@@ -777,7 +778,7 @@ static_assert(
                  false});
 
 static_assert(
-    (members_of(^S) | std::views::filter(std::meta::is_user_provided) |
+    (members_of(^^S) | std::views::filter(std::meta::is_user_provided) |
                       std::views::transform(std::meta::is_copy_constructor) |
                       std::ranges::to<std::vector>()) ==
     std::vector {false, false,
@@ -786,7 +787,7 @@ static_assert(
                  false});
 
 static_assert(
-    (members_of(^S) | std::views::filter(std::meta::is_user_provided) |
+    (members_of(^^S) | std::views::filter(std::meta::is_user_provided) |
                       std::views::transform(std::meta::is_move_constructor) |
                       std::ranges::to<std::vector>()) ==
     std::vector {false, false,
@@ -818,7 +819,7 @@ struct S {
 };
 
 static_assert(
-    (members_of(^S) | std::views::filter(std::meta::is_user_provided) |
+    (members_of(^^S) | std::views::filter(std::meta::is_user_provided) |
                       std::views::transform(std::meta::is_assignment) |
                       std::ranges::to<std::vector>()) ==
     std::vector {true, true, true, true,
@@ -827,7 +828,7 @@ static_assert(
                  false});
 
 static_assert(
-    (members_of(^S) | std::views::filter(std::meta::is_user_provided) |
+    (members_of(^^S) | std::views::filter(std::meta::is_user_provided) |
                       std::views::transform(std::meta::is_copy_assignment) |
                       std::ranges::to<std::vector>()) ==
     std::vector {true, true, true, true,
@@ -836,7 +837,7 @@ static_assert(
                  false});
 
 static_assert(
-    (members_of(^S) | std::views::filter(std::meta::is_user_provided) |
+    (members_of(^^S) | std::views::filter(std::meta::is_user_provided) |
                       std::views::transform(std::meta::is_move_assignment) |
                       std::ranges::to<std::vector>()) ==
     std::vector {false, false, false, false,
@@ -857,12 +858,12 @@ struct S {
 };
 
 static_assert(
-    (nonstatic_data_members_of(^S) |
+    (nonstatic_data_members_of(^^S) |
         std::views::transform(std::meta::has_default_member_initializer) |
         std::ranges::to<std::vector>()) == std::vector {false, true});
 
-static_assert(!has_default_member_initializer(^int));
-static_assert(!has_default_member_initializer(^::));
+static_assert(!has_default_member_initializer(^^int));
+static_assert(!has_default_member_initializer(^^::));
 }  // namespace member_initializers
 
                              // ==================
@@ -885,41 +886,41 @@ const int arr1[] = {1, 2};
 volatile int v3;
 volatile int arr2[] = {1, 2};
 
-static_assert(!is_const(^S::fn1));
-static_assert(is_const(^S::fn2));
-static_assert(!is_const(^S::fn3));
+static_assert(!is_const(^^S::fn1));
+static_assert(is_const(^^S::fn2));
+static_assert(!is_const(^^S::fn3));
 
-static_assert(!is_const(^v1));
-static_assert(is_const(^v2));
-static_assert(is_const(^arr1));
+static_assert(!is_const(^^v1));
+static_assert(is_const(^^v2));
+static_assert(is_const(^^arr1));
 static_assert(is_const(std::meta::reflect_object(arr1[1])));
-static_assert(!is_const(^v3));
-static_assert(!is_const(^arr2));
+static_assert(!is_const(^^v3));
+static_assert(!is_const(^^arr2));
 static_assert(!is_const(std::meta::reflect_object(arr2[1])));
 
-static_assert(!is_volatile(^S::fn1));
-static_assert(!is_volatile(^S::fn2));
-static_assert(is_volatile(^S::fn3));
+static_assert(!is_volatile(^^S::fn1));
+static_assert(!is_volatile(^^S::fn2));
+static_assert(is_volatile(^^S::fn3));
 
-static_assert(!is_volatile(^v1));
-static_assert(!is_volatile(^v2));
-static_assert(!is_volatile(^arr1));
+static_assert(!is_volatile(^^v1));
+static_assert(!is_volatile(^^v2));
+static_assert(!is_volatile(^^arr1));
 static_assert(!is_volatile(std::meta::reflect_object(arr1[1])));
-static_assert(is_volatile(^v3));
-static_assert(is_volatile(^arr2));
+static_assert(is_volatile(^^v3));
+static_assert(is_volatile(^^arr2));
 static_assert(is_volatile(std::meta::reflect_object(arr2[1])));
 
-static_assert(!is_const(^int));
-static_assert(is_const(^const int));
-static_assert(is_const(^const volatile int));
-static_assert(!is_const(^volatile int));
-static_assert(is_const(^void() const));
+static_assert(!is_const(^^int));
+static_assert(is_const(^^const int));
+static_assert(is_const(^^const volatile int));
+static_assert(!is_const(^^volatile int));
+static_assert(is_const(^^void() const));
 
-static_assert(!is_volatile(^int));
-static_assert(!is_volatile(^const int));
-static_assert(is_volatile(^const volatile int));
-static_assert(is_volatile(^volatile int));
-static_assert(is_volatile(^void() volatile));
+static_assert(!is_volatile(^^int));
+static_assert(!is_volatile(^^const int));
+static_assert(is_volatile(^^const volatile int));
+static_assert(is_volatile(^^volatile int));
+static_assert(is_volatile(^^void() volatile));
 }  // namespace const_and_volatile
 
                      // ==================================
@@ -955,67 +956,67 @@ int operator""_b();
 
 
 constexpr auto conversion_template =
-    (members_of(^T) | std::views::filter(std::meta::is_template)).front();
+    (members_of(^^T) | std::views::filter(std::meta::is_template)).front();
 
-static_assert(is_operator_function(^S::operator+));
-static_assert(is_operator_function(^operator&&));
-static_assert(!is_operator_function(^operator||));
-static_assert(!is_operator_function(^S::operator-));
-static_assert(is_operator_function(^S::operator-<int>));
+static_assert(is_operator_function(^^S::operator+));
+static_assert(is_operator_function(^^operator&&));
+static_assert(!is_operator_function(^^operator||));
+static_assert(!is_operator_function(^^S::operator-));
+static_assert(is_operator_function(^^S::operator-<int>));
 static_assert(!is_operator_function(conversion_template));
-static_assert(!is_operator_function(^S::fn));
-static_assert(!is_operator_function(^operator""_a));
-static_assert(!is_operator_function(^operator""_b));
+static_assert(!is_operator_function(^^S::fn));
+static_assert(!is_operator_function(^^operator""_a));
+static_assert(!is_operator_function(^^operator""_b));
 
-static_assert(!is_operator_function_template(^S::operator+));
-static_assert(!is_operator_function_template(^operator&&));
-static_assert(is_operator_function_template(^operator||));
-static_assert(is_operator_function_template(^S::operator-));
-static_assert(!is_operator_function_template(^S::operator int));
+static_assert(!is_operator_function_template(^^S::operator+));
+static_assert(!is_operator_function_template(^^operator&&));
+static_assert(is_operator_function_template(^^operator||));
+static_assert(is_operator_function_template(^^S::operator-));
+static_assert(!is_operator_function_template(^^S::operator int));
 static_assert(!is_operator_function_template(conversion_template));
-static_assert(!is_operator_function_template(^S::fn));
-static_assert(!is_operator_function_template(^operator""_a));
-static_assert(!is_operator_function_template(^operator""_b));
+static_assert(!is_operator_function_template(^^S::fn));
+static_assert(!is_operator_function_template(^^operator""_a));
+static_assert(!is_operator_function_template(^^operator""_b));
 
-static_assert(!is_conversion_function(^S::operator+));
-static_assert(!is_conversion_function(^operator&&));
-static_assert(!is_conversion_function(^operator||));
-static_assert(!is_conversion_function(^S::operator-));
-static_assert(is_conversion_function(^S::operator int));
+static_assert(!is_conversion_function(^^S::operator+));
+static_assert(!is_conversion_function(^^operator&&));
+static_assert(!is_conversion_function(^^operator||));
+static_assert(!is_conversion_function(^^S::operator-));
+static_assert(is_conversion_function(^^S::operator int));
 static_assert(!is_conversion_function(conversion_template));
-static_assert(!is_conversion_function(^S::fn));
-static_assert(!is_conversion_function(^operator""_a));
-static_assert(!is_conversion_function(^operator""_b));
+static_assert(!is_conversion_function(^^S::fn));
+static_assert(!is_conversion_function(^^operator""_a));
+static_assert(!is_conversion_function(^^operator""_b));
 
-static_assert(!is_conversion_function_template(^S::operator+));
-static_assert(!is_conversion_function_template(^operator&&));
-static_assert(!is_conversion_function_template(^operator||));
-static_assert(!is_conversion_function_template(^S::operator-));
-static_assert(!is_conversion_function_template(^S::operator int));
+static_assert(!is_conversion_function_template(^^S::operator+));
+static_assert(!is_conversion_function_template(^^operator&&));
+static_assert(!is_conversion_function_template(^^operator||));
+static_assert(!is_conversion_function_template(^^S::operator-));
+static_assert(!is_conversion_function_template(^^S::operator int));
 static_assert(is_conversion_function_template(conversion_template));
-static_assert(!is_conversion_function_template(^S::fn));
-static_assert(!is_conversion_function_template(^operator""_a));
-static_assert(!is_conversion_function_template(^operator""_b));
+static_assert(!is_conversion_function_template(^^S::fn));
+static_assert(!is_conversion_function_template(^^operator""_a));
+static_assert(!is_conversion_function_template(^^operator""_b));
 
-static_assert(!is_literal_operator(^S::operator+));
-static_assert(!is_literal_operator(^operator&&));
-static_assert(!is_literal_operator(^operator||));
-static_assert(!is_literal_operator(^S::operator-));
-static_assert(!is_literal_operator(^S::operator-<int>));
+static_assert(!is_literal_operator(^^S::operator+));
+static_assert(!is_literal_operator(^^operator&&));
+static_assert(!is_literal_operator(^^operator||));
+static_assert(!is_literal_operator(^^S::operator-));
+static_assert(!is_literal_operator(^^S::operator-<int>));
 static_assert(!is_literal_operator(conversion_template));
-static_assert(!is_literal_operator(^S::fn));
-static_assert(is_literal_operator(^operator""_a));
-static_assert(!is_literal_operator(^operator""_b));
+static_assert(!is_literal_operator(^^S::fn));
+static_assert(is_literal_operator(^^operator""_a));
+static_assert(!is_literal_operator(^^operator""_b));
 
-static_assert(!is_literal_operator_template(^S::operator+));
-static_assert(!is_literal_operator_template(^operator&&));
-static_assert(!is_literal_operator_template(^operator||));
-static_assert(!is_literal_operator_template(^S::operator-));
-static_assert(!is_literal_operator_template(^S::operator-<int>));
+static_assert(!is_literal_operator_template(^^S::operator+));
+static_assert(!is_literal_operator_template(^^operator&&));
+static_assert(!is_literal_operator_template(^^operator||));
+static_assert(!is_literal_operator_template(^^S::operator-));
+static_assert(!is_literal_operator_template(^^S::operator-<int>));
 static_assert(!is_literal_operator_template(conversion_template));
-static_assert(!is_literal_operator_template(^S::fn));
-static_assert(!is_literal_operator_template(^operator""_a));
-static_assert(is_literal_operator_template(^operator""_b));
+static_assert(!is_literal_operator_template(^^S::fn));
+static_assert(!is_literal_operator_template(^^operator""_a));
+static_assert(is_literal_operator_template(^^operator""_b));
 
 }  // namespace operators_and_conversion_functions
 
