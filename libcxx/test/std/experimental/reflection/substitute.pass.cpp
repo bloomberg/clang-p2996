@@ -40,11 +40,11 @@ static_assert(can_substitute(^^Cls, {^^int, RVal<1>, ^^std::array}));
 [[maybe_unused]] constexpr auto obj1 = substitute(^^Cls,
                                                   {^^int, RVal<1>,
                                                    ^^std::array});
-static_assert(is_incomplete_type(^^Cls<int, 1, std::array>));
+static_assert(!is_complete_type(^^Cls<int, 1, std::array>));
 
 template <typename T, auto V, template <typename, size_t> class C>
 struct Cls {};
-static_assert(!is_incomplete_type(^^Cls<int, 1, std::array>));
+static_assert(is_complete_type(^^Cls<int, 1, std::array>));
 
 // Template arguments are dependent.
 template <typename T, auto V, template <typename, size_t> class C>

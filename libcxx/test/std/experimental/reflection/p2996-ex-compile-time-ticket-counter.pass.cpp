@@ -32,7 +32,7 @@ public:
 
     // Search for the next incomplete 'Helper<k>'.
     std::meta::info r;
-    while (!is_incomplete_type(r = substitute(^^Helper,
+    while (is_complete_type(r = substitute(^^Helper,
                                              { std::meta::reflect_value(k) })))
       ++k;
 

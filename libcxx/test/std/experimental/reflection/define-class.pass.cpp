@@ -33,15 +33,15 @@ namespace completion_with_no_fields {
 struct S;
 class C;
 union U;
-static_assert(is_incomplete_type(^^S));
-static_assert(is_incomplete_type(^^C));
-static_assert(is_incomplete_type(^^U));
+static_assert(!is_complete_type(^^S));
+static_assert(!is_complete_type(^^C));
+static_assert(!is_complete_type(^^U));
 static_assert(is_type(define_class(^^S, {})));
 static_assert(is_type(define_class(^^C, {})));
 static_assert(is_type(define_class(^^U, {})));
-static_assert(!is_incomplete_type(^^S));
-static_assert(!is_incomplete_type(^^C));
-static_assert(!is_incomplete_type(^^U));
+static_assert(is_complete_type(^^S));
+static_assert(is_complete_type(^^C));
+static_assert(is_complete_type(^^U));
 static_assert(nonstatic_data_members_of(^^S).size() == 0);
 static_assert(nonstatic_data_members_of(^^C).size() == 0);
 static_assert(nonstatic_data_members_of(^^U).size() == 0);
@@ -57,14 +57,14 @@ U u;
 
 namespace test_all_flags {
 struct S;
-static_assert(is_incomplete_type(^^S));
+static_assert(!is_complete_type(^^S));
 static_assert(is_type(define_class(^^S, {
                 data_member_spec(^^int, {.name="count", .alignment=16}),
                 data_member_spec(^^bool, {.name="flag"}),
                 data_member_spec(^^int, {.width=0}),
                 data_member_spec(^^int, {.width=5}),
               })));
-static_assert(!is_incomplete_type(^^S));
+static_assert(is_complete_type(^^S));
 // unnamed bitfields are not nonstatic data members.
 static_assert(nonstatic_data_members_of(^^S).size() == 3);
 static_assert(alignment_of(^^S::count) == 16);
@@ -92,12 +92,12 @@ static_assert(sizeof(WithEmpty) == sizeof(int));
                               // ================
 namespace class_completion {
 class C;
-static_assert(is_incomplete_type(^^C));
+static_assert(!is_complete_type(^^C));
 static_assert(is_type(define_class(^^C, {
                 data_member_spec(^^int, {.name="count"}),
                 data_member_spec(^^bool, {.name="flag"}),
               })));
-static_assert(!is_incomplete_type(^^C));
+static_assert(is_complete_type(^^C));
 static_assert(nonstatic_data_members_of(^^C).size() == 2);
 static_assert(
         (members_of(^^C) |
@@ -113,12 +113,12 @@ C c;
 
 namespace union_completion {
 union U;
-static_assert(is_incomplete_type(^^U));
+static_assert(!is_complete_type(^^U));
 static_assert(is_type(define_class(^^U, {
                 data_member_spec(^^int, {.name="count"}),
                 data_member_spec(^^bool, {.name="flag"}),
               })));
-static_assert(!is_incomplete_type(^^U));
+static_assert(is_complete_type(^^U));
 static_assert(size_of(^^U) == size_of(^^U::count));
 static_assert(nonstatic_data_members_of(^^U).size() == 2);
 static_assert(
@@ -140,7 +140,7 @@ template <> struct S<2> {};
 
 consteval int nextIncompleteIdx() {
   for (int Idx = 0;; ++Idx)
-    if (is_incomplete_type(substitute(^^S, {std::meta::reflect_value(Idx)})))
+    if (!is_complete_type(substitute(^^S, {std::meta::reflect_value(Idx)})))
       return Idx;
 }
 static_assert(is_type(define_class(^^S<nextIncompleteIdx()>, {
@@ -156,7 +156,7 @@ static_assert(type_of(^^S<1>::mem) == ^^int);
 static_assert(nonstatic_data_members_of(^^S<2>).size() == 0);
 static_assert(nonstatic_data_members_of(^^S<3>).size() == 1);
 static_assert(type_of(^^S<3>::mem) == ^^bool);
-static_assert(is_incomplete_type(^^S<4>));
+static_assert(!is_complete_type(^^S<4>));
 }  // namespace template_specialization_completion
 
                         // ============================
@@ -170,11 +170,11 @@ consteval bool completeDefn() {
 }
 
 struct S;
-static_assert(is_incomplete_type(^^S));
+static_assert(!is_complete_type(^^S));
 static_assert(completeDefn<S,
                            data_member_spec(^^bool, {.name="flag"}),
                            data_member_spec(^^int, {.name="count"})>());
-static_assert(!is_incomplete_type(^^S));
+static_assert(is_complete_type(^^S));
 static_assert(nonstatic_data_members_of(^^S).size() == 2);
 
 S s;
