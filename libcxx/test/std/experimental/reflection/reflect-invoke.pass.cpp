@@ -247,7 +247,7 @@ public:
 
   consteval int plus(int a) const { return plus_impl(a); }
 
-  consteval int get_value() const { return value; }
+  constexpr int get_value() const { return value; }
 
   consteval Number operator+(int num) const { return Number(plus_impl(num)); }
 
@@ -263,7 +263,6 @@ private:
 };
 
 constexpr Number num{42};
-constexpr auto num_ref = &num;
 
 // member function with input arguments
 static_assert(std::meta::reflect_value(84) ==
@@ -282,6 +281,7 @@ static_assert(std::meta::reflect_value(42) ==
                              {^num}));
 
 // member function called with object reference
+constexpr auto num_ref = &num;
 static_assert(std::meta::reflect_value(42) ==
               reflect_invoke(^Number::get_value,
                              {^num_ref}));
@@ -291,6 +291,29 @@ static_assert(std::meta::reflect_value(84) ==
               reflect_invoke(^Number::multiply,
                              {^int},
                              {^num, std::meta::reflect_value(2)}));
+
+// Invoking Base::fn() with an object of type Child
+struct IsReal {
+  consteval IsReal(bool v): value(v){}
+
+  consteval bool is_real() const {
+    return value;
+  }
+
+  const bool value;
+};
+
+struct FloatNumber : public Number, IsReal{
+  consteval FloatNumber(int v) : Number(v), IsReal(true) {}
+};
+
+constexpr FloatNumber childNumber{42};
+static_assert(std::meta::reflect_value(42) ==
+              reflect_invoke(^Number::get_value,
+                             {^childNumber}));
+static_assert(std::meta::reflect_value(true) ==
+              reflect_invoke(^IsReal::is_real,
+                             {^childNumber}));
 
 } // namespace non_static_member_functions
 

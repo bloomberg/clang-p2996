@@ -4437,6 +4437,15 @@ bool is_nonstatic_member_function(ValueDecl *FD) {
   return !MD->isStatic();
 }
 
+bool is_method_in_class_or_parent(const CXXMethodDecl *MD,
+                                  const CXXRecordDecl *ObjClass) {
+  if (ObjClass == MD->getParent()) {
+    return true;
+  }
+
+  return ObjClass->isDerivedFrom(MD->getParent());
+}
+
 bool reflect_invoke(APValue &Result, Sema &S, EvalFn Evaluator,
                     DiagFn Diagnoser, QualType ResultTy, SourceRange Range,
                     ArrayRef<Expr *> Args) {
@@ -4663,7 +4672,7 @@ bool reflect_invoke(APValue &Result, Sema &S, EvalFn Evaluator,
         auto *MD = cast<CXXMethodDecl>(DRE->getDecl());
 
         // check that method belongs to class
-        if (ObjType->getAsCXXRecordDecl() != MD->getParent()) {
+        if (!is_method_in_class_or_parent(MD, ObjType->getAsCXXRecordDecl())) {
           return Diagnoser(Range.getBegin(),
                            diag::metafn_function_is_not_member_of_object)
                  << Range;
