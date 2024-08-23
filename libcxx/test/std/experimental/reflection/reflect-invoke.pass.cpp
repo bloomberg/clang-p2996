@@ -243,23 +243,23 @@ namespace non_static_member_functions {
 
 struct Number {
 public:
-  constexpr Number(int v) : value(v) {}
+  consteval Number(int v) : value(v) {}
 
-  constexpr int plus(int a) const { return plus_impl(a); }
+  consteval int plus(int a) const { return plus_impl(a); }
 
-  constexpr int get_value() const { return value; }
+  consteval int get_value() const { return value; }
 
-  constexpr Number operator+(int num) const { return Number(plus_impl(num)); }
+  consteval Number operator+(int num) const { return Number(plus_impl(num)); }
 
   template <typename T>
-  constexpr T multiply(T x) const {
+  consteval T multiply(T x) const {
     return value * x;
   }
 
   const int value;
 
 private:
-  constexpr int plus_impl(int a) const { return value + a; }
+  consteval int plus_impl(int a) const { return value + a; }
 };
 
 constexpr Number num{42};

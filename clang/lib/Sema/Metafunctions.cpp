@@ -4629,7 +4629,7 @@ bool reflect_invoke(APValue &Result, Sema &S, EvalFn Evaluator,
           CtorD, false, ArgExprs, false, false, false, false,
           CXXConstructionKind::Complete, Range);
     } else {
-      auto *FnExpr = FnRefExpr;
+      Expr *FnExpr = FnRefExpr;
       bool handle_member_func =
           DRE && is_nonstatic_member_function(DRE->getDecl());
 
@@ -4642,8 +4642,8 @@ bool reflect_invoke(APValue &Result, Sema &S, EvalFn Evaluator,
                  << Range;
         }
 
-        auto ObjExpr = ArgExprs[0];
-        auto ObjType = ObjExpr->getType();
+        Expr *ObjExpr = ArgExprs[0];
+        QualType ObjType = ObjExpr->getType();
 
         if (ObjType->isPointerType()) {
           ObjType = ObjType->getPointeeType();

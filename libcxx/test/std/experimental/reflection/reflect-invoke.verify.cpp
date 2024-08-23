@@ -43,7 +43,7 @@ int main() {
 
  reflect_invoke(^A::void_fn, {^expectedClass});
  // expected-error-re@-1 {{call to consteval function 'std::meta::reflect_invoke<{{.*}}>' is not a constant expression}}
- // expected-note@-2 {{cannot invoke reflection of void function}}
+ // expected-note@-2 {{cannot invoke reflection of void-returning function}}
 
  reflect_invoke(^A::fn, {});
  // expected-error-re@-1 {{call to consteval function 'std::meta::reflect_invoke<{{.*}}>' is not a constant expression}}

@@ -66,7 +66,7 @@ def metafn_function_is_not_member_of_object : Note<
    "method is not a member of "
    "given object reflection">;
 def metafn_function_returns_void : Note<
-   "cannot invoke reflection of void function">;
+   "cannot invoke reflection of void-returning function">;
 
 
 // Extraction.
