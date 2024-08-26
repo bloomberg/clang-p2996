@@ -3210,6 +3210,10 @@ public:
   /// Set the C++11 in-class initializer for this member.
   void setInClassInitializer(Expr *NewInit);
 
+  /// Find the FieldDecl specified in a FAM's "counted_by" attribute. Returns
+  /// \p nullptr if either the attribute or the field doesn't exist.
+  const FieldDecl *findCountedByField() const;
+
 private:
   void setLazyInClassInitializer(LazyDeclStmtPtr NewInit);
 
@@ -4296,9 +4300,9 @@ public:
 
   void setIsRandomized(bool V) { RecordDeclBits.IsRandomized = V; }
 
-  bool isMetaType() const { return RecordDeclBits.IsMetaType; }
+  bool isConstevalOnly() const { return RecordDeclBits.IsConstevalOnly; }
 
-  void setIsMetaType(bool V) { RecordDeclBits.IsMetaType = V; }
+  void setIsConstevalOnly(bool V) { RecordDeclBits.IsConstevalOnly = V; }
 
   void reorderDecls(const SmallVectorImpl<Decl *> &Decls);
 

@@ -109,12 +109,12 @@ namespace {
       if (E->hasDependentSubExpr())
         return true;
 
-      if (E->getReflection().getKind() == ReflectionValue::RK_declaration) {
-        ValueDecl *VD = E->getReflection().getAsDecl();
+      if (E->getReflection().isReflectedDecl()) {
+        ValueDecl *VD = E->getReflection().getReflectedDecl();
         if (VD->isParameterPack())
           addUnexpanded(VD, E->getExprLoc());
-      } else if (E->getReflection().getKind() == ReflectionValue::RK_template) {
-        TemplateName TName = E->getReflection().getAsTemplate();
+      } else if (E->getReflection().isReflectedTemplate()) {
+        TemplateName TName = E->getReflection().getReflectedTemplate();
         if (TName.containsUnexpandedParameterPack()) {
           addUnexpanded(TName.getAsTemplateDecl());
         }
@@ -857,12 +857,9 @@ bool Sema::CheckParameterPacksForExpansion(
   return false;
 }
 
-std::optional<unsigned> Sema::getNumArgumentsInExpansion(
-    QualType T, const MultiLevelTemplateArgumentList &TemplateArgs) {
-  QualType Pattern = cast<PackExpansionType>(T)->getPattern();
-  SmallVector<UnexpandedParameterPack, 2> Unexpanded;
-  CollectUnexpandedParameterPacksVisitor(Unexpanded).TraverseType(Pattern);
-
+std::optional<unsigned> Sema::getNumArgumentsInExpansionFromUnexpanded(
+    llvm::ArrayRef<UnexpandedParameterPack> Unexpanded,
+    const MultiLevelTemplateArgumentList &TemplateArgs) {
   std::optional<unsigned> Result;
   for (unsigned I = 0, N = Unexpanded.size(); I != N; ++I) {
     // Compute the depth and index for this parameter pack.
@@ -908,6 +905,14 @@ std::optional<unsigned> Sema::getNumArgumentsInExpansion(
   }
 
   return Result;
+}
+
+std::optional<unsigned> Sema::getNumArgumentsInExpansion(
+    QualType T, const MultiLevelTemplateArgumentList &TemplateArgs) {
+  QualType Pattern = cast<PackExpansionType>(T)->getPattern();
+  SmallVector<UnexpandedParameterPack, 2> Unexpanded;
+  CollectUnexpandedParameterPacksVisitor(Unexpanded).TraverseType(Pattern);
+  return getNumArgumentsInExpansionFromUnexpanded(Unexpanded, TemplateArgs);
 }
 
 bool Sema::containsUnexpandedParameterPacks(Declarator &D) {
@@ -968,6 +973,8 @@ bool Sema::containsUnexpandedParameterPacks(Declarator &D) {
   case TST_BFloat16:
 #define GENERIC_IMAGE_TYPE(ImgType, Id) case TST_##ImgType##_t:
 #include "clang/Basic/OpenCLImageTypes.def"
+#define HLSL_INTANGIBLE_TYPE(Name, Id, SingletonId) case TST_##Name:
+#include "clang/Basic/HLSLIntangibleTypes.def"
   case TST_unknown_anytype:
   case TST_error:
     break;
@@ -1101,10 +1108,8 @@ static bool isParameterPack(Expr *PackExpression) {
     ValueDecl *VD = D->getDecl();
     return VD->isParameterPack();
   } else if (auto *R = dyn_cast<CXXReflectExpr>(PackExpression)) {
-    if (!R->hasDependentSubExpr() &&
-        R->getReflection().getKind() == ReflectionValue::RK_declaration) {
-      return R->getReflection().getAsDecl()->isParameterPack();
-    }
+    if (!R->hasDependentSubExpr() && R->getReflection().isReflectedDecl())
+      return R->getReflection().getReflectedDecl()->isParameterPack();
   }
   return false;
 }

@@ -10,6 +10,7 @@
 
 // UNSUPPORTED: c++03 || c++11 || c++14 || c++17 || c++20
 // ADDITIONAL_COMPILE_FLAGS: -freflection
+// ADDITIONAL_COMPILE_FLAGS: -freflection-new-syntax
 
 // <experimental/reflection>
 //
@@ -29,7 +30,7 @@
 
 // Represents a 'std::meta::info' constrained by a predicate.
 template <std::meta::info Pred>
-  requires (^decltype([:Pred:](^int)) == ^bool)
+  requires (^^decltype([:Pred:](^^int)) == ^^bool)
 struct metatype {
   std::meta::info value;
 
@@ -58,14 +59,14 @@ consteval std::meta::info enrich(std::meta::info r) {
   // the first constructor. The copy/move constructors are added at the }, so
   // will be the last ones in the list.
   std::array ctors = {
-      (members_of(^Choices) |
+      (members_of(^^Choices) |
            std::views::filter(std::meta::is_constructor) |
            std::views::filter(std::meta::is_user_provided)).front()...,
-      (members_of(^unmatched) |
+      (members_of(^^unmatched) |
            std::views::filter(std::meta::is_constructor) |
            std::views::filter(std::meta::is_user_provided)).front()
   };
-  std::array checks = {^Choices::check..., ^unmatched::check};
+  std::array checks = {^^Choices::check..., ^^unmatched::check};
 
   for (auto [check, ctor] : std::views::zip(checks, ctors))
     if (extract<bool>(reflect_invoke(check, {reflect_value(r)})))
@@ -74,8 +75,8 @@ consteval std::meta::info enrich(std::meta::info r) {
   std::unreachable();
 }
 
-using type_t = metatype<^std::meta::is_type>;
-using template_t = metatype<^std::meta::is_template>;
+using type_t = metatype<^^std::meta::is_type>;
+using template_t = metatype<^^std::meta::is_template>;
 
 // Example of a function overloaded for different "types" of reflections.
 void PrintKind(type_t) { std::println("type"); }
@@ -92,7 +93,7 @@ int main() {
   };
 
   // Demonstration of using 'enrich' to select an overload.
-  PrintKind([:enrich(^metatype):]);                    // "template"
-  PrintKind([:enrich(^type_t):]);                      // "type"
+  PrintKind([:enrich(^^metatype):]);                    // "template"
+  PrintKind([:enrich(^^type_t):]);                      // "type"
   PrintKind([:enrich(std::meta::reflect_value(3)):]);  // "unknown kind"
 }

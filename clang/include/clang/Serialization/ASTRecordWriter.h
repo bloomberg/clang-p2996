@@ -159,6 +159,10 @@ public:
     Record->push_back(Value);
   }
 
+  void writeChar(char Value) {
+    Record->push_back(Value);
+  }
+
   void writeUInt32(uint32_t Value) {
     Record->push_back(Value);
   }
@@ -182,11 +186,6 @@ public:
 
   /// Emit an APvalue.
   void AddAPValue(const APValue &Value) { writeAPValue(Value); }
-
-  /// Emit a ReflectionValue.
-  void AddReflectionValue(const ReflectionValue &Value) {
-    writeReflectionValue(Value);
-  }
 
   /// Emit a reference to an identifier.
   void AddIdentifierRef(const IdentifierInfo *II) {

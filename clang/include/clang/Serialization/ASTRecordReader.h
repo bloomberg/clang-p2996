@@ -306,6 +306,8 @@ public:
   /// Read a boolean value, advancing Idx.
   bool readBool() { return readInt() != 0; }
 
+  char readChar() { return char(readInt()); }
+
   /// Read a 32-bit unsigned value; required to satisfy BasicReader.
   uint32_t readUInt32() {
     return uint32_t(readInt());
@@ -354,6 +356,12 @@ public:
   /// Retrieve the switch-case statement with the given ID.
   SwitchCase *getSwitchCaseWithID(unsigned ID) {
     return Reader->getSwitchCaseWithID(ID);
+  }
+
+  /// P2996 hack: Use the 'Sema' object from the ASTReader to get a
+  /// metafunction callback during deserialization of a CXXMetafunctionExpr.
+  const CXXMetafunctionExpr::ImplFn &getMetafunctionCb(unsigned ID) {
+    return Reader->getSema()->getMetafunctionCb(ID);
   }
 };
 

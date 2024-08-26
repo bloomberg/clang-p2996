@@ -10,6 +10,7 @@
 
 // UNSUPPORTED: c++03 || c++11 || c++14 || c++17 || c++20
 // ADDITIONAL_COMPILE_FLAGS: -freflection
+// ADDITIONAL_COMPILE_FLAGS: -freflection-new-syntax
 // ADDITIONAL_COMPILE_FLAGS: -Wno-inconsistent-missing-override
 
 // <experimental/reflection>
@@ -46,7 +47,7 @@ consteval auto expand(R range) {
   for (auto r : range) {
     args.push_back(std::meta::reflect_value(r));
   }
-  return substitute(^__impl::replicator, args);
+  return substitute(^^__impl::replicator, args);
 }
 // end 'expand' definition
 
@@ -86,7 +87,7 @@ struct Clap {
     // check if cmdline contains --help, etc.
 
     struct Opts;
-    static_assert(is_type(spec_to_opts(^Opts, ^Spec)));
+    static_assert(is_type(spec_to_opts(^^Opts, ^^Spec)));
     Opts opts;
 
     struct Z {
@@ -95,8 +96,8 @@ struct Clap {
     };
 
     [:expand([]() consteval {
-      auto spec_members = nonstatic_data_members_of(^Spec);
-      auto opts_members = nonstatic_data_members_of(^Opts);
+      auto spec_members = nonstatic_data_members_of(^^Spec);
+      auto opts_members = nonstatic_data_members_of(^^Opts);
 
       std::vector<Z> v;
       for (size_t i = 0; i != spec_members.size(); ++i) {
@@ -125,7 +126,7 @@ struct Clap {
         // around short-circuiting of compound 'if constexpr'-conditions:
         //   https://godbolt.org/z/9b4faz96T
         if constexpr (has_template_arguments(type_of(om))) {
-          if (template_of(type_of(om)) == ^std::optional)
+          if (template_of(type_of(om)) == ^^std::optional)
             // the type is optional, so the argument is too
             return;
         } else if (cur.initializer) {

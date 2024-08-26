@@ -78,7 +78,7 @@ bool Qualifiers::isStrictSupersetOf(Qualifiers Other) const {
 const IdentifierInfo* QualType::getBaseTypeIdentifier() const {
   const Type* ty = getTypePtr();
   NamedDecl *ND = nullptr;
-  if (ty->isPointerType() || ty->isReferenceType())
+  if (ty->isPointerOrReferenceType())
     return ty->getPointeeType().getBaseTypeIdentifier();
   else if (ty->isRecordType())
     ND = ty->castAs<RecordType>()->getDecl();
@@ -156,7 +156,7 @@ ArrayType::ArrayType(TypeClass tc, QualType et, QualType can,
                                     : TypeDependence::None) |
                (tc == DependentSizedArray
                     ? TypeDependence::DependentInstantiation
-                    : TypeDependence::None), et->isMetaType()),
+                    : TypeDependence::None), et->isConstevalOnly()),
       ElementType(et) {
   ArrayTypeBits.IndexTypeQuals = tq;
   ArrayTypeBits.SizeModifier = llvm::to_underlying(sm);
@@ -270,7 +270,8 @@ DependentVectorType::DependentVectorType(QualType ElementType,
            TypeDependence::DependentInstantiation |
                ElementType->getDependence() |
                (SizeExpr ? toTypeDependence(SizeExpr->getDependence())
-                         : TypeDependence::None), ElementType->isMetaType()),
+                         : TypeDependence::None),
+            ElementType->isConstevalOnly()),
       ElementType(ElementType), SizeExpr(SizeExpr), Loc(Loc) {
   VectorTypeBits.VecKind = llvm::to_underlying(VecKind);
 }
@@ -292,7 +293,8 @@ DependentSizedExtVectorType::DependentSizedExtVectorType(QualType ElementType,
            TypeDependence::DependentInstantiation |
                ElementType->getDependence() |
                (SizeExpr ? toTypeDependence(SizeExpr->getDependence())
-                         : TypeDependence::None), ElementType->isMetaType()),
+                         : TypeDependence::None),
+            ElementType->isConstevalOnly()),
       SizeExpr(SizeExpr), ElementType(ElementType), loc(loc) {}
 
 void
@@ -312,7 +314,7 @@ DependentAddressSpaceType::DependentAddressSpaceType(QualType PointeeType,
                PointeeType->getDependence() |
                (AddrSpaceExpr ? toTypeDependence(AddrSpaceExpr->getDependence())
                               : TypeDependence::None),
-           PointeeType->isMetaType()),
+           PointeeType->isConstevalOnly()),
       AddrSpaceExpr(AddrSpaceExpr), PointeeType(PointeeType), loc(loc) {}
 
 void DependentAddressSpaceType::Profile(llvm::FoldingSetNodeID &ID,
@@ -339,7 +341,7 @@ MatrixType::MatrixType(TypeClass tc, QualType matrixType, QualType canonType,
                             ? TypeDependence::UnexpandedPack
                             : TypeDependence::None))
                     : matrixType->getDependence()),
-           matrixType->isMetaType()),
+           matrixType->isConstevalOnly()),
       ElementType(matrixType) {}
 
 ConstantMatrixType::ConstantMatrixType(QualType matrixType, unsigned nRows,
@@ -377,19 +379,20 @@ VectorType::VectorType(QualType vecType, unsigned nElements, QualType canonType,
 
 VectorType::VectorType(TypeClass tc, QualType vecType, unsigned nElements,
                        QualType canonType, VectorKind vecKind)
-    : Type(tc, canonType, vecType->getDependence(), vecType->isMetaType()),
+    : Type(tc, canonType, vecType->getDependence(), vecType->isConstevalOnly()),
       ElementType(vecType) {
   VectorTypeBits.VecKind = llvm::to_underlying(vecKind);
   VectorTypeBits.NumElements = nElements;
 }
 
 BitIntType::BitIntType(bool IsUnsigned, unsigned NumBits)
-    : Type(BitInt, QualType{}, TypeDependence::None, /*MetaType=*/false),
+    : Type(BitInt, QualType{}, TypeDependence::None, /*ConstevalOnly=*/false),
       IsUnsigned(IsUnsigned), NumBits(NumBits) {}
 
 DependentBitIntType::DependentBitIntType(bool IsUnsigned, Expr *NumBitsExpr)
     : Type(DependentBitInt, QualType{},
-           toTypeDependence(NumBitsExpr->getDependence()), /*MetaType=*/false),
+           toTypeDependence(NumBitsExpr->getDependence()),
+           /*ConstevalOnly=*/false),
       ExprAndUnsigned(NumBitsExpr, IsUnsigned) {}
 
 bool DependentBitIntType::isUnsigned() const {
@@ -648,14 +651,14 @@ bool Type::isStructureTypeWithFlexibleArrayMember() const {
   return Decl->hasFlexibleArrayMember();
 }
 
-bool Type::isMetaType() const {
+bool Type::isConstevalOnly() const {
   const Type *CanonType = getCanonicalTypeInternal().getTypePtr();
   if (CanonType != this)
-    return CanonType->isMetaType();
-  else if (TypeBits.MetaType)
+    return CanonType->isConstevalOnly();
+  else if (TypeBits.ConstevalOnly)
     return true;
   else if (auto *RD = getAsRecordDecl())
-    return RD->isMetaType();
+    return RD->isConstevalOnly();
   return false;
 }
 
@@ -820,7 +823,7 @@ bool Type::isObjCClassOrClassKindOfType() const {
 ObjCTypeParamType::ObjCTypeParamType(const ObjCTypeParamDecl *D, QualType can,
                                      ArrayRef<ObjCProtocolDecl *> protocols)
     : Type(ObjCTypeParam, can, toSemanticDependence(can->getDependence()),
-           /*MetaType=*/false),
+           /*ConstevalOnly=*/false),
       OTPDecl(const_cast<ObjCTypeParamDecl *>(D)) {
   initialize(protocols);
 }
@@ -829,7 +832,8 @@ ObjCObjectType::ObjCObjectType(QualType Canonical, QualType Base,
                                ArrayRef<QualType> typeArgs,
                                ArrayRef<ObjCProtocolDecl *> protocols,
                                bool isKindOf)
-    : Type(ObjCObject, Canonical, Base->getDependence(), /*MetaType=*/false),
+    : Type(ObjCObject, Canonical, Base->getDependence(),
+           /*ConstevalOnly=*/false),
       BaseType(Base) {
   ObjCObjectTypeBits.IsKindOf = isKindOf;
 
@@ -2467,6 +2471,9 @@ bool Type::isSizelessBuiltinType() const {
       // WebAssembly reference types
 #define WASM_TYPE(Name, Id, SingletonId) case BuiltinType::Id:
 #include "clang/Basic/WebAssemblyReferenceTypes.def"
+      // HLSL intangible types
+#define HLSL_INTANGIBLE_TYPE(Name, Id, SingletonId) case BuiltinType::Id:
+#include "clang/Basic/HLSLIntangibleTypes.def"
       return true;
     default:
       return false;
@@ -3528,6 +3535,10 @@ StringRef BuiltinType::getName(const PrintingPolicy &Policy) const {
   case Id:                                                                     \
     return Name;
 #include "clang/Basic/AMDGPUTypes.def"
+#define HLSL_INTANGIBLE_TYPE(Name, Id, SingletonId)                            \
+  case Id:                                                                     \
+    return #Name;
+#include "clang/Basic/HLSLIntangibleTypes.def"
   }
 
   llvm_unreachable("Invalid builtin type.");
@@ -3986,7 +3997,8 @@ TypeOfExprType::TypeOfExprType(const ASTContext &Context, Expr *E,
                : Can,
            toTypeDependence(E->getDependence()) |
                (E->getType()->getDependence() &
-                TypeDependence::VariablyModified), E->getType()->isMetaType()),
+                TypeDependence::VariablyModified),
+           E->getType()->isConstevalOnly()),
       TOExpr(E), Context(Context) {
   TypeOfBits.Kind = static_cast<unsigned>(Kind);
 }
@@ -4018,7 +4030,7 @@ TypeOfType::TypeOfType(const ASTContext &Context, QualType T, QualType Can,
            Kind == TypeOfKind::Unqualified
                ? Context.getUnqualifiedArrayType(Can).getAtomicUnqualifiedType()
                : Can,
-           T->getDependence(), /*MetaType=*/false),
+           T->getDependence(), /*ConstevalOnly=*/false),
       TOType(T), Context(Context) {
   TypeOfBits.Kind = static_cast<unsigned>(Kind);
 }
@@ -4039,7 +4051,8 @@ DecltypeType::DecltypeType(Expr *E, QualType underlyingType, QualType can)
                (E->isInstantiationDependent() ? TypeDependence::Dependent
                                               : TypeDependence::None) |
                (E->getType()->getDependence() &
-                TypeDependence::VariablyModified), E->getType()->isMetaType()),
+                TypeDependence::VariablyModified),
+           E->getType()->isConstevalOnly()),
       E(E), UnderlyingType(underlyingType) {}
 
 bool DecltypeType::isSugared() const { return !E->isInstantiationDependent(); }
@@ -4062,7 +4075,7 @@ void DependentDecltypeType::Profile(llvm::FoldingSetNodeID &ID,
 ReflectionSpliceType::ReflectionSpliceType(Expr *Operand, QualType T,
                                            QualType Canon)
   : Type(ReflectionSplice, Canon, toTypeDependence(Operand->getDependence()),
-         T->isMetaType()),
+         T->isConstevalOnly()),
     Operand(Operand), UnderlyingTy(T) {
 }
 
@@ -4095,7 +4108,7 @@ PackIndexingType::PackIndexingType(const ASTContext &Context,
                                    ArrayRef<QualType> Expansions)
     : Type(PackIndexing, Canonical,
            computeDependence(Pattern, IndexExpr, Expansions),
-           !Canonical.isNull() ? Canonical->isMetaType() : false),
+           !Canonical.isNull() ? Canonical->isConstevalOnly() : false),
       Context(Context), Pattern(Pattern), IndexExpr(IndexExpr),
       Size(Expansions.size()) {
 
@@ -4151,7 +4164,7 @@ UnaryTransformType::UnaryTransformType(QualType BaseType,
                                        QualType UnderlyingType, UTTKind UKind,
                                        QualType CanonicalType)
     : Type(UnaryTransform, CanonicalType, BaseType->getDependence(),
-           BaseType->isMetaType()),
+           BaseType->isConstevalOnly()),
       BaseType(BaseType), UnderlyingType(UnderlyingType), UKind(UKind) {}
 
 DependentUnaryTransformType::DependentUnaryTransformType(const ASTContext &C,
@@ -4163,7 +4176,7 @@ TagType::TagType(TypeClass TC, const TagDecl *D, QualType can)
     : Type(TC, can,
            D->isDependentType() ? TypeDependence::DependentInstantiation
                                 : TypeDependence::None,
-           /*MetaType=*/false),
+           /*ConstevalOnly=*/false),
       decl(const_cast<TagDecl *>(D)) {}
 
 static TagDecl *getInterestingTagDecl(TagDecl *decl) {
@@ -4296,7 +4309,7 @@ SubstTemplateTypeParmType::SubstTemplateTypeParmType(
     QualType Replacement, Decl *AssociatedDecl, unsigned Index,
     std::optional<unsigned> PackIndex)
     : Type(SubstTemplateTypeParm, Replacement.getCanonicalType(),
-           Replacement->getDependence(), /*MetaType=*/false),
+           Replacement->getDependence(), /*ConstevalOnly=*/false),
       AssociatedDecl(AssociatedDecl) {
   SubstTemplateTypeParmTypeBits.HasNonCanonicalUnderlyingType =
       Replacement != getCanonicalTypeInternal();
@@ -4318,7 +4331,7 @@ SubstTemplateTypeParmPackType::SubstTemplateTypeParmPackType(
     const TemplateArgument &ArgPack)
     : Type(SubstTemplateTypeParmPack, Canon,
            TypeDependence::DependentInstantiation |
-               TypeDependence::UnexpandedPack, /*MetaType=*/false),
+               TypeDependence::UnexpandedPack, /*ConstevalOnly=*/false),
       Arguments(ArgPack.pack_begin()),
       AssociatedDeclAndFinal(AssociatedDecl, Final) {
   SubstTemplateTypeParmPackTypeBits.Index = Index;
@@ -4393,7 +4406,7 @@ TemplateSpecializationType::TemplateSpecializationType(
                 ? TypeDependence::DependentInstantiation
                 : toSemanticDependence(Canon->getDependence())) |
                (toTypeDependence(T.getDependence()) &
-                TypeDependence::UnexpandedPack), /*MetaType=*/false),
+                TypeDependence::UnexpandedPack), /*ConstevalOnly=*/false),
       Template(T) {
   TemplateSpecializationTypeBits.NumArgs = Args.size();
   TemplateSpecializationTypeBits.TypeAlias = !AliasedType.isNull();
@@ -4896,6 +4909,8 @@ bool Type::canHaveNullability(bool ResultIfUnknown) const {
 #include "clang/Basic/WebAssemblyReferenceTypes.def"
 #define AMDGPU_TYPE(Name, Id, SingletonId) case BuiltinType::Id:
 #include "clang/Basic/AMDGPUTypes.def"
+#define HLSL_INTANGIBLE_TYPE(Name, Id, SingletonId) case BuiltinType::Id:
+#include "clang/Basic/HLSLIntangibleTypes.def"
     case BuiltinType::BuiltinFn:
     case BuiltinType::NullPtr:
     case BuiltinType::MetaInfo:

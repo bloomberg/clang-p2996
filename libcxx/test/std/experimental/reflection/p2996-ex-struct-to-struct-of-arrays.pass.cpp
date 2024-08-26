@@ -10,6 +10,7 @@
 
 // UNSUPPORTED: c++03 || c++11 || c++14 || c++17 || c++20
 // ADDITIONAL_COMPILE_FLAGS: -freflection
+// ADDITIONAL_COMPILE_FLAGS: -freflection-new-syntax
 // ADDITIONAL_COMPILE_FLAGS: -Wno-inconsistent-missing-override
 
 // <experimental/reflection>
@@ -33,18 +34,18 @@ consteval auto make_struct_of_arrays(std::meta::info type,
   std::vector<std::meta::info> old_members = nonstatic_data_members_of(type);
   std::vector<std::meta::info> new_members = {};
   for (std::meta::info member : old_members) {
-    auto array_type = substitute(^std::array, {type_of(member), N });
+    auto array_type = substitute(^^std::array, {type_of(member), N });
     auto mem_descr = data_member_spec(array_type,
                                       {.name=identifier_of(member)});
     new_members.push_back(mem_descr);
   }
-  return std::meta::define_class(substitute(^struct_of_arrays_impl, {type, N}),
+  return std::meta::define_class(substitute(^^struct_of_arrays_impl, {type, N}),
                                  new_members);
 }
 
 template <typename T, size_t N>
 using struct_of_arrays = 
-    [: make_struct_of_arrays(^T, std::meta::reflect_value(N)) :];
+    [: make_struct_of_arrays(^^T, std::meta::reflect_value(N)) :];
 
 
 struct point {

@@ -8,9 +8,9 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// RUN: %clang_cc1 %s -std=c++23 -freflection
+// RUN: %clang_cc1 %s -std=c++23 -freflection -freflection-new-syntax
 
-using info = decltype(^int);
+using info = decltype(^^int);
 
 int global_decl;
 
@@ -30,9 +30,9 @@ namespace inner {
   constexpr int x = 3;
 }  // namespace inner
 
-static_assert(&[:^:::]::global_decl == &::global_decl);
-static_assert(&[:^idempotency:]::inner::x == &inner::x);
-static_assert(&[:^inner:]::x == &inner::x);
+static_assert(&[:^^:::]::global_decl == &::global_decl);
+static_assert(&[:^^idempotency:]::inner::x == &inner::x);
+static_assert(&[:^^inner:]::x == &inner::x);
 }  // namespace idempotency
 
                                    // ======
@@ -42,9 +42,9 @@ static_assert(&[:^inner:]::x == &inner::x);
 namespace in_nns {
 namespace Alias = ::idempotency::inner;
 
-constexpr info r_global = ^::;
-constexpr info r_myns = ^::myns;
-constexpr info r_alias = ^Alias;
+constexpr info r_global = ^^::;
+constexpr info r_myns = ^^::myns;
+constexpr info r_alias = ^^Alias;
 
 static_assert([:r_global:]::x == 1);
 static_assert([:r_myns:]::x == 2);
@@ -60,13 +60,13 @@ static_assert(getX<r_myns>() == 2);
                                // ==============
 
 namespace in_alias_defns {
-constexpr info r_global = ^::;
-constexpr info r_myns = ^myns;
+constexpr info r_global = ^^::;
+constexpr info r_myns = ^^myns;
 
 namespace Alias1 = [:r_myns:];
 static_assert(Alias1::x == 2);
 
-constexpr auto r_Alias1 = ^Alias1;
+constexpr auto r_Alias1 = ^^Alias1;
 namespace Alias2 = [:r_Alias1:];
 static_assert(&myns::x == &Alias2::x);
 
@@ -82,7 +82,7 @@ consteval int XPlusY() {
 
   return ReAlias::x + ReAliasInner::z;
 }
-static_assert(XPlusY<^myns>() == 5);
+static_assert(XPlusY<^^myns>() == 5);
 }  // namespace in_alias_defns
 
                              // ===================
@@ -92,9 +92,9 @@ static_assert(XPlusY<^myns>() == 5);
 namespace in_using_directives {
 namespace Alias = ::myns::inner;
 
-constexpr info r_global = ^::;
-constexpr info r_myns = ^myns;
-constexpr info r_Alias = ^Alias;
+constexpr info r_global = ^^::;
+constexpr info r_myns = ^^myns;
+constexpr info r_Alias = ^^Alias;
 void test1() {
   using namespace [:r_global:]::idempotency;
   static_assert(inner::x == 3);

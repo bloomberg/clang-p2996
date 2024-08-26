@@ -10,6 +10,7 @@
 
 // UNSUPPORTED: c++03 || c++11 || c++14 || c++17 || c++20
 // ADDITIONAL_COMPILE_FLAGS: -freflection
+// ADDITIONAL_COMPILE_FLAGS: -freflection-new-syntax
 
 // <experimental/reflection>
 //
@@ -31,7 +32,7 @@ public:
 
     // Search for the next incomplete 'Helper<k>'.
     std::meta::info r;
-    while (!is_incomplete_type(r = substitute(^Helper,
+    while (is_complete_type(r = substitute(^^Helper,
                                              { std::meta::reflect_value(k) })))
       ++k;
 

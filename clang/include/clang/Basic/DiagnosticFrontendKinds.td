@@ -100,7 +100,8 @@ def warn_toc_unsupported_type : Warning<"-mtocdata option is ignored "
 def err_fe_invalid_code_complete_file : Error<
     "cannot locate code-completion file %0">, DefaultFatal;
 def err_fe_reflection_incompatible_with_blocks : Error<
-    "cannot specify both '-freflection' and '-fblocks'">, DefaultFatal;
+    "cannot specify both '-freflection' and '-fblocks' without "
+    "'-freflection-new-syntax'">, DefaultFatal;
 def err_fe_parameter_reflection_without_reflection : Error<
     "cannot specify '-fparameter-reflection' without '-freflection'">,
     DefaultFatal;
@@ -333,8 +334,8 @@ def err_non_default_visibility_dllimport : Error<
 def err_ifunc_resolver_return : Error<
   "ifunc resolver function must return a pointer">;
 
-def err_runtime_meta_info : Error<
-  "cannot emit a runtime definition of reflection type">;
+def err_runtime_consteval_only_type : Error<
+  "cannot emit a runtime definition of consteval-only type">;
 
 def warn_atomic_op_misaligned : Warning<
   "misaligned atomic operation may incur "

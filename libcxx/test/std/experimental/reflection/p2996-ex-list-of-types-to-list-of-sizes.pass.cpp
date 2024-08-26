@@ -10,6 +10,7 @@
 
 // UNSUPPORTED: c++03 || c++11 || c++14 || c++17 || c++20
 // ADDITIONAL_COMPILE_FLAGS: -freflection
+// ADDITIONAL_COMPILE_FLAGS: -freflection-new-syntax
 // ADDITIONAL_COMPILE_FLAGS: -Wno-inconsistent-missing-override
 
 // <experimental/reflection>
@@ -23,7 +24,7 @@
 
 
 int main() {
-  constexpr std::array types = {^int, ^float, ^double};
+  constexpr std::array types = {^^int, ^^float, ^^double};
 
   // https://bugs.llvm.org/show_bug.cgi?id=25627
   constexpr std::array sizes = [=]{

@@ -1847,8 +1847,8 @@ private:
     LLVM_PREFERRED_TYPE(TypeClass)
     unsigned TC : 8;
 
-    /// Whether this type is allowd only in constexpr contexts.
-    unsigned MetaType : 1;
+    /// Whether this is a consteval-only type ([basic.types.general], P2996).
+    unsigned ConstevalOnly : 1;
 
     /// Store information on the type dependency.
     LLVM_PREFERRED_TYPE(TypeDependence)
@@ -1934,6 +1934,11 @@ protected:
     unsigned Kind : NumOfBuiltinTypeBits;
   };
 
+public:
+  static constexpr int FunctionTypeNumParamsWidth = 16;
+  static constexpr int FunctionTypeNumParamsLimit = (1 << 16) - 1;
+
+protected:
   /// FunctionTypeBitfields store various bits belonging to FunctionProtoType.
   /// Only common bits are stored here. Additional uncommon bits are stored
   /// in a trailing object after FunctionProtoType.
@@ -1971,7 +1976,7 @@ protected:
     /// According to [implimits] 8 bits should be enough here but this is
     /// somewhat easy to exceed with metaprogramming and so we would like to
     /// keep NumParams as wide as reasonably possible.
-    unsigned NumParams : 16;
+    unsigned NumParams : FunctionTypeNumParamsWidth;
 
     /// The type of exception specification this function has.
     LLVM_PREFERRED_TYPE(ExceptionSpecificationType)
@@ -2139,6 +2144,23 @@ protected:
     unsigned hasTypeDifferentFromDecl : 1;
   };
 
+  class TemplateTypeParmTypeBitfields {
+    friend class TemplateTypeParmType;
+
+    LLVM_PREFERRED_TYPE(TypeBitfields)
+    unsigned : NumTypeBits;
+
+    /// The depth of the template parameter.
+    unsigned Depth : 15;
+
+    /// Whether this is a template parameter pack.
+    LLVM_PREFERRED_TYPE(bool)
+    unsigned ParameterPack : 1;
+
+    /// The index of the template parameter.
+    unsigned Index : 16;
+  };
+
   class SubstTemplateTypeParmTypeBitfields {
     friend class SubstTemplateTypeParmType;
 
@@ -2262,6 +2284,7 @@ protected:
     TypeWithKeywordBitfields TypeWithKeywordBits;
     ElaboratedTypeBitfields ElaboratedTypeBits;
     VectorTypeBitfields VectorTypeBits;
+    TemplateTypeParmTypeBitfields TemplateTypeParmTypeBits;
     SubstTemplateTypeParmTypeBitfields SubstTemplateTypeParmTypeBits;
     SubstTemplateTypeParmPackTypeBitfields SubstTemplateTypeParmPackTypeBits;
     TemplateSpecializationTypeBitfields TemplateSpecializationTypeBits;
@@ -2282,7 +2305,8 @@ private:
 protected:
   friend class ASTContext;
 
-  Type(TypeClass tc, QualType canon, TypeDependence Dependence, bool MetaType)
+  Type(TypeClass tc, QualType canon, TypeDependence Dependence,
+       bool ConstevalOnly)
       : ExtQualsTypeCommonBase(this,
                                canon.isNull() ? QualType(this_(), 0) : canon) {
     static_assert(sizeof(*this) <=
@@ -2291,7 +2315,7 @@ protected:
     static_assert(alignof(decltype(*this)) % TypeAlignment == 0,
                   "Insufficient alignment!");
     TypeBits.TC = tc;
-    TypeBits.MetaType = MetaType;
+    TypeBits.ConstevalOnly = ConstevalOnly;
     TypeBits.Dependence = static_cast<unsigned>(Dependence);
     TypeBits.CacheValid = false;
     TypeBits.CachedLocalOrUnnamed = false;
@@ -2308,8 +2332,8 @@ protected:
 
   void addDependence(TypeDependence D) { setDependence(getDependence() | D); }
 
-  void setMetaType(bool M = true) {
-    TypeBits.MetaType = M;
+  void setConstevalOnly(bool C = true) {
+    TypeBits.ConstevalOnly = C;
   }
 
 public:
@@ -2520,6 +2544,7 @@ public:
   bool isFunctionNoProtoType() const { return getAs<FunctionNoProtoType>(); }
   bool isFunctionProtoType() const { return getAs<FunctionProtoType>(); }
   bool isPointerType() const;
+  bool isPointerOrReferenceType() const;
   bool isSignableType() const;
   bool isAnyPointerType() const;   // Any C pointer or ObjC object pointer
   bool isCountAttributedType() const;
@@ -2544,7 +2569,7 @@ public:
   bool isClassType() const;
   bool isStructureType() const;
   bool isStructureTypeWithFlexibleArrayMember() const;
-  bool isMetaType() const;
+  bool isConstevalOnly() const;
   bool isObjCBoxableRecordType() const;
   bool isInterfaceType() const;
   bool isStructureOrClassType() const;
@@ -2640,6 +2665,10 @@ public:
   bool isPipeType() const;                      // OpenCL pipe type
   bool isBitIntType() const;                    // Bit-precise integer type
   bool isOpenCLSpecificType() const;            // Any OpenCL specific type
+
+#define HLSL_INTANGIBLE_TYPE(Name, Id, SingletonId) bool is##Id##Type() const;
+#include "clang/Basic/HLSLIntangibleTypes.def"
+  bool isHLSLSpecificType() const; // Any HLSL specific type
 
   /// Determines if this type, which must satisfy
   /// isObjCLifetimeType(), is implicitly __unsafe_unretained rather
@@ -3034,6 +3063,9 @@ public:
 // AMDGPU types
 #define AMDGPU_TYPE(Name, Id, SingletonId) Id,
 #include "clang/Basic/AMDGPUTypes.def"
+// HLSL intangible Types
+#define HLSL_INTANGIBLE_TYPE(Name, Id, SingletonId) Id,
+#include "clang/Basic/HLSLIntangibleTypes.def"
 // All other builtin types
 #define BUILTIN_TYPE(Id, SingletonId) Id,
 #define LAST_BUILTIN_TYPE(Id) LastKind = Id
@@ -3047,7 +3079,7 @@ private:
       : Type(Builtin, QualType(),
              K == Dependent ? TypeDependence::DependentInstantiation
                             : TypeDependence::None,
-             /*MetaType=*/(K == MetaInfo)) {
+             /*ConstevalOnly=*/(K == MetaInfo)) {
     static_assert(Kind::LastKind <
                       (1 << BuiltinTypeBitfields::NumOfBuiltinTypeBits) &&
                   "Defined builtin type exceeds the allocated space for serial "
@@ -3126,7 +3158,7 @@ class ComplexType : public Type, public llvm::FoldingSetNode {
 
   ComplexType(QualType Element, QualType CanonicalPtr)
       : Type(Complex, CanonicalPtr, Element->getDependence(),
-             /*MetaType=*/false),
+             /*ConstevalOnly=*/false),
         ElementType(Element) {}
 
 public:
@@ -3153,7 +3185,8 @@ class ParenType : public Type, public llvm::FoldingSetNode {
   QualType Inner;
 
   ParenType(QualType InnerType, QualType CanonType)
-      : Type(Paren, CanonType, InnerType->getDependence(), /*MetaType=*/false),
+      : Type(Paren, CanonType, InnerType->getDependence(),
+             /*ConstevalOnly=*/false),
         Inner(InnerType) {}
 
 public:
@@ -3181,7 +3214,7 @@ class PointerType : public Type, public llvm::FoldingSetNode {
 
   PointerType(QualType Pointee, QualType CanonicalPtr)
       : Type(Pointer, CanonicalPtr, Pointee->getDependence(),
-             Pointee->isMetaType()),
+             Pointee->isConstevalOnly()),
         PointeeType(Pointee) {}
 
 public:
@@ -3343,7 +3376,8 @@ protected:
 
   AdjustedType(TypeClass TC, QualType OriginalTy, QualType AdjustedTy,
                QualType CanonicalPtr)
-      : Type(TC, CanonicalPtr, OriginalTy->getDependence(), /*MetaType=*/false),
+      : Type(TC, CanonicalPtr, OriginalTy->getDependence(),
+             /*ConstevalOnly=*/false),
         OriginalTy(OriginalTy), AdjustedTy(AdjustedTy) {}
 
 public:
@@ -3393,7 +3427,7 @@ class BlockPointerType : public Type, public llvm::FoldingSetNode {
 
   BlockPointerType(QualType Pointee, QualType CanonicalCls)
       : Type(BlockPointer, CanonicalCls, Pointee->getDependence(),
-             /*MetaType=*/false),
+             /*ConstevalOnly=*/false),
         PointeeType(Pointee) {}
 
 public:
@@ -3424,7 +3458,7 @@ protected:
   ReferenceType(TypeClass tc, QualType Referencee, QualType CanonicalRef,
                 bool SpelledAsLValue)
       : Type(tc, CanonicalRef, Referencee->getDependence(),
-             Referencee->isMetaType()),
+             Referencee->isConstevalOnly()),
         PointeeType(Referencee) {
     ReferenceTypeBits.SpelledAsLValue = SpelledAsLValue;
     ReferenceTypeBits.InnerRef = Referencee->isReferenceType();
@@ -3510,7 +3544,7 @@ class MemberPointerType : public Type, public llvm::FoldingSetNode {
   MemberPointerType(QualType Pointee, const Type *Cls, QualType CanonicalPtr)
       : Type(MemberPointer, CanonicalPtr,
              (Cls->getDependence() & ~TypeDependence::VariablyModified) |
-                 Pointee->getDependence(), /*MetaType=*/false),
+                 Pointee->getDependence(), /*ConstevalOnly=*/false),
         PointeeType(Pointee), Class(Cls) {}
 
 public:
@@ -4000,6 +4034,10 @@ enum class VectorKind {
 
   /// is RISC-V RVV fixed-length mask vector
   RVVFixedLengthMask,
+
+  RVVFixedLengthMask_1,
+  RVVFixedLengthMask_2,
+  RVVFixedLengthMask_4
 };
 
 /// Represents a GCC generic vector type. This type is created using
@@ -4604,7 +4642,7 @@ public:
 protected:
   FunctionType(TypeClass tc, QualType res, QualType Canonical,
                TypeDependence Dependence, ExtInfo Info)
-      : Type(tc, Canonical, Dependence, /*MetaType=*/false), ResultType(res) {
+      : Type(tc, Canonical, Dependence, /*ConstevalOnly=*/false), ResultType(res) {
     FunctionTypeBits.ExtInfo = Info.Bits;
   }
 
@@ -5560,7 +5598,7 @@ class UnresolvedUsingType : public Type {
 
   UnresolvedUsingType(const UnresolvedUsingTypenameDecl *D)
       : Type(UnresolvedUsing, QualType(),
-             TypeDependence::DependentInstantiation, /*MetaType=*/false),
+             TypeDependence::DependentInstantiation, /*ConstevalOnly=*/false),
         Decl(const_cast<UnresolvedUsingTypenameDecl *>(D)) {}
 
 public:
@@ -5660,7 +5698,7 @@ class MacroQualifiedType : public Type {
   MacroQualifiedType(QualType UnderlyingTy, QualType CanonTy,
                      const IdentifierInfo *MacroII)
       : Type(MacroQualified, CanonTy, UnderlyingTy->getDependence(),
-             UnderlyingTy->isMetaType()),
+             UnderlyingTy->isConstevalOnly()),
         UnderlyingTy(UnderlyingTy), MacroII(MacroII) {
     assert(isa<AttributedType>(UnderlyingTy) &&
            "Expected a macro qualified type to only wrap attributed types.");
@@ -6020,7 +6058,7 @@ private:
   AttributedType(QualType canon, attr::Kind attrKind, QualType modified,
                  QualType equivalent)
       : Type(Attributed, canon, equivalent->getDependence(),
-             /*MetaType=*/false),
+             /*ContevalOnly=*/false),
         ModifiedType(modified), EquivalentType(equivalent) {
     AttributedTypeBits.AttrKind = attrKind;
   }
@@ -6117,7 +6155,7 @@ private:
   BTFTagAttributedType(QualType Canon, QualType Wrapped,
                        const BTFTypeTagAttr *BTFAttr)
       : Type(BTFTagAttributed, Canon, Wrapped->getDependence(),
-             /*MetaType=*/false),
+             /*ConstevalOnly=*/false),
         WrappedType(Wrapped), BTFAttr(BTFAttr) {}
 
 public:
@@ -6145,53 +6183,30 @@ public:
 class TemplateTypeParmType : public Type, public llvm::FoldingSetNode {
   friend class ASTContext; // ASTContext creates these
 
-  // Helper data collector for canonical types.
-  struct CanonicalTTPTInfo {
-    unsigned Depth : 15;
-    unsigned ParameterPack : 1;
-    unsigned Index : 16;
-  };
+  // The associated TemplateTypeParmDecl for the non-canonical type.
+  TemplateTypeParmDecl *TTPDecl;
 
-  union {
-    // Info for the canonical type.
-    CanonicalTTPTInfo CanTTPTInfo;
-
-    // Info for the non-canonical type.
-    TemplateTypeParmDecl *TTPDecl;
-  };
-
-  /// Build a non-canonical type.
-  TemplateTypeParmType(TemplateTypeParmDecl *TTPDecl, QualType Canon)
+  TemplateTypeParmType(unsigned D, unsigned I, bool PP,
+                       TemplateTypeParmDecl *TTPDecl, QualType Canon)
       : Type(TemplateTypeParm, Canon,
              TypeDependence::DependentInstantiation |
-                 (Canon->getDependence() & TypeDependence::UnexpandedPack),
-             /*MetaType=*/false),
-        TTPDecl(TTPDecl) {}
-
-  /// Build the canonical type.
-  TemplateTypeParmType(unsigned D, unsigned I, bool PP)
-      : Type(TemplateTypeParm, QualType(this, 0),
-             TypeDependence::DependentInstantiation |
                  (PP ? TypeDependence::UnexpandedPack : TypeDependence::None),
-              /*MetaType=*/false) {
-    CanTTPTInfo.Depth = D;
-    CanTTPTInfo.Index = I;
-    CanTTPTInfo.ParameterPack = PP;
-  }
-
-  const CanonicalTTPTInfo& getCanTTPTInfo() const {
-    QualType Can = getCanonicalTypeInternal();
-    return Can->castAs<TemplateTypeParmType>()->CanTTPTInfo;
+             /*ConstevalOnly=*/false),
+        TTPDecl(TTPDecl) {
+    assert(!TTPDecl == Canon.isNull());
+    TemplateTypeParmTypeBits.Depth = D;
+    TemplateTypeParmTypeBits.Index = I;
+    TemplateTypeParmTypeBits.ParameterPack = PP;
   }
 
 public:
-  unsigned getDepth() const { return getCanTTPTInfo().Depth; }
-  unsigned getIndex() const { return getCanTTPTInfo().Index; }
-  bool isParameterPack() const { return getCanTTPTInfo().ParameterPack; }
-
-  TemplateTypeParmDecl *getDecl() const {
-    return isCanonicalUnqualified() ? nullptr : TTPDecl;
+  unsigned getDepth() const { return TemplateTypeParmTypeBits.Depth; }
+  unsigned getIndex() const { return TemplateTypeParmTypeBits.Index; }
+  bool isParameterPack() const {
+    return TemplateTypeParmTypeBits.ParameterPack;
   }
+
+  TemplateTypeParmDecl *getDecl() const { return TTPDecl; }
 
   IdentifierInfo *getIdentifier() const;
 
@@ -6365,7 +6380,7 @@ protected:
                                     ? TypeDependence::None
                                     : DeducedAsType->getDependence() &
                                           ~TypeDependence::VariablyModified),
-             /*MetaType=*/false),
+             /*ConstevalOnly=*/false),
         DeducedAsType(DeducedAsType) {}
 
 public:
@@ -6649,7 +6664,7 @@ class InjectedClassNameType : public Type {
 
   InjectedClassNameType(CXXRecordDecl *D, QualType TST)
       : Type(InjectedClassName, QualType(),
-             TypeDependence::DependentInstantiation, /*MetaType=*/false),
+             TypeDependence::DependentInstantiation, /*ConstevalOnly=*/false),
         Decl(D), InjectedType(TST) {
     assert(isa<TemplateSpecializationType>(TST));
     assert(!TST.hasQualifiers());
@@ -6729,7 +6744,7 @@ class TypeWithKeyword : public Type {
 protected:
   TypeWithKeyword(ElaboratedTypeKeyword Keyword, TypeClass tc,
                   QualType Canonical, TypeDependence Dependence)
-      : Type(tc, Canonical, Dependence, /*MetaType=*/false) {
+      : Type(tc, Canonical, Dependence, /*ConstevalOnly=*/false) {
     TypeWithKeywordBits.Keyword = llvm::to_underlying(Keyword);
   }
 
@@ -7011,7 +7026,7 @@ class PackExpansionType : public Type, public llvm::FoldingSetNode {
       : Type(PackExpansion, Canon,
              (Pattern->getDependence() | TypeDependence::Dependent |
               TypeDependence::Instantiation) &
-                 ~TypeDependence::UnexpandedPack, /*MetaType=*/false),
+                 ~TypeDependence::UnexpandedPack, /*ConstevalOnly=*/false),
         Pattern(Pattern) {
     PackExpansionTypeBits.NumExpansions =
         NumExpansions ? *NumExpansions + 1 : 0;
@@ -7054,8 +7069,8 @@ public:
 /// Represents a type formed by evaluating a reflection splice (C++2c, P2996).
 ///
 /// A reflection splice wraps a potentially dependent constant expression whose
-/// resulting APValue holds a ReflectionValue; this is expected to hold a type
-/// in the context of a 'ReflectionSpliceType'.
+/// resulting APValue is a reflection; this is expected to hold a type in the
+/// context of a 'ReflectionSpliceType'.
 class ReflectionSpliceType : public Type {
   Expr *Operand;
   QualType UnderlyingTy;
@@ -7285,7 +7300,7 @@ protected:
 
   ObjCObjectType(enum Nonce_ObjCInterface)
       : Type(ObjCInterface, QualType(), TypeDependence::None,
-             /*MetaType=*/false),
+             /*ConstevalOnly=*/false),
         BaseType(QualType(this_(), 0)) {
     ObjCObjectTypeBits.NumProtocols = 0;
     ObjCObjectTypeBits.NumTypeArgs = 0;
@@ -7500,7 +7515,7 @@ class ObjCObjectPointerType : public Type, public llvm::FoldingSetNode {
 
   ObjCObjectPointerType(QualType Canonical, QualType Pointee)
       : Type(ObjCObjectPointer, Canonical, Pointee->getDependence(),
-             /*MetaType=*/false),
+             /*ConstevalOnly=*/false),
         PointeeType(Pointee) {}
 
 public:
@@ -7670,7 +7685,8 @@ class AtomicType : public Type, public llvm::FoldingSetNode {
   QualType ValueType;
 
   AtomicType(QualType ValTy, QualType Canonical)
-      : Type(Atomic, Canonical, ValTy->getDependence(), /*MetaType=*/false),
+      : Type(Atomic, Canonical, ValTy->getDependence(),
+             /*ConstevalOnly=*/false),
         ValueType(ValTy) {}
 
 public:
@@ -7702,7 +7718,8 @@ class PipeType : public Type, public llvm::FoldingSetNode {
   bool isRead;
 
   PipeType(QualType elemType, QualType CanonicalPtr, bool isRead)
-      : Type(Pipe, CanonicalPtr, elemType->getDependence(), /*MetaType=*/false),
+      : Type(Pipe, CanonicalPtr, elemType->getDependence(),
+             /*ConstevalOnly=*/false),
         ElementType(elemType), isRead(isRead) {}
 
 public:
@@ -8104,6 +8121,10 @@ inline bool Type::isPointerType() const {
   return isa<PointerType>(CanonicalType);
 }
 
+inline bool Type::isPointerOrReferenceType() const {
+  return isPointerType() || isReferenceType();
+}
+
 inline bool Type::isAnyPointerType() const {
   return isPointerType() || isObjCObjectPointerType();
 }
@@ -8362,6 +8383,19 @@ inline bool Type::isOCLExtOpaqueType() const {
 inline bool Type::isOpenCLSpecificType() const {
   return isSamplerT() || isEventT() || isImageType() || isClkEventT() ||
          isQueueT() || isReserveIDT() || isPipeType() || isOCLExtOpaqueType();
+}
+
+#define HLSL_INTANGIBLE_TYPE(Name, Id, SingletonId)                            \
+  inline bool Type::is##Id##Type() const {                                     \
+    return isSpecificBuiltinType(BuiltinType::Id);                             \
+  }
+#include "clang/Basic/HLSLIntangibleTypes.def"
+
+inline bool Type::isHLSLSpecificType() const {
+#define HLSL_INTANGIBLE_TYPE(Name, Id, SingletonId) is##Id##Type() ||
+  return
+#include "clang/Basic/HLSLIntangibleTypes.def"
+      false; // end boolean or operation
 }
 
 inline bool Type::isTemplateTypeParmType() const {

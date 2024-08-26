@@ -10,6 +10,7 @@
 
 // UNSUPPORTED: c++03 || c++11 || c++14 || c++17 || c++20
 // ADDITIONAL_COMPILE_FLAGS: -freflection
+// ADDITIONAL_COMPILE_FLAGS: -freflection-new-syntax
 // ADDITIONAL_COMPILE_FLAGS: -Wno-inconsistent-missing-override
 
 // <experimental/reflection>
@@ -29,10 +30,10 @@
 
 consteval auto struct_to_tuple_type(std::meta::info type) -> std::meta::info {
   constexpr auto remove_cvref = [](std::meta::info r) consteval {
-    return substitute(^std::remove_cvref_t, {r});
+    return substitute(^^std::remove_cvref_t, {r});
   };
 
-  return substitute(^std::tuple,
+  return substitute(^^std::tuple,
                     nonstatic_data_members_of(type)
                     | std::views::transform(std::meta::type_of)
                     | std::views::transform(remove_cvref)
@@ -46,14 +47,15 @@ constexpr auto struct_to_tuple_helper(From const& from) -> To {
 
 template<typename From>
 consteval auto get_struct_to_tuple_helper() {
-  using To = [: struct_to_tuple_type(^From) :];
+  using To = [: struct_to_tuple_type(^^From) :];
 
-  std::vector args = {^To, ^From};
-  for (auto mem : nonstatic_data_members_of(^From)) {
+  std::vector args = {^^To, ^^From};
+  for (auto mem : nonstatic_data_members_of(^^From)) {
     args.push_back(reflect_value(mem));
   }
 
-  return extract<To(*)(From const&)>(substitute(^struct_to_tuple_helper, args));
+  return extract<To(*)(From const&)>(substitute(^^struct_to_tuple_helper,
+                                                args));
 }
 
 template <typename From>

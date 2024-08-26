@@ -8,9 +8,9 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// RUN: %clang_cc1 %s -std=c++23 -freflection
+// RUN: %clang_cc1 %s -std=c++23 -freflection -freflection-new-syntax
 
-using info = decltype(^int);
+using info = decltype(^^int);
 
                                  // ===========
                                  // idempotency
@@ -28,16 +28,16 @@ struct S {
 enum Enum { A, B, C };
 enum class EnumCls { A, B, C };
 
-static_assert(&[:^x:] == &x);
-static_assert([:^fn:] == fn);
+static_assert(&[:^^x:] == &x);
+static_assert([:^^fn:] == fn);
 
-static_assert(&[:^S::x:] == &S::x);
-static_assert(&[:^S::s_x:] == &S::s_x);
-static_assert(&[:^S::fn:] == &S::fn);
-static_assert([:^S::s_fn:] == S::s_fn);
+static_assert(&[:^^S::x:] == &S::x);
+static_assert(&[:^^S::s_x:] == &S::s_x);
+static_assert(&[:^^S::fn:] == &S::fn);
+static_assert([:^^S::s_fn:] == S::s_fn);
 
-static_assert([:^Enum::B:] == Enum::B);
-static_assert([:^EnumCls::B:] == EnumCls::B);
+static_assert([:^^Enum::B:] == Enum::B);
+static_assert([:^^EnumCls::B:] == EnumCls::B);
 }  // namespace idempotency
 
                                // ==============
@@ -48,7 +48,7 @@ namespace with_variables {
 consteval int fn() {
   int x = 32;
 
-  constexpr auto rx = ^x;
+  constexpr auto rx = ^^x;
   ++[:rx:];
 
   return x;
@@ -63,7 +63,7 @@ static_assert(fn() == 33);
 namespace with_functions {
 consteval int vanilla_fn() { return 42; }
 
-constexpr info r_vanilla_fn = ^vanilla_fn;
+constexpr info r_vanilla_fn = ^^vanilla_fn;
 static_assert([:r_vanilla_fn:]() == 42);
 
 // With a dependent reflection.
@@ -79,11 +79,11 @@ namespace with_shadowed_function_names {
 struct B { consteval char fn() const { return 'B'; } };
 struct D : B { consteval char fn() const { return 'D'; } };
 
-constexpr auto rBfn = ^B::fn;
-constexpr auto rDfn = ^D::fn;
+constexpr auto rBfn = ^^B::fn;
+constexpr auto rDfn = ^^D::fn;
 
 constexpr D d;
-constexpr auto rd = ^d;
+constexpr auto rd = ^^d;
 
 static_assert([:rd:].[:rBfn:]() == 'B');
 static_assert([:rd:].[:rDfn:]() == 'D');
@@ -117,8 +117,8 @@ consteval int fn() {
   S s = {11, 13};
   return s.[:RMem:] + (&s)->[:RMem:];
 }
-static_assert(fn<^S::j>() == 22);
-static_assert(fn<^S::k>() == 26);
+static_assert(fn<^^S::j>() == 22);
+static_assert(fn<^^S::k>() == 26);
 
 // Splicing dependent member references with arrow syntax.
 template <info RMem>
@@ -126,28 +126,28 @@ consteval int fn2() {
   S s = {11, 13};
   return s.*(&[:RMem:]) + (&s)->*(&[:RMem:]);
 }
-static_assert(fn<^S::j>() == 22);
-static_assert(fn<^S::k>() == 26);
+static_assert(fn<^^S::j>() == 22);
+static_assert(fn<^^S::k>() == 26);
 
 // Splicing member functions.
-constexpr info r_getJ = ^S::getJ;
+constexpr info r_getJ = ^^S::getJ;
 static_assert(S{2, 4}.[:r_getJ:]() == 2);
 
 // Splicing static member functions.
-constexpr auto rEleven = ^S::eleven;
+constexpr auto rEleven = ^^S::eleven;
 static_assert([:rEleven:]() == 11);
 
 // Splicing static member template function instantiation.
-constexpr auto rConst14 = ^S::constant<14>;
+constexpr auto rConst14 = ^^S::constant<14>;
 static_assert([:rConst14:]() == 14);
 
 // Splicing member function template instanstiations.
-constexpr auto rgetJPlus5 = ^S::getJPlusN<5>;
+constexpr auto rgetJPlus5 = ^^S::getJPlusN<5>;
 static_assert(S{2, 4}.[:rgetJPlus5:]() == 7);
 
 // Splicing member function template instantiations with spliced objects.
 constexpr S instance {1, 4};
-constexpr info rInstance = ^instance;
+constexpr info rInstance = ^^instance;
 static_assert([:rInstance:].[:rgetJPlus5:]() == 6);
 static_assert((&[:rInstance:])->[:rgetJPlus5:]() == 6);
 
@@ -156,18 +156,18 @@ template <info RObj>
 consteval int fn3() {
   return [:RObj:].k;
 }
-static_assert(fn3<^instance>() == 4);
+static_assert(fn3<^^instance>() == 4);
 
 // Passing address of a spliced operand as an argument.
 consteval int getMem(const S *s, int S::* mem) {
   return s->*mem;
 }
-constexpr info rJ = ^S::j;
+constexpr info rJ = ^^S::j;
 static_assert(getMem(&instance, &[:rJ:]) == 1);
 
 // Member access through a splice of a private member.
 class WithPrivateBase : S {} d;
-int dK = d.[:^S::k:];
+int dK = d.[:^^S::k:];
 
 }  // namespace with_member_access
 
@@ -186,12 +186,12 @@ struct S {
   void fn2() { }
 
   void fn() {
-    static_assert([:^l:] == 3);
-    static_assert([:^S:]::l == 3);
-    (void) this->[:^k:];
-    (void) this->[:^S:]::k;
-    this->[:^fn2:]();
-    this->[:^S:]::fn2();
+    static_assert([:^^l:] == 3);
+    static_assert([:^^S:]::l == 3);
+    (void) this->[:^^k:];
+    (void) this->[:^^S:]::k;
+    this->[:^^fn2:]();
+    this->[:^^S:]::fn2();
   }
 };
 
@@ -205,9 +205,9 @@ struct D {
 
   template <typename T>
   void fn() {
-    static_assert([:^T:]::l == 3);
-    (void) this->[:^T:]::l;
-    (void) this->[:^T:]::fn2();
+    static_assert([:^^T:]::l == 3);
+    (void) this->[:^^T:]::l;
+    (void) this->[:^^T:]::fn2();
   }
 };
 
@@ -222,13 +222,13 @@ struct B { consteval virtual int fn() const { return 1; } };
 struct D : B { consteval int fn() const override { return 2; } };
 
 constexpr D d;
-static_assert(d.[:^D::fn:]() == 2);
-static_assert(d.[:^B::fn:]() == 2);
-static_assert(d.[:^B:]::fn() == 1);
+static_assert(d.[:^^D::fn:]() == 2);
+static_assert(d.[:^^B::fn:]() == 2);
+static_assert(d.[:^^B:]::fn() == 1);
 
 // Splicing member as intermediate component of a member-access expression.
 struct T { struct Inner { int v; } inner; };
-constexpr auto r_inner = ^T::inner;
+constexpr auto r_inner = ^^T::inner;
 constexpr T t = {{4}};
 static_assert(t.[:r_inner:].v == 4);
 }  // namespace with_overridden_memfns
@@ -241,7 +241,7 @@ namespace with_enums {
 enum Enum { A, B, C };
 enum class EnumCls { A, B, C };
 
-constexpr info rB = ^B, rClsB = ^EnumCls::B;
+constexpr info rB = ^^B, rClsB = ^^EnumCls::B;
 static_assert(rB != rClsB);
 static_assert(int([:rB:]) == int([:rClsB:]));
 static_assert(static_cast<Enum>([:rClsB:]) == B);
@@ -254,14 +254,14 @@ static_assert(static_cast<Enum>([:rClsB:]) == B);
 // Check that parsing correctly handles successions of ':'-characters.
 namespace colon_parsing {
 constexpr int x = 4;
-constexpr auto rx = ^x;
+constexpr auto rx = ^^x;
 static_assert([:rx:] == 4);
 
 constexpr unsigned Idx = 1;
 constexpr int arr[] = {1, 2, 3};
 static_assert(arr[::colon_parsing::Idx] == 2);
 
-constexpr info rIdx = ^Idx;
+constexpr info rIdx = ^^Idx;
 static_assert([:::colon_parsing::rIdx:] == 1);
 
 struct WithIndexOperator {
@@ -277,7 +277,7 @@ namespace bb_clang_p2996_issue_22_regression_test {
 // Issue #22 invoked a crash involving CTAD in a double templated context.
 // I wasn't able to find a more minimal reproduction of the crash, but am
 // including this test to prevent regression.
-template <decltype(^::) FN>
+template <decltype(^^::) FN>
 struct Cls
 {
     template <typename RESULT, typename... Args>
@@ -289,5 +289,5 @@ struct Cls
 };
 
 void fn(int);
-static_assert(^decltype(Cls<^fn>::Impl(&fn)) == ^Cls<^fn>::Impl<void, int>);
+static_assert(^^decltype(Cls<^^fn>::Impl(&fn)) == ^^Cls<^^fn>::Impl<void, int>);
 }  // namespace bb_clang_p2996_issue_22_regression_test

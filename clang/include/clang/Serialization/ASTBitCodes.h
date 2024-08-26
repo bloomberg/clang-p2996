@@ -721,6 +721,9 @@ enum ASTRecordTypes {
 
   /// Record code for \#pragma clang unsafe_buffer_usage begin/end
   PP_UNSAFE_BUFFER_USAGE = 69,
+
+  /// Record code for vtables to emit.
+  VTABLES_TO_EMIT = 70,
 };
 
 /// Record types used within a source manager block.
@@ -1124,6 +1127,9 @@ enum PredefinedTypeIDs {
 // \brief AMDGPU types with auto numeration
 #define AMDGPU_TYPE(Name, Id, SingletonId) PREDEF_TYPE_##Id##_ID,
 #include "clang/Basic/AMDGPUTypes.def"
+// \brief HLSL intangible types with auto numeration
+#define HLSL_INTANGIBLE_TYPE(Name, Id, SingletonId) PREDEF_TYPE_##Id##_ID,
+#include "clang/Basic/HLSLIntangibleTypes.def"
 
   /// The placeholder type for unresolved templates.
   PREDEF_TYPE_UNRESOLVED_TEMPLATE,
@@ -1136,7 +1142,7 @@ enum PredefinedTypeIDs {
 ///
 /// Type IDs for non-predefined types will start at
 /// NUM_PREDEF_TYPE_IDs.
-const unsigned NUM_PREDEF_TYPE_IDS = 505;
+const unsigned NUM_PREDEF_TYPE_IDS = 506;
 
 // Ensure we do not overrun the predefined types we reserved
 // in the enum PredefinedTypeIDs above.
@@ -1967,6 +1973,7 @@ enum StmtCode {
   STMT_OMP_TARGET_TEAMS_GENERIC_LOOP_DIRECTIVE,
   STMT_OMP_PARALLEL_GENERIC_LOOP_DIRECTIVE,
   STMT_OMP_TARGET_PARALLEL_GENERIC_LOOP_DIRECTIVE,
+  STMT_OMP_ASSUME_DIRECTIVE,
   EXPR_ARRAY_SECTION,
   EXPR_OMP_ARRAY_SHAPING,
   EXPR_OMP_ITERATOR,
@@ -1985,8 +1992,8 @@ enum StmtCode {
   // C++2c reflection (P2996)
   EXPR_REFLECT,
   EXPR_METAFUNCTION,
+  EXPR_SPLICE_SPECIFIER,
   EXPR_SPLICE,
-  EXPR_EXPR_SPLICE,
   EXPR_DEPENDENT_MEMBER_SPLICE,
   EXPR_STACK_LOCATION,
   EXPR_EXTRACT_LVALUE,

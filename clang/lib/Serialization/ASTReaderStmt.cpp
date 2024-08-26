@@ -496,24 +496,59 @@ void ASTStmtReader::VisitCoyieldExpr(CoyieldExpr *E) {
 }
 
 void ASTStmtReader::VisitCXXReflectExpr(CXXReflectExpr *E) {
-  llvm_unreachable("unimplemented");
+  VisitExpr(E);
+  E->setOperatorLoc(Record.readSourceLocation());
+
+  if (Record.readBool()) {
+    Expr *DepSubExpr = Record.readExpr();
+
+    E->setDependentSubExpr(DepSubExpr);
+    E->setOperandRange(DepSubExpr->getSourceRange());
+  } else {
+    E->setAPValue(Record.readAPValue());
+    E->setOperandRange(Record.readSourceRange());
+  }
 }
 
 void ASTStmtReader::VisitCXXMetafunctionExpr(CXXMetafunctionExpr *E) {
-  llvm_unreachable("unimplemented");
+  VisitExpr(E);
+  E->setKwLoc(Record.readSourceLocation());
+  E->setLParenLoc(Record.readSourceLocation());
+  E->setRParenLoc(Record.readSourceLocation());
+  E->setMetaFnID(Record.readUInt32());
+  E->setImpl(Record.getMetafunctionCb(E->getMetaFnID()));
+  E->setResultType(Record.readQualType());
+
+  unsigned NumArgs = Record.readUInt32();
+  Expr **Args = new (Record.getContext()) Expr *[NumArgs];
+  for (unsigned k = 0; k < NumArgs; ++k)
+    Args[k] = Record.readExpr();
+  E->setArgs(Args, NumArgs);
 }
 
 void ASTStmtReader::VisitCXXSpliceSpecifierExpr(CXXSpliceSpecifierExpr *E) {
-  llvm_unreachable("unimplemented");
+  VisitExpr(E);
+  E->setTemplateKWLoc(Record.readSourceLocation());
+  E->setLSpliceLoc(Record.readSourceLocation());
+  E->setRSpliceLoc(Record.readSourceLocation());
+  E->setOperand(Record.readExpr());
 }
 
 void ASTStmtReader::VisitCXXSpliceExpr(CXXSpliceExpr *E) {
-  llvm_unreachable("unimplemented");
+  VisitExpr(E);
+  E->setLSpliceLoc(Record.readSourceLocation());
+  E->setRSpliceLoc(Record.readSourceLocation());
+  E->setAllowMemberReference(Record.readBool());
+  E->setOperand(Record.readExpr());
 }
 
 void ASTStmtReader::VisitCXXDependentMemberSpliceExpr(
                                               CXXDependentMemberSpliceExpr *E) {
-  llvm_unreachable("unimplemented");
+  VisitExpr(E);
+  E->setOpLoc(Record.readSourceLocation());
+  E->setIsArrow(Record.readBool());
+  E->setBase(Record.readExpr());
+  E->setRHS(cast<CXXSpliceExpr>(Record.readExpr()));
 }
 
 void ASTStmtReader::VisitStackLocationExpr(StackLocationExpr *E) {
@@ -1178,6 +1213,7 @@ void ASTStmtReader::VisitBinaryOperator(BinaryOperator *E) {
       (BinaryOperator::Opcode)CurrentUnpackingBits->getNextBits(/*Width=*/6));
   bool hasFP_Features = CurrentUnpackingBits->getNextBit();
   E->setHasStoredFPFeatures(hasFP_Features);
+  E->setExcludedOverflowPattern(CurrentUnpackingBits->getNextBit());
   E->setLHS(Record.readSubExpr());
   E->setRHS(Record.readSubExpr());
   E->setOperatorLoc(readSourceLocation());
@@ -2586,6 +2622,11 @@ void ASTStmtReader::VisitOMPTaskwaitDirective(OMPTaskwaitDirective *D) {
   VisitOMPExecutableDirective(D);
 }
 
+void ASTStmtReader::VisitOMPAssumeDirective(OMPAssumeDirective *D) {
+  VisitStmt(D);
+  VisitOMPExecutableDirective(D);
+}
+
 void ASTStmtReader::VisitOMPErrorDirective(OMPErrorDirective *D) {
   VisitStmt(D);
   // The NumClauses field was read in ReadStmtFromStream.
@@ -3963,6 +4004,12 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
       break;
     }
 
+    case STMT_OMP_ASSUME_DIRECTIVE: {
+      unsigned NumClauses = Record[ASTStmtReader::NumStmtFields];
+      S = OMPAssumeDirective::CreateEmpty(Context, NumClauses, Empty);
+      break;
+    }
+
     case EXPR_CXX_OPERATOR_CALL: {
       auto NumArgs = Record[ASTStmtReader::NumExprFields];
       BitsUnpacker CallExprBits(Record[ASTStmtReader::NumExprFields + 1]);
@@ -4330,12 +4377,33 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
       S = OpenACCLoopConstruct::CreateEmpty(Context, NumClauses);
       break;
     }
-    case EXPR_REQUIRES:
+    case EXPR_REQUIRES: {
       unsigned numLocalParameters = Record[ASTStmtReader::NumExprFields];
       unsigned numRequirement = Record[ASTStmtReader::NumExprFields + 1];
       S = RequiresExpr::Create(Context, Empty, numLocalParameters,
                                numRequirement);
       break;
+    }
+    case EXPR_REFLECT: {
+      S = CXXReflectExpr::CreateEmpty(Context);
+      break;
+    }
+    case EXPR_METAFUNCTION: {
+      S = CXXMetafunctionExpr::CreateEmpty(Context);
+      break;
+    }
+    case EXPR_SPLICE_SPECIFIER: {
+      S = CXXSpliceSpecifierExpr::CreateEmpty(Context);
+      break;
+    }
+    case EXPR_SPLICE: {
+      S = CXXSpliceExpr::CreateEmpty(Context);
+      break;
+    }
+    case EXPR_DEPENDENT_MEMBER_SPLICE: {
+      S = CXXDependentMemberSpliceExpr::CreateEmpty(Context);
+      break;
+    }
     }
 
     // We hit a STMT_STOP, so we're done with this expression.

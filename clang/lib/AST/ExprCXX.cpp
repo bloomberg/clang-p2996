@@ -154,7 +154,7 @@ bool CXXTypeidExpr::isMostDerived(ASTContext &Context) const {
   const Expr *E = getExprOperand()->IgnoreParenNoopCasts(Context);
   if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
     QualType Ty = DRE->getDecl()->getType();
-    if (!Ty->isPointerType() && !Ty->isReferenceType())
+    if (!Ty->isPointerOrReferenceType())
       return true;
   }
 
@@ -404,10 +404,11 @@ UnresolvedLookupExpr::UnresolvedLookupExpr(
     NestedNameSpecifierLoc QualifierLoc, SourceLocation TemplateKWLoc,
     const DeclarationNameInfo &NameInfo, bool RequiresADL,
     const TemplateArgumentListInfo *TemplateArgs, UnresolvedSetIterator Begin,
-    UnresolvedSetIterator End, bool KnownDependent)
+    UnresolvedSetIterator End, bool KnownDependent,
+    bool KnownInstantiationDependent)
     : OverloadExpr(UnresolvedLookupExprClass, Context, QualifierLoc,
                    TemplateKWLoc, NameInfo, TemplateArgs, Begin, End,
-                   KnownDependent, false, false),
+                   KnownDependent, KnownInstantiationDependent, false),
       NamingClass(NamingClass) {
   UnresolvedLookupExprBits.RequiresADL = RequiresADL;
 }
@@ -422,7 +423,7 @@ UnresolvedLookupExpr *UnresolvedLookupExpr::Create(
     const ASTContext &Context, CXXRecordDecl *NamingClass,
     NestedNameSpecifierLoc QualifierLoc, const DeclarationNameInfo &NameInfo,
     bool RequiresADL, UnresolvedSetIterator Begin, UnresolvedSetIterator End,
-    bool KnownDependent) {
+    bool KnownDependent, bool KnownInstantiationDependent) {
   unsigned NumResults = End - Begin;
   unsigned Size = totalSizeToAlloc<DeclAccessPair, ASTTemplateKWAndArgsInfo,
                                    TemplateArgumentLoc>(NumResults, 0, 0);
@@ -430,7 +431,8 @@ UnresolvedLookupExpr *UnresolvedLookupExpr::Create(
   return new (Mem) UnresolvedLookupExpr(
       Context, NamingClass, QualifierLoc,
       /*TemplateKWLoc=*/SourceLocation(), NameInfo, RequiresADL,
-      /*TemplateArgs=*/nullptr, Begin, End, KnownDependent);
+      /*TemplateArgs=*/nullptr, Begin, End, KnownDependent,
+      KnownInstantiationDependent);
 }
 
 UnresolvedLookupExpr *UnresolvedLookupExpr::Create(
@@ -438,7 +440,8 @@ UnresolvedLookupExpr *UnresolvedLookupExpr::Create(
     NestedNameSpecifierLoc QualifierLoc, SourceLocation TemplateKWLoc,
     const DeclarationNameInfo &NameInfo, bool RequiresADL,
     const TemplateArgumentListInfo *Args, UnresolvedSetIterator Begin,
-    UnresolvedSetIterator End, bool KnownDependent) {
+    UnresolvedSetIterator End, bool KnownDependent,
+    bool KnownInstantiationDependent) {
   unsigned NumResults = End - Begin;
   bool HasTemplateKWAndArgsInfo = Args || TemplateKWLoc.isValid();
   unsigned NumTemplateArgs = Args ? Args->size() : 0;
@@ -446,9 +449,9 @@ UnresolvedLookupExpr *UnresolvedLookupExpr::Create(
                                    TemplateArgumentLoc>(
       NumResults, HasTemplateKWAndArgsInfo, NumTemplateArgs);
   void *Mem = Context.Allocate(Size, alignof(UnresolvedLookupExpr));
-  return new (Mem) UnresolvedLookupExpr(Context, NamingClass, QualifierLoc,
-                                        TemplateKWLoc, NameInfo, RequiresADL,
-                                        Args, Begin, End, KnownDependent);
+  return new (Mem) UnresolvedLookupExpr(
+      Context, NamingClass, QualifierLoc, TemplateKWLoc, NameInfo, RequiresADL,
+      Args, Begin, End, KnownDependent, KnownInstantiationDependent);
 }
 
 UnresolvedLookupExpr *UnresolvedLookupExpr::CreateEmpty(
@@ -1889,29 +1892,33 @@ TypeTraitExpr *TypeTraitExpr::CreateDeserialized(const ASTContext &C,
   return new (Mem) TypeTraitExpr(EmptyShell());
 }
 
-CXXReflectExpr::CXXReflectExpr(const ASTContext &C, QualType ExprTy,
-                               ReflectionValue RV)
+CXXReflectExpr::CXXReflectExpr(const ASTContext &C, QualType ExprTy, APValue RV)
     : Expr(CXXReflectExprClass, ExprTy, VK_PRValue, OK_Ordinary),
       Kind(OperandKind::Reflection) {
-  new ((void *)(char *)&Operand) ReflectionValue(RV);
+  assert(RV.isReflection());
+
+  setAPValue(RV);
   setDependence(computeDependence(this, C));
+}
+
+CXXReflectExpr::CXXReflectExpr(EmptyShell Empty)
+    : Expr(CXXReflectExprClass, Empty), Kind(OperandKind::Unset) {
 }
 
 CXXReflectExpr::CXXReflectExpr(const ASTContext &C, QualType ExprTy,
                                Expr *DepSubExpr)
     : Expr(CXXReflectExprClass, ExprTy, VK_PRValue, OK_Ordinary),
       Kind(OperandKind::DependentExpr) {
-  new ((void *)(char *)&Operand) Expr *(DepSubExpr);
   assert(DepSubExpr->isValueDependent() &&
          "reflection operand must be a reflection or a dependent expression");
 
+  setDependentSubExpr(DepSubExpr);
   setDependence(computeDependence(this, C));
 }
 
 CXXReflectExpr *CXXReflectExpr::Create(ASTContext &C,
                                        SourceLocation OperatorLoc,
-                                       SourceRange OperandRange,
-                                       ReflectionValue RV) {
+                                       SourceRange OperandRange, APValue RV) {
   CXXReflectExpr *E = new (C) CXXReflectExpr(C, C.MetaInfoTy, RV);
   E->setOperatorLoc(OperatorLoc);
   E->setOperandRange(OperandRange);
@@ -1925,6 +1932,10 @@ CXXReflectExpr *CXXReflectExpr::Create(ASTContext &C,
   E->setOperatorLoc(OperatorLoc);
   E->setOperandRange(DepSubExpr->getSourceRange());
   return E;
+}
+
+CXXReflectExpr *CXXReflectExpr::CreateEmpty(const ASTContext &Ctx) {
+  return new (Ctx) CXXReflectExpr(EmptyShell());
 }
 
 static QualType UnwrapCXXMetafunctionExprReturnType(QualType QT) {
@@ -1944,11 +1955,14 @@ CXXMetafunctionExpr::CXXMetafunctionExpr(unsigned MetaFnID,
                                          SourceLocation RParenLoc)
    : Expr(CXXMetafunctionExprClass,
           UnwrapCXXMetafunctionExprReturnType(ResultType), VK, OK_Ordinary),
-     MetaFnID(MetaFnID), Impl(Impl), ResultType(ResultType),
+     MetaFnID(MetaFnID), Impl(&Impl), ResultType(ResultType),
      NumArgs(NumArgs), Args(Args), KwLoc(KwLoc), LParenLoc(LParenLoc),
      RParenLoc(RParenLoc) {
-  std::copy(Args, Args + NumArgs, this->Args);
   setDependence(computeDependence(this));
+}
+
+CXXMetafunctionExpr::CXXMetafunctionExpr(EmptyShell Empty)
+  : Expr(CXXMetafunctionExprClass, Empty) {
 }
 
 CXXMetafunctionExpr *CXXMetafunctionExpr::Create(ASTContext &C,
@@ -1968,6 +1982,10 @@ CXXMetafunctionExpr *CXXMetafunctionExpr::Create(ASTContext &C,
                                      Args.size(), KwLoc, LParenLoc, RParenLoc);
 }
 
+CXXMetafunctionExpr *CXXMetafunctionExpr::CreateEmpty(ASTContext &C) {
+  return new (C) CXXMetafunctionExpr(EmptyShell());
+}
+
 CXXSpliceSpecifierExpr::CXXSpliceSpecifierExpr(
         QualType ResultTy, SourceLocation TemplateKWLoc,
         SourceLocation LSpliceLoc, Expr *Operand, SourceLocation RSpliceLoc)
@@ -1977,11 +1995,19 @@ CXXSpliceSpecifierExpr::CXXSpliceSpecifierExpr(
   setDependence(computeDependence(this));
 }
 
+CXXSpliceSpecifierExpr::CXXSpliceSpecifierExpr(EmptyShell Empty)
+  : Expr(CXXSpliceSpecifierExprClass, Empty) {
+}
+
 CXXSpliceSpecifierExpr *CXXSpliceSpecifierExpr::Create(
         ASTContext &C, SourceLocation TemplateKWLoc, SourceLocation LSpliceLoc,
         Expr *Operand, SourceLocation RSpliceLoc) {
   return new (C) CXXSpliceSpecifierExpr(C.MetaInfoTy, TemplateKWLoc,
                                         LSpliceLoc, Operand, RSpliceLoc);
+}
+
+CXXSpliceSpecifierExpr *CXXSpliceSpecifierExpr::CreateEmpty(ASTContext &C) {
+  return new (C) CXXSpliceSpecifierExpr(EmptyShell());
 }
 
 CXXSpliceExpr::CXXSpliceExpr(QualType ResultTy, ExprValueKind ValueKind,
@@ -2006,6 +2032,10 @@ CXXSpliceExpr::CXXSpliceExpr(QualType ResultTy, ExprValueKind ValueKind,
   setDependence(computeDependence(this));
 }
 
+CXXSpliceExpr::CXXSpliceExpr(EmptyShell Empty)
+  : Expr(CXXSpliceExprClass, Empty) {
+}
+
 CXXSpliceExpr *CXXSpliceExpr::Create(ASTContext &C,
                                      ExprValueKind ValueKind,
                                      SourceLocation TemplateKWLoc,
@@ -2026,6 +2056,10 @@ CXXSpliceExpr *CXXSpliceExpr::Create(ASTContext &C,
   return new (Mem) CXXSpliceExpr(ResultTy, ValueKind, TemplateKWLoc,
                                  LSpliceLoc, Operand, RSpliceLoc, TArgs,
                                  AllowMemberReference);
+}
+
+CXXSpliceExpr *CXXSpliceExpr::CreateEmpty(ASTContext &C) {
+  return new (C) CXXSpliceExpr(EmptyShell());
 }
 
 StackLocationExpr::StackLocationExpr(QualType ResultTy, SourceRange Range,
@@ -2064,11 +2098,20 @@ CXXDependentMemberSpliceExpr::CXXDependentMemberSpliceExpr(
   setDependence(computeDependence(this));
 }
 
+CXXDependentMemberSpliceExpr::CXXDependentMemberSpliceExpr(EmptyShell Empty)
+  : Expr(CXXDependentMemberSpliceExprClass, Empty) {
+}
+
 CXXDependentMemberSpliceExpr *CXXDependentMemberSpliceExpr::Create(
         ASTContext &C, Expr *Base, SourceLocation OpLoc, bool IsArrow,
         CXXSpliceExpr *RHS) {
   return new (C) CXXDependentMemberSpliceExpr(C.DependentTy, Base, OpLoc,
                                               IsArrow, RHS);
+}
+
+CXXDependentMemberSpliceExpr *CXXDependentMemberSpliceExpr::CreateEmpty(
+        ASTContext &C) {
+  return new (C) CXXDependentMemberSpliceExpr(EmptyShell());
 }
 
 CXXExpansionInitListExpr::CXXExpansionInitListExpr(

@@ -606,7 +606,7 @@ private:
   void mangleInitListElements(const InitListExpr *InitList);
   void mangleRequirement(SourceLocation RequiresExprLoc,
                          const concepts::Requirement *Req);
-  void mangleReflection(const ReflectionValue &R);
+  void mangleReflection(const APValue &R);
   void mangleExpression(const Expr *E, unsigned Arity = UnknownArity,
                         bool AsTemplateArg = false);
   void mangleCXXCtorType(CXXCtorType T, const CXXRecordDecl *InheritedFrom);
@@ -2828,7 +2828,11 @@ void CXXNameMangler::mangleQualifiers(Qualifiers Quals, const DependentAddressSp
         ASString = "ptr32_sptr";
         break;
       case LangAS::ptr32_uptr:
-        ASString = "ptr32_uptr";
+        // For z/OS, there are no special mangling rules applied to the ptr32
+        // qualifier. Ex: void foo(int * __ptr32 p) -> _Z3f2Pi. The mangling for
+        // "p" is treated the same as a regular integer pointer.
+        if (!getASTContext().getTargetInfo().getTriple().isOSzOS())
+          ASString = "ptr32_uptr";
         break;
       case LangAS::ptr64:
         ASString = "ptr64";
@@ -3466,6 +3470,12 @@ void CXXNameMangler::mangleType(const BuiltinType *T) {
     Out << 'u' << type_name.size() << type_name;                               \
     break;
 #include "clang/Basic/AMDGPUTypes.def"
+#define HLSL_INTANGIBLE_TYPE(Name, Id, SingletonId)                            \
+  case BuiltinType::Id:                                                        \
+    type_name = #Name;                                                         \
+    Out << 'u' << type_name.size() << type_name;                               \
+    break;
+#include "clang/Basic/HLSLIntangibleTypes.def"
   }
 }
 
@@ -4043,7 +4053,10 @@ void CXXNameMangler::mangleAArch64FixedSveVectorType(
 
 void CXXNameMangler::mangleRISCVFixedRVVVectorType(const VectorType *T) {
   assert((T->getVectorKind() == VectorKind::RVVFixedLengthData ||
-          T->getVectorKind() == VectorKind::RVVFixedLengthMask) &&
+          T->getVectorKind() == VectorKind::RVVFixedLengthMask ||
+          T->getVectorKind() == VectorKind::RVVFixedLengthMask_1 ||
+          T->getVectorKind() == VectorKind::RVVFixedLengthMask_2 ||
+          T->getVectorKind() == VectorKind::RVVFixedLengthMask_4) &&
          "expected fixed-length RVV vector!");
 
   QualType EltType = T->getElementType();
@@ -4094,7 +4107,21 @@ void CXXNameMangler::mangleRISCVFixedRVVVectorType(const VectorType *T) {
     llvm_unreachable("unexpected element type for fixed-length RVV vector!");
   }
 
-  unsigned VecSizeInBits = getASTContext().getTypeInfo(T).Width;
+  unsigned VecSizeInBits;
+  switch (T->getVectorKind()) {
+  case VectorKind::RVVFixedLengthMask_1:
+    VecSizeInBits = 1;
+    break;
+  case VectorKind::RVVFixedLengthMask_2:
+    VecSizeInBits = 2;
+    break;
+  case VectorKind::RVVFixedLengthMask_4:
+    VecSizeInBits = 4;
+    break;
+  default:
+    VecSizeInBits = getASTContext().getTypeInfo(T).Width;
+    break;
+  }
 
   // Apend the LMUL suffix.
   auto VScale = getASTContext().getTargetInfo().getVScaleRange(
@@ -4150,7 +4177,10 @@ void CXXNameMangler::mangleType(const VectorType *T) {
     mangleAArch64FixedSveVectorType(T);
     return;
   } else if (T->getVectorKind() == VectorKind::RVVFixedLengthData ||
-             T->getVectorKind() == VectorKind::RVVFixedLengthMask) {
+             T->getVectorKind() == VectorKind::RVVFixedLengthMask ||
+             T->getVectorKind() == VectorKind::RVVFixedLengthMask_1 ||
+             T->getVectorKind() == VectorKind::RVVFixedLengthMask_2 ||
+             T->getVectorKind() == VectorKind::RVVFixedLengthMask_4) {
     mangleRISCVFixedRVVVectorType(T);
     return;
   }
@@ -4676,16 +4706,18 @@ void CXXNameMangler::mangleRequirement(SourceLocation RequiresExprLoc,
   }
 }
 
-void CXXNameMangler::mangleReflection(const ReflectionValue &R) {
+void CXXNameMangler::mangleReflection(const APValue &R) {
+  assert(R.isReflection());
+
   Out << 'M';
 
-  switch (R.getKind()) {
-  case ReflectionValue::RK_null:
+  switch (R.getReflectionKind()) {
+  case ReflectionKind::Null:
     Out << '0';
     break;
-  case ReflectionValue::RK_type: {
+  case ReflectionKind::Type: {
     Out << 't';
-    QualType QT = R.getAsType();
+    QualType QT = R.getReflectedType();
 
     if (const TypedefType *TDT = dyn_cast<TypedefType>(QT)) {
       mangleQualifiers(QT.getQualifiers());
@@ -4695,18 +4727,20 @@ void CXXNameMangler::mangleReflection(const ReflectionValue &R) {
     Context.mangleCanonicalTypeName(QT, Out, false);
     break;
   }
-  case ReflectionValue::RK_object:
+  case ReflectionKind::Object:
     Out << 'o';
-    mangleValueInTemplateArg(R.getResultType(), R.getAsObject(), false, true);
+    mangleValueInTemplateArg(R.getTypeOfReflectedResult(getASTContext()),
+                             R.getReflectedObject(), false, true);
     break;
-  case ReflectionValue::RK_value:
+  case ReflectionKind::Value:
     Out << "v";
-    mangleValueInTemplateArg(R.getResultType(), R.getAsValue(), false, true);
+    mangleValueInTemplateArg(R.getTypeOfReflectedResult(getASTContext()),
+                             R.getReflectedValue(), false, true);
     break;
-  case ReflectionValue::RK_declaration: {
+  case ReflectionKind::Declaration: {
     Out << 'd';
 
-    Decl *D = R.getAsDecl();
+    Decl *D = R.getReflectedDecl();
     if (auto * ED = dyn_cast<EnumConstantDecl>(D)) {
       mangleIntegerLiteral(ED->getType(), ED->getInitVal());
     } else if (auto *CD = dyn_cast<CXXConstructorDecl>(D)) {
@@ -4729,31 +4763,31 @@ void CXXNameMangler::mangleReflection(const ReflectionValue &R) {
     }
     break;
   }
-  case ReflectionValue::RK_template: {
+  case ReflectionKind::Template: {
     Out << 't';
 
     ArrayRef<TemplateArgument> Args;
-    mangleTemplateName(R.getAsTemplate().getAsTemplateDecl(), Args);
+    mangleTemplateName(R.getReflectedTemplate().getAsTemplateDecl(), Args);
     break;
   }
-  case ReflectionValue::RK_namespace: {
+  case ReflectionKind::Namespace: {
     Out << 'n';
-    if (auto *ND = dyn_cast<NamedDecl>(R.getAsNamespace()))
+    if (auto *ND = dyn_cast<NamedDecl>(R.getReflectedNamespace()))
       mangleNameWithAbiTags(ND, nullptr);
     // Otherwise, this is the global namespace.
     Out << '$';
     break;
   }
-  case ReflectionValue::RK_base_specifier: {
+  case ReflectionKind::BaseSpecifier: {
     Out << 'b';
-    Context.mangleCanonicalTypeName(R.getAsBaseSpecifier()->getType(), Out,
-                                    false);
+    Context.mangleCanonicalTypeName(R.getReflectedBaseSpecifier()->getType(),
+                                    Out, false);
     break;
   }
-  case ReflectionValue::RK_data_member_spec: {
+  case ReflectionKind::DataMemberSpec: {
     Out << "sdm";
 
-    TagDataMemberSpec *TDMS = R.getAsDataMemberSpec();
+    TagDataMemberSpec *TDMS = R.getReflectedDataMemberSpec();
     Context.mangleCanonicalTypeName(TDMS->Ty, Out, false);
     if (TDMS->Name)
       Out << "N$" << (*TDMS->Name) << '$';
@@ -6656,7 +6690,7 @@ void CXXNameMangler::mangleValueInTemplateArg(QualType T, const APValue &V,
 
   case APValue::LValue: {
     // Proposed in https://github.com/itanium-cxx-abi/cxx-abi/issues/47.
-    assert((T->isPointerType() || T->isReferenceType() || V.isNullPointer()) &&
+    assert((T->isPointerOrReferenceType() || V.isNullPointer()) &&
            "unexpected type for LValue template arg");
 
     if (V.isNullPointer()) {
@@ -6851,7 +6885,7 @@ void CXXNameMangler::mangleValueInTemplateArg(QualType T, const APValue &V,
   }
 
   case APValue::Reflection: {
-    mangleReflection(V.getReflection());
+    mangleReflection(V);
     break;
   }
   }

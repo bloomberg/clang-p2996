@@ -474,7 +474,7 @@ private:
                          const NamedDecl *Parm);
   void mangleTemplateArgValue(QualType T, const APValue &V, TplArgKind,
                               bool WithScalarType = false);
-  void mangleReflection(const ReflectionValue &R);
+  void mangleReflection(const APValue &R);
 
   void mangleObjCProtocol(const ObjCProtocolDecl *PD);
   void mangleObjCLifetime(const QualType T, Qualifiers Quals,
@@ -1019,6 +1019,7 @@ void MicrosoftCXXNameMangler::mangleFloat(llvm::APFloat Number) {
   case APFloat::S_Float8E5M2FNUZ:
   case APFloat::S_Float8E4M3FNUZ:
   case APFloat::S_Float8E4M3B11FNUZ:
+  case APFloat::S_Float8E3M4:
   case APFloat::S_FloatTF32:
   case APFloat::S_Float6E3M2FN:
   case APFloat::S_Float6E2M3FN:
@@ -2160,17 +2161,16 @@ void MicrosoftCXXNameMangler::mangleTemplateArgValue(QualType T,
   }
 }
 
-void MicrosoftCXXNameMangler::mangleReflection(const ReflectionValue &R) {
+void MicrosoftCXXNameMangler::mangleReflection(const APValue &R) {
   Out << 'M';
 
-  const void *opaque = R.getOpaqueValue();
-  switch (R.getKind()) {
-  case ReflectionValue::RK_null:
+  switch (R.getReflectionKind()) {
+  case ReflectionKind::Null:
     Out << '0';
     break;
-  case ReflectionValue::RK_type: {
+  case ReflectionKind::Type: {
     Out << 't';
-    QualType QT = QualType::getFromOpaquePtr(opaque);
+    QualType QT = R.getReflectedType();
     if (const LocInfoType *LIT = dyn_cast<LocInfoType>(QT)) {
       QT = LIT->getType();
     }
@@ -2185,13 +2185,13 @@ void MicrosoftCXXNameMangler::mangleReflection(const ReflectionValue &R) {
     Context.mangleCanonicalTypeName(QT, Out, false);
     break;
   }
-  case ReflectionValue::RK_object:
-  case ReflectionValue::RK_value:
-  case ReflectionValue::RK_declaration:
-  case ReflectionValue::RK_template:
-  case ReflectionValue::RK_namespace:
-  case ReflectionValue::RK_base_specifier:
-  case ReflectionValue::RK_data_member_spec:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
+  case ReflectionKind::Declaration:
+  case ReflectionKind::Template:
+  case ReflectionKind::Namespace:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::DataMemberSpec:
     llvm_unreachable("unimplemented");
   }
   Out << 'E';
@@ -2789,6 +2789,13 @@ void MicrosoftCXXNameMangler::mangleType(const BuiltinType *T, Qualifiers,
     break;
 
 #include "clang/Basic/WebAssemblyReferenceTypes.def"
+
+#define HLSL_INTANGIBLE_TYPE(Name, Id, SingletonId)                            \
+  case BuiltinType::Id:                                                        \
+    mangleArtificialTagType(TagTypeKind::Struct, #Name);                       \
+    break;
+#include "clang/Basic/HLSLIntangibleTypes.def"
+
 #define SVE_TYPE(Name, Id, SingletonId) \
   case BuiltinType::Id:
 #include "clang/Basic/AArch64SVEACLETypes.def"

@@ -8,9 +8,9 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// RUN: %clang_cc1 %s -std=c++23 -freflection
+// RUN: %clang_cc1 %s -std=c++23 -freflection -freflection-new-syntax
 
-using info = decltype(^int);
+using info = decltype(^^int);
 
 // Can we use a function parameter as the info parameter of __metafunction
 // without generating warnings?
@@ -20,5 +20,5 @@ consteval auto metafn_info_as_func_param(info inf)
 
     // This is unstable because it depends on metafunction#0 taking exactly
     // two arguments. Easy enough to fix, though.
-    return __metafunction(0, inf, ^Sentinel);
+    return __metafunction(0, inf, ^^Sentinel);
 }

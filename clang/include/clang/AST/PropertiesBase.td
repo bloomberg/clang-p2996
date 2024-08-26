@@ -83,8 +83,7 @@ def Bool : PropertyType<"bool">;
 def BuiltinTypeKind : EnumPropertyType<"BuiltinType::Kind">;
 def BTFTypeTagAttr : PropertyType<"const BTFTypeTagAttr *">;
 def CallingConv : EnumPropertyType;
-def CXXBaseSpecifierRef :
-    RefPropertyType<"CXXBaseSpecifier"> { let ConstWhenWriting = 1; }
+def Char : CountPropertyType<"char">;
 def DeclarationName : PropertyType;
 def DeclarationNameKind : EnumPropertyType<"DeclarationName::NameKind">;
 def DeclRef : RefPropertyType<"Decl"> { let ConstWhenWriting = 1; }
@@ -136,16 +135,13 @@ def OverloadedOperatorKind : EnumPropertyType;
 def Qualifiers : PropertyType;
 def QualType : DefaultValuePropertyType;
 def RefQualifierKind : EnumPropertyType;
-def ReflectionKind : EnumPropertyType<"ReflectionValue::ReflectionKind">;
-def ReflectionValue : PropertyType { let PassByReference = 1; }
+def ReflectionKind : EnumPropertyType<"ReflectionKind">;
 def Selector : PropertyType;
 def SourceLocation : PropertyType;
 def StmtRef : RefPropertyType<"Stmt"> { let ConstWhenWriting = 1; }
   def ExprRef : SubclassPropertyType<"Expr", StmtRef>;
   def CXXSpliceSpecifierExprRef :
       SubclassPropertyType<"CXXSpliceSpecifierExpr", ExprRef>;
-def TagDataMemberSpecRef :
-    RefPropertyType<"TagDataMemberSpec"> { let ConstWhenWriting = 1; }
 def TemplateArgument : PropertyType;
 def TemplateArgumentKind : EnumPropertyType<"TemplateArgument::ArgKind">;
 def TemplateName : DefaultValuePropertyType;
@@ -262,86 +258,6 @@ class PropertyTypeCase<PropertyType type, string name> : HasProperties {
 
   /// The name of the case (a value of the type's kind enum).
   string Name = name;
-}
-
-// Type cases for ReflectionValue.
-def : PropertyTypeKind<ReflectionValue, ReflectionKind,
-                       "node.getKind()">;
-let Class = PropertyTypeCase<ReflectionValue, "RK_null"> in {
-  def : Creator<[{
-    return ReflectionValue();
-  }]>;
-}
-let Class = PropertyTypeCase<ReflectionValue, "RK_type"> in {
-  def : Property<"value", QualType> {
-    let Read = [{ node.getAsType() }];
-  }
-  def : Creator<[{
-    return ReflectionValue(ReflectionValue::RK_type,
-                           value.getAsOpaquePtr());
-  }]>;
-}
-let Class = PropertyTypeCase<ReflectionValue, "RK_object"> in {
-  def : Property<"value", APValue> {
-    let Read = [{ node.getAsObject() }];
-  }
-  def : Creator<[{
-    return ReflectionValue(ReflectionValue::RK_object,
-                           new (ctx) APValue(value));
-  }]>;
-}
-let Class = PropertyTypeCase<ReflectionValue, "RK_value"> in {
-  def : Property<"value", APValue> {
-    let Read = [{ node.getAsValue() }];
-  }
-  def : Property<"type", QualType> {
-    let Read = [{ node.getResultType() }];
-  }
-  def : Creator<[{
-    return ReflectionValue(ReflectionValue::RK_value,
-                           new (ctx) APValue(value), type);
-  }]>;
-}
-let Class = PropertyTypeCase<ReflectionValue, "RK_declaration"> in {
-  def : Property<"value", ValueDeclRef> {
-    let Read = [{ node.getAsDecl() }];
-  }
-  def : Creator<[{
-    return ReflectionValue(ReflectionValue::RK_declaration, value);
-  }]>;
-}
-let Class = PropertyTypeCase<ReflectionValue, "RK_template"> in {
-  def : Property<"value", TemplateName> {
-    let Read = [{ node.getAsTemplate() }];
-  }
-  def : Creator<[{
-    return ReflectionValue(ReflectionValue::RK_template,
-                           value.getAsTemplateDecl());
-  }]>;
-}
-let Class = PropertyTypeCase<ReflectionValue, "RK_namespace"> in {
-  def : Property<"value", DeclRef> {
-    let Read = [{ node.getAsNamespace() }];
-  }
-  def : Creator<[{
-    return ReflectionValue(ReflectionValue::RK_namespace, value);
-  }]>;
-}
-let Class = PropertyTypeCase<ReflectionValue, "RK_base_specifier"> in {
-  def : Property<"value", CXXBaseSpecifierRef> {
-    let Read = [{ node.getAsBaseSpecifier() }];
-  }
-  def : Creator<[{
-    return ReflectionValue(ReflectionValue::RK_base_specifier, value);
-  }]>;
-}
-let Class = PropertyTypeCase<ReflectionValue, "RK_data_member_spec"> in {
-  def : Property<"value", TagDataMemberSpecRef> {
-    let Read = [{ node.getAsDataMemberSpec() }];
-  }
-  def : Creator<[{
-    return ReflectionValue(ReflectionValue::RK_data_member_spec, value);
-  }]>;
 }
 
 // Type cases for APValue.
@@ -517,8 +433,161 @@ let Class = PropertyTypeCase<APValue, "AddrLabelDiff"> in {
   }]>;
 }
 let Class = PropertyTypeCase<APValue, "Reflection"> in {
+  def : ReadHelper<[{
+    APValue base = node;
+    ReflectionKind baseKind = node.getReflectionKind();
+    {
+      while (base.getReflectionDepth() > 1)
+        base = base.Lower();
+      baseKind = base.getReflectionKind();
+
+      if (base.getReflectionDepth() == 1)
+        base = base.Lower();
+      if (base.isReflection())
+        baseKind = base.getReflectionKind();
+    }
+
+    size_t baseSpecIdx = 0;
+    if (baseKind == ReflectionKind::BaseSpecifier) {
+      CXXBaseSpecifier *specifier = base.getReflectedBaseSpecifier();
+      for (const CXXBaseSpecifier &s : specifier->getDerived()->bases()) {
+        if (&s == specifier)
+          break;
+        ++baseSpecIdx;
+      }
+
+      assert(baseSpecIdx < specifier->getDerived()->getNumBases());
+    }
+
+    ArrayRef<char> baseTdmsNameArray;
+    if (baseKind == ReflectionKind::DataMemberSpec) {
+      TagDataMemberSpec *TDMS = base.getReflectedDataMemberSpec();
+      if (TDMS->Name.has_value())
+        baseTdmsNameArray = ArrayRef(TDMS->Name->data(), TDMS->Name->size());
+    }
+  }]>;
+
+  def : Property<"depth", UInt32> {
+    let Read = [{ node.getReflectionDepth() }];
+  }
+
+  def : Property<"reflectedResultType", QualType> {
+    let Conditional = [{ depth > 0 }];
+    let Read = [{ node.getTypeOfReflectedResult(getASTContext()) }];
+  }
+
+  def : Property<"kind", ReflectionKind> {
+    let Read = [{ baseKind }];
+  }
+
+  def : Property<"baseType", QualType> {
+    let Conditional = [{ kind == ReflectionKind::Type }];
+    let Read = [{ base.getReflectedType() }];
+  }
+  def : Property<"baseAPValue", APValue> {
+    let Conditional = [{ depth > 0 }];
+    let Read = [{ base }];
+  }
+  def : Property<"baseDecl", ValueDeclRef> {
+    let Conditional = [{ kind == ReflectionKind::Declaration }];
+    let Read = [{ base.getReflectedDecl() }];
+  }
+  def : Property<"baseTemplate", TemplateName> {
+    let Conditional = [{ kind == ReflectionKind::Template }];
+    let Read = [{ base.getReflectedTemplate() }];
+  }
+  def : Property<"baseNamespace", DeclRef> {
+    let Conditional = [{ kind == ReflectionKind::Namespace }];
+    let Read = [{ base.getReflectedNamespace() }];
+  }
+  def : Property<"baseBaseSpecDerivedFrom", CXXRecordDeclRef> {
+    let Conditional = [{ kind == ReflectionKind::BaseSpecifier }];
+    let Read = [{ base.getReflectedBaseSpecifier()->getDerived() }];
+  }
+  def : Property<"baseBaseSpecIdx", UInt32> {
+    let Conditional = [{ kind == ReflectionKind::BaseSpecifier }];
+    let Read = [{ baseSpecIdx }];
+  }
+
+  def : Property<"baseTdmsType", QualType> {
+    let Conditional = [{ kind == ReflectionKind::DataMemberSpec }];
+    let Read = [{ base.getReflectedDataMemberSpec()->Ty }];
+  }
+  def : Property<"baseTdmsHasName", Bool> {
+    let Conditional = [{ kind == ReflectionKind::DataMemberSpec }];
+    let Read = [{ base.getReflectedDataMemberSpec()->Name.has_value() }];
+  }
+  def : Property<"baseTdmsName", Array<Char>> {
+    let Conditional = [{ kind == ReflectionKind::DataMemberSpec }];
+    let Read = [{ baseTdmsNameArray }];
+  }
+  def : Property<"baseTdmsHasAlignment", Bool> {
+    let Conditional = [{ kind == ReflectionKind::DataMemberSpec }];
+    let Read = [{ base.getReflectedDataMemberSpec()->Alignment.has_value() }];
+  }
+  def : Property<"baseTdmsAlignment", UInt32> {
+    let Conditional = [{ kind == ReflectionKind::DataMemberSpec }];
+    let Read = [{ base.getReflectedDataMemberSpec()->Alignment.value_or(0) }];
+  }
+  def : Property<"baseTdmsHasBitWidth", Bool> {
+    let Conditional = [{ kind == ReflectionKind::DataMemberSpec }];
+    let Read = [{ base.getReflectedDataMemberSpec()->BitWidth.has_value() }];
+  }
+  def : Property<"baseTdmsBitWidth", UInt32> {
+    let Conditional = [{ kind == ReflectionKind::DataMemberSpec }];
+    let Read = [{ base.getReflectedDataMemberSpec()->BitWidth.value_or(0) }];
+  }
+  def : Property<"baseTdmsNoUniqueAddress", Bool> {
+    let Conditional = [{ kind == ReflectionKind::DataMemberSpec }];
+    let Read = [{ base.getReflectedDataMemberSpec()->NoUniqueAddress }];
+  }
+
   def : Creator<[{
-    llvm_unreachable("unimplemented");
+    APValue V;
+    switch (kind) {
+    case ReflectionKind::Null:
+      V = APValue(kind, nullptr);
+      break;
+    case ReflectionKind::Type:
+      V = APValue(kind, (*baseType).getAsOpaquePtr());
+      break;
+    case ReflectionKind::Object:
+    case ReflectionKind::Value:
+      V = *baseAPValue;
+      break;
+    case ReflectionKind::Declaration:
+      V = APValue(kind, *baseDecl);
+      break;
+    case ReflectionKind::Template:
+      V = APValue(kind, (*baseTemplate).getAsVoidPointer());
+      break;
+    case ReflectionKind::Namespace:
+      V = APValue(kind, *baseNamespace);
+      break;
+    case ReflectionKind::BaseSpecifier:
+      V = APValue(
+            kind,
+            (*baseBaseSpecDerivedFrom)->bases().begin() + (*baseBaseSpecIdx));
+      break;
+    case ReflectionKind::DataMemberSpec: {
+      TagDataMemberSpec *TDMS = new (ctx) TagDataMemberSpec {};
+      TDMS->Ty = *baseTdmsType;
+      if (*baseTdmsHasName)
+        TDMS->Name = std::string(baseTdmsName->begin(), baseTdmsName->end());
+      if (*baseTdmsHasAlignment)
+        TDMS->Alignment = *baseTdmsAlignment;
+      if (*baseTdmsHasBitWidth)
+        TDMS->BitWidth = *baseTdmsBitWidth;
+      TDMS->NoUniqueAddress = *baseTdmsNoUniqueAddress;
+
+      V = APValue(kind, TDMS);
+    }
+    }
+
+    for (unsigned k = 0; k < depth; ++k)
+      V = V.Lift(*reflectedResultType);
+
+    return V;
   }]>;
 }
 let Class = PropertyTypeCase<APValue, "MemberPointer"> in {

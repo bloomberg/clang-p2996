@@ -583,12 +583,6 @@ static bool isSingleLineLanguageLinkage(const Decl &D) {
   return false;
 }
 
-static bool isDeclaredInModuleInterfaceOrPartition(const NamedDecl *D) {
-  if (auto *M = D->getOwningModule())
-    return M->isInterfaceOrPartition();
-  return false;
-}
-
 static LinkageInfo getExternalLinkageFor(const NamedDecl *D) {
   return LinkageInfo::external();
 }
@@ -642,7 +636,13 @@ LinkageComputer::getLVForNamespaceScopeDecl(const NamedDecl *D,
     // (There is no equivalent in C99.)
     if (Context.getLangOpts().CPlusPlus && Var->getType().isConstQualified() &&
         !Var->getType().isVolatileQualified() && !Var->isInline() &&
-        !isDeclaredInModuleInterfaceOrPartition(Var) &&
+        ![Var]() {
+          // Check if it is module purview except private module fragment
+          // and implementation unit.
+          if (auto *M = Var->getOwningModule())
+            return M->isInterfaceOrPartition() || M->isImplicitGlobalModule();
+          return false;
+        }() &&
         !isa<VarTemplateSpecializationDecl>(Var) &&
         !Var->getDescribedVarTemplate()) {
       const VarDecl *PrevVar = Var->getPreviousDecl();
@@ -3292,11 +3292,9 @@ bool FunctionDecl::isImmediateFunction() const {
 }
 
 bool FunctionDecl::isMain() const {
-  const TranslationUnitDecl *tunit =
-    dyn_cast<TranslationUnitDecl>(getDeclContext()->getRedeclContext());
-  return tunit &&
-         !tunit->getASTContext().getLangOpts().Freestanding &&
-         isNamed(this, "main");
+  return isNamed(this, "main") && !getLangOpts().Freestanding &&
+         (getDeclContext()->getRedeclContext()->isTranslationUnit() ||
+          isExternC());
 }
 
 bool FunctionDecl::isMSVCRTEntryPoint() const {
@@ -4680,6 +4678,19 @@ void FieldDecl::printName(raw_ostream &OS, const PrintingPolicy &Policy) const {
   DeclaratorDecl::printName(OS, Policy);
 }
 
+const FieldDecl *FieldDecl::findCountedByField() const {
+  const auto *CAT = getType()->getAs<CountAttributedType>();
+  if (!CAT)
+    return nullptr;
+
+  const auto *CountDRE = cast<DeclRefExpr>(CAT->getCountExpr());
+  const auto *CountDecl = CountDRE->getDecl();
+  if (const auto *IFD = dyn_cast<IndirectFieldDecl>(CountDecl))
+    CountDecl = IFD->getAnonField();
+
+  return dyn_cast<FieldDecl>(CountDecl);
+}
+
 //===----------------------------------------------------------------------===//
 // TagDecl Implementation
 //===----------------------------------------------------------------------===//
@@ -4997,7 +5008,7 @@ RecordDecl::RecordDecl(Kind DK, TagKind TK, const ASTContext &C,
   setParamDestroyedInCallee(false);
   setArgPassingRestrictions(RecordArgPassingKind::CanPassInRegs);
   setIsRandomized(false);
-  setIsMetaType(false);
+  setIsConstevalOnly(false);
   setODRHash(0);
 }
 
@@ -5073,17 +5084,18 @@ void RecordDecl::completeDefinition() {
 
   ASTContext &Ctx = getASTContext();
 
-  // Compute whether this is a meta type.
+  // Compute whether this is a consteval-only type.
   for (FieldDecl *FD : fields()) {
-    if (FD->getType()->isMetaType()) {
-      setIsMetaType(true);
+    if (FD->getType()->isConstevalOnly()) {
+      setIsConstevalOnly(true);
       break;
     }
   }
-  if (auto CXXRD = dyn_cast<CXXRecordDecl>(this); CXXRD && !isMetaType()) {
+  if (auto CXXRD = dyn_cast<CXXRecordDecl>(this);
+      CXXRD && !isConstevalOnly()) {
     for (CXXBaseSpecifier BaseSpecifier : CXXRD->bases()) {
-      if (BaseSpecifier.getType()->isMetaType()) {
-        setIsMetaType(true);
+      if (BaseSpecifier.getType()->isConstevalOnly()) {
+        setIsConstevalOnly(true);
         break;
       }
     }

@@ -469,36 +469,61 @@ void ASTStmtWriter::VisitDependentCoawaitExpr(DependentCoawaitExpr *E) {
 void ASTStmtWriter::VisitCXXReflectExpr(CXXReflectExpr *E) {
   VisitExpr(E);
   Record.AddSourceLocation(E->getOperatorLoc());
-  if (E->hasDependentSubExpr())
+
+  Record.writeBool(E->hasDependentSubExpr());
+  if (E->hasDependentSubExpr()) {
     Record.AddStmt(E->getDependentSubExpr());
-  else
-    Record.AddReflectionValue(E->getReflection());
+  } else {
+    Record.AddAPValue(E->getReflection());
+    Record.AddSourceRange(E->getOperandRange());
+  }
   Code = serialization::EXPR_REFLECT;
 }
 
 void ASTStmtWriter::VisitCXXMetafunctionExpr(CXXMetafunctionExpr *E) {
   VisitExpr(E);
   Record.AddSourceLocation(E->getKwLoc());
-  // TODO(P2996): Note that this cannot be safely deserialized with the current
-  // model.
+  Record.AddSourceLocation(E->getLParenLoc());
+  Record.AddSourceLocation(E->getRParenLoc());
+  Record.writeUInt32(E->getMetaFnID());
+  Record.writeQualType(E->getResultType());
+
+  Record.writeUInt32(E->getNumArgs());
+  for (size_t k = 0; k < E->getNumArgs(); ++k) {
+    Record.AddStmt(E->getArg(k));
+  }
+
   Code = serialization::EXPR_METAFUNCTION;
 }
 
 void ASTStmtWriter::VisitCXXSpliceSpecifierExpr(CXXSpliceSpecifierExpr *E) {
   VisitExpr(E);
-  Code = serialization::EXPR_SPLICE;
+  Record.AddSourceLocation(E->getTemplateKWLoc());
+  Record.AddSourceLocation(E->getLSpliceLoc());
+  Record.AddSourceLocation(E->getRSpliceLoc());
+  Record.AddStmt(E->getOperand());
+
+  Code = serialization::EXPR_SPLICE_SPECIFIER;
 }
 
 void ASTStmtWriter::VisitCXXSpliceExpr(CXXSpliceExpr *E) {
   VisitExpr(E);
-  // TODO(P2996): Implement this.
-  Code = serialization::EXPR_EXPR_SPLICE;
+  Record.AddSourceLocation(E->getLSpliceLoc());
+  Record.AddSourceLocation(E->getRSpliceLoc());
+  Record.writeBool(E->allowMemberReference());
+  Record.AddStmt(E->getOperand());
+
+  Code = serialization::EXPR_SPLICE;
 }
 
 void ASTStmtWriter::VisitCXXDependentMemberSpliceExpr(
                                               CXXDependentMemberSpliceExpr *E) {
   VisitExpr(E);
-  // TODO(P2996): Implement this.
+  Record.AddSourceLocation(E->getOpLoc());
+  Record.writeBool(E->isArrow());
+  Record.AddStmt(E->getBase());
+  Record.AddStmt(E->getRHS());
+
   Code = serialization::EXPR_DEPENDENT_MEMBER_SPLICE;
 }
 
@@ -1142,6 +1167,7 @@ void ASTStmtWriter::VisitBinaryOperator(BinaryOperator *E) {
   CurrentPackingBits.addBits(E->getOpcode(), /*Width=*/6);
   bool HasFPFeatures = E->hasStoredFPFeatures();
   CurrentPackingBits.addBit(HasFPFeatures);
+  CurrentPackingBits.addBit(E->hasExcludedOverflowPattern());
   Record.AddStmt(E->getLHS());
   Record.AddStmt(E->getRHS());
   Record.AddSourceLocation(E->getOperatorLoc());
@@ -2683,6 +2709,12 @@ void ASTStmtWriter::VisitOMPTaskwaitDirective(OMPTaskwaitDirective *D) {
   Record.push_back(D->getNumClauses());
   VisitOMPExecutableDirective(D);
   Code = serialization::STMT_OMP_TASKWAIT_DIRECTIVE;
+}
+
+void ASTStmtWriter::VisitOMPAssumeDirective(OMPAssumeDirective *D) {
+  VisitStmt(D);
+  VisitOMPExecutableDirective(D);
+  Code = serialization::STMT_OMP_ASSUME_DIRECTIVE;
 }
 
 void ASTStmtWriter::VisitOMPErrorDirective(OMPErrorDirective *D) {

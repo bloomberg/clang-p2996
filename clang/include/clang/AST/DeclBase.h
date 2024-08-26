@@ -324,6 +324,7 @@ private:
   static bool StatisticsEnabled;
 
 protected:
+  friend class ASTDeclMerger;
   friend class ASTDeclReader;
   friend class ASTDeclWriter;
   friend class ASTNodeImporter;
@@ -670,8 +671,18 @@ public:
   /// Whether this declaration comes from another module unit.
   bool isInAnotherModuleUnit() const;
 
+  /// Whether this declaration comes from the same module unit being compiled.
+  bool isInCurrentModuleUnit() const;
+
+  /// Whether the definition of the declaration should be emitted in external
+  /// sources.
+  bool shouldEmitInExternalSource() const;
+
   /// Whether this declaration comes from explicit global module.
   bool isFromExplicitGlobalModule() const;
+
+  /// Whether this declaration comes from global module.
+  bool isFromGlobalModule() const;
 
   /// Whether this declaration comes from a named module.
   bool isInNamedModule() const;
@@ -1669,9 +1680,9 @@ class DeclContext {
     LLVM_PREFERRED_TYPE(bool)
     uint64_t IsRandomized : 1;
 
-    /// Indicates whether this struct is a meta type.
+    /// Indicates whether this struct is a consteval-only type.
     LLVM_PREFERRED_TYPE(bool)
-    uint64_t IsMetaType : 1;
+    uint64_t IsConstevalOnly : 1;
 
     /// True if a valid hash is stored in ODRHash. This should shave off some
     /// extra storage and prevent CXXRecordDecl to store unused bits.
