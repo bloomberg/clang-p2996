@@ -271,31 +271,31 @@ constexpr Number num{42};
 
 // member function with input arguments
 static_assert(std::meta::reflect_value(84) ==
-              reflect_invoke(^Number::plus,
-                             {^num, std::meta::reflect_value(42)}));
+              reflect_invoke(^^Number::plus,
+                             {^^num, std::meta::reflect_value(42)}));
 
 // operator overload
 static_assert(std::meta::reflect_value(84) ==
-              reflect_invoke(^Number::get_value,
-                             {reflect_invoke(^Number::operator+,
-                                                {^num, std::meta::reflect_value(42)})}));
+              reflect_invoke(^^Number::get_value,
+                             {reflect_invoke(^^Number::operator+,
+                                                {^^num, std::meta::reflect_value(42)})}));
 
 // member function without input arguments
 static_assert(std::meta::reflect_value(42) ==
-              reflect_invoke(^Number::get_value,
-                             {^num}));
+              reflect_invoke(^^Number::get_value,
+                             {^^num}));
 
 // member function called with object reference
 constexpr auto num_ref = &num;
 static_assert(std::meta::reflect_value(42) ==
-              reflect_invoke(^Number::get_value,
-                             {^num_ref}));
+              reflect_invoke(^^Number::get_value,
+                             {^^num_ref}));
 
 // template member function
 static_assert(std::meta::reflect_value(84) ==
-              reflect_invoke(^Number::multiply,
-                             {^int},
-                             {^num, std::meta::reflect_value(2)}));
+              reflect_invoke(^^Number::multiply,
+                             {^^int},
+                             {^^num, std::meta::reflect_value(2)}));
 
 // Invoking Base::fn() with an object of type Child
 struct IsReal {
@@ -314,11 +314,11 @@ struct FloatNumber : public Number, IsReal{
 
 constexpr FloatNumber childNumber{42};
 static_assert(std::meta::reflect_value(42) ==
-              reflect_invoke(^Number::get_value,
-                             {^childNumber}));
+              reflect_invoke(^^Number::get_value,
+                             {^^childNumber}));
 static_assert(std::meta::reflect_value(true) ==
-              reflect_invoke(^IsReal::is_real,
-                             {^childNumber}));
+              reflect_invoke(^^IsReal::is_real,
+                             {^^childNumber}));
 
 } // namespace non_static_member_functions
 

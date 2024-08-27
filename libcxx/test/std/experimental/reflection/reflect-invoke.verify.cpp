@@ -9,7 +9,7 @@
 //===----------------------------------------------------------------------===//
 
 // UNSUPPORTED: c++03 || c++11 || c++14 || c++17 || c++20
-// ADDITIONAL_COMPILE_FLAGS: -freflection
+// ADDITIONAL_COMPILE_FLAGS: -freflection -freflection-new-syntax
 // ADDITIONAL_COMPILE_FLAGS: -Wno-unneeded-internal-declaration -Wno-unused-variable -Wno-unused-value
 
 // <experimental/reflection>
@@ -39,27 +39,27 @@ int main() {
               // non-static member functions
               // ======================
  constexpr A expectedClass{};
- reflect_invoke(^A::fn, {^expectedClass}); // ok
+ reflect_invoke(^^A::fn, {^^expectedClass}); // ok
 
- reflect_invoke(^A::void_fn, {^expectedClass});
+ reflect_invoke(^^A::void_fn, {^^expectedClass});
  // expected-error-re@-1 {{call to consteval function 'std::meta::reflect_invoke<{{.*}}>' is not a constant expression}}
  // expected-note@-2 {{cannot invoke reflection of void-returning function}}
 
- reflect_invoke(^A::fn, {});
+ reflect_invoke(^^A::fn, {});
  // expected-error-re@-1 {{call to consteval function 'std::meta::reflect_invoke<{{.*}}>' is not a constant expression}}
  // expected-note@-2 {{expected related object reflection as a first argument for invoking non-static member function}}
 
- reflect_invoke(^A::fn, {std::meta::reflect_value(42)});
+ reflect_invoke(^^A::fn, {std::meta::reflect_value(42)});
  // expected-error-re@-1 {{call to consteval function 'std::meta::reflect_invoke<{{.*}}>' is not a constant expression}}
  // expected-note@-2 {{expected related object reflection as a first argument for invoking non-static member function}}
 
  constexpr B differentClass{};
- reflect_invoke(^A::fn, {^differentClass});
+ reflect_invoke(^^A::fn, {^^differentClass});
  // expected-error-re@-1 {{call to consteval function 'std::meta::reflect_invoke<{{.*}}>' is not a constant expression}}
  // expected-note@-2 {{method is not a member of given object reflection}}
 
  constexpr NS::A differentNamespaceClass{};
- reflect_invoke(^A::fn, {^differentNamespaceClass});
+ reflect_invoke(^^A::fn, {^^differentNamespaceClass});
  // expected-error-re@-1 {{call to consteval function 'std::meta::reflect_invoke<{{.*}}>' is not a constant expression}}
  // expected-note@-2 {{method is not a member of given object reflection}}
 }
