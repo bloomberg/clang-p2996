@@ -322,4 +322,36 @@ static_assert(std::meta::reflect_value(true) ==
 
 } // namespace non_static_member_functions
 
+namespace function_pointer {
+// pointer to simple function
+constexpr int foo(int a) {
+  return a + 42;
+}
+
+constexpr int (*foo_pointer)(int) = &foo;
+static_assert(reflect_invoke(^^foo_pointer, {std::meta::reflect_value(1)})
+              == std::meta::reflect_value(43));
+
+// pointer to template function
+template <typename T>
+constexpr T bar(T a) {
+  return a + 42;
+}
+
+constexpr int (*bar_pointer)(int) = &bar<int>;
+static_assert(reflect_invoke(^^bar_pointer, {std::meta::reflect_value(1)})
+              == std::meta::reflect_value(43));
+
+// pointer to methods
+struct Cls {
+  static constexpr int fn(int p) { return p * p; }
+};
+
+// pointer to static method
+constexpr int (*fn_pointer)(int) = &Cls::fn;
+static_assert(reflect_invoke(^^fn_pointer, {std::meta::reflect_value(2)})
+              == std::meta::reflect_value(4));
+
+} // namespace function_pointer
+
 int main() { }
