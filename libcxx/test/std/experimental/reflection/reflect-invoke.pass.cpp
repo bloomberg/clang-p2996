@@ -329,8 +329,8 @@ constexpr int foo(int a) {
 }
 
 constexpr int (*foo_pointer)(int) = &foo;
-static_assert(reflect_invoke(^^foo_pointer, {std::meta::reflect_value(1)})
-              == std::meta::reflect_value(43));
+static_assert(reflect_invoke(^^foo_pointer, {std::meta::reflect_value(0)})
+              == std::meta::reflect_value(42));
 
 // pointer to template function
 template <typename T>
@@ -342,15 +342,28 @@ constexpr int (*bar_pointer)(int) = &bar<int>;
 static_assert(reflect_invoke(^^bar_pointer, {std::meta::reflect_value(1)})
               == std::meta::reflect_value(43));
 
-// pointer to methods
+// pointer to method
 struct Cls {
+public:
+  constexpr Cls(int data) : data(data) {}
+
   static constexpr int fn(int p) { return p * p; }
+
+  constexpr int get() const { return data; }
+
+  const int data;
 };
 
 // pointer to static method
 constexpr int (*fn_pointer)(int) = &Cls::fn;
 static_assert(reflect_invoke(^^fn_pointer, {std::meta::reflect_value(2)})
               == std::meta::reflect_value(4));
+
+// pointer to non-static method
+constexpr Cls data(42);
+constexpr int (Cls::*get_pointer)() const = &Cls::get;
+static_assert(reflect_invoke(^^get_pointer, {^^data}) == std::meta::reflect_value(42));
+
 
 } // namespace function_pointer
 

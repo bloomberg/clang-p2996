@@ -4491,19 +4491,51 @@ bool is_nonstatic_member_function(ValueDecl *FD) {
 
   auto *MD = dyn_cast<CXXMethodDecl>(FD);
   if (!MD) {
-    return false;
+    // might be a pointer to member function
+    QualType QT = FD->getType();
+    // check if the type is a pointer to a member
+    if (const MemberPointerType *MPT = QT->getAs<MemberPointerType>()) {
+      QualType PT = MPT->getPointeeType();
+      // check if the pointee type is a function type
+      if (const FunctionProtoType *FPT = PT->getAs<FunctionProtoType>()) {
+        return true;
+      }
+    }
+  } else {
+    return !MD->isStatic();
   }
 
-  return !MD->isStatic();
+  return false;
 }
 
-bool is_method_in_class_or_parent(const CXXMethodDecl *MD,
-                                  const CXXRecordDecl *ObjClass) {
-  if (ObjClass == MD->getParent()) {
-    return true;
+CXXMethodDecl *getCXXMethodDeclFromDeclRefExpr(DeclRefExpr *DRE) {
+  ValueDecl *VD = DRE->getDecl();
+
+  if (auto *MD = dyn_cast<CXXMethodDecl>(VD)) {
+    // method declaration
+    return MD;
+  } else {
+    // pointer to non-static method
+    // validation was done in is_nonstatic_member_function
+    auto *VarD = cast<VarDecl>(VD);
+    Expr *Init = VarD->getInit();
+
+    if (auto *UnaryOp = dyn_cast<UnaryOperator>(Init)) {
+      // get the operand of &
+      Init = UnaryOp->getSubExpr();
+    }
+
+    while (auto *CastExpr = dyn_cast<ImplicitCastExpr>(Init)) {
+      // handle ImplicitCastExpr if it is wrapping the actual expression
+      Init = CastExpr->getSubExpr();
+    }
+
+    if (auto *DREFromUnary = dyn_cast<DeclRefExpr>(Init)) {
+      return dyn_cast<CXXMethodDecl>(DREFromUnary->getDecl());
+    }
   }
 
-  return ObjClass->isDerivedFrom(MD->getParent());
+  return nullptr;
 }
 
 bool reflect_invoke(APValue &Result, Sema &S, EvalFn Evaluator,
@@ -4730,10 +4762,19 @@ bool reflect_invoke(APValue &Result, Sema &S, EvalFn Evaluator,
                  << Range;
         }
 
-        auto *MD = cast<CXXMethodDecl>(DRE->getDecl());
+        CXXMethodDecl *MD = getCXXMethodDeclFromDeclRefExpr(DRE);
+        assert(MD && "failed to get method?");
+        // this call is needed to make
+        // CXXSpliceExpr work with pointers to non-static methods
+        // (we unwrap pointer in getCXXMethodDeclFromDeclRefExpr(DRE) function)
+        // for non-pointer setDecl(MD) call is no-op
+        DRE->setDecl(MD);
 
+        auto ObjClass = ObjType->getAsCXXRecordDecl();
         // check that method belongs to class
-        if (!is_method_in_class_or_parent(MD, ObjType->getAsCXXRecordDecl())) {
+        bool IsMethodFromClassOrParent = (MD->getParent() == ObjClass) ||
+                                       ObjClass->isDerivedFrom(MD->getParent());
+        if (!IsMethodFromClassOrParent) {
           return Diagnoser(Range.getBegin(),
                            diag::metafn_function_is_not_member_of_object)
                  << Range;
