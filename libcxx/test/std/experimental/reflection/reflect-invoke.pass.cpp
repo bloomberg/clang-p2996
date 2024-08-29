@@ -364,6 +364,9 @@ constexpr Cls data(42);
 constexpr int (Cls::*get_pointer)() const = &Cls::get;
 static_assert(reflect_invoke(^^get_pointer, {^^data}) == std::meta::reflect_value(42));
 
+// object with static storage duration holding a pointer to a constexpr function
+static int (Cls::*get_static_pointer)() const = &Cls::get;
+static_assert(reflect_invoke(^^get_static_pointer, {^^data}) == std::meta::reflect_value(42));
 
 } // namespace function_pointer
 
