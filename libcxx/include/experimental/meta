@@ -420,6 +420,7 @@ enum : unsigned {
   __metafn_get_ith_template_argument_of,
   __metafn_get_begin_member_decl_of,
   __metafn_get_next_member_decl_of,
+  __metafn_is_structural_type,
   __metafn_map_decl_to_entity,
 
   // exposed metafunctions
@@ -1320,7 +1321,9 @@ consteval auto is_user_provided(info r) -> bool {
 }
 
 // Returns a reflection of the value held by the provided argument.
-template <typename T> requires (!is_reference_v<T>)
+template <typename T> 
+  requires (!is_reference_v<T> && 
+            __metafunction(detail::__metafn_is_structural_type, LIFT(T)))
 consteval auto reflect_value(T r) -> info {
   constexpr info Ty = type_of(LIFT(r));
 

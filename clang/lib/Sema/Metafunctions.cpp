@@ -74,6 +74,10 @@ static bool get_next_member_decl_of(APValue &Result, Sema &S, EvalFn Evaluator,
                                     DiagFn Diagnoser, QualType ResultTy,
                                     SourceRange Range, ArrayRef<Expr *> Args);
 
+static bool is_structural_type(APValue &Result, Sema &S, EvalFn Evaluator,
+                               DiagFn Diagnoser, QualType ResultTy,
+                               SourceRange Range, ArrayRef<Expr *> Args);
+
 static bool map_decl_to_entity(APValue &Result, Sema &S, EvalFn Evaluator,
                                DiagFn Diagnoser, QualType ResultTy,
                                SourceRange Range, ArrayRef<Expr *> Args);
@@ -498,6 +502,7 @@ static constexpr Metafunction Metafunctions[] = {
   { Metafunction::MFRK_metaInfo, 3, 3, get_ith_template_argument_of },
   { Metafunction::MFRK_metaInfo, 2, 2, get_begin_member_decl_of },
   { Metafunction::MFRK_metaInfo, 2, 2, get_next_member_decl_of },
+  { Metafunction::MFRK_bool, 1, 1, is_structural_type },
   { Metafunction::MFRK_metaInfo, 1, 1, map_decl_to_entity },
 
   // exposed metafunctions
@@ -1682,6 +1687,27 @@ bool get_next_member_decl_of(APValue &Result, Sema &S, EvalFn Evaluator,
   if (Decl *Next = findIterableMember(S.Context, RV.getReflectedDecl(), false))
     return SetAndSucceed(Result, APValue(ReflectionKind::Declaration, Next));
   return SetAndSucceed(Result, Sentinel);
+}
+
+static bool is_structural_type(APValue &Result, Sema &S, EvalFn Evaluator,
+                               DiagFn Diagnoser, QualType ResultTy,
+                               SourceRange Range, ArrayRef<Expr *> Args) {
+  assert(Args[0]->getType()->isReflectionType());
+  assert(ResultTy == S.Context.BoolTy);
+  
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
+    return true;
+  
+  auto result = false;
+  if (RV.isReflectedType()) {
+    const QualType QT = RV.getReflectedType();
+    const Type* T = QT.getTypePtr();
+
+    result = T->isStructuralType();
+  }
+
+  return SetAndSucceed(Result, makeBool(S.Context, result));
 }
 
 bool map_decl_to_entity(APValue &Result, Sema &S, EvalFn Evaluator,
