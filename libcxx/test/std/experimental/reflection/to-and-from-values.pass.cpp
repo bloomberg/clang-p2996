@@ -320,11 +320,9 @@ static_assert([:rvfirst:].first == 1);
 
 namespace reflect_value_callable {
 
-using std::meta::reflect_value;
-
 template<typename T>
 constexpr auto reflectValueCallable = 
-  requires { reflect_value<T>(std::declval<T>()); };
+  requires { std::meta::reflect_value<T>(std::declval<T>()); };
 
 enum class E {};
 
