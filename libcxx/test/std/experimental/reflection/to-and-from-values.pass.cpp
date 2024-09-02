@@ -314,7 +314,6 @@ static_assert(rvfirst == std::meta::reflect_value(std::make_pair(1, true)));
 static_assert([:rvfirst:].first == 1);
 }  // namespace values_from_objects
 
-
                            // ======================
                            // reflect_value_callable
                            // ======================
