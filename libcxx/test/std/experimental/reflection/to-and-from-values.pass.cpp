@@ -314,6 +314,60 @@ static_assert(rvfirst == std::meta::reflect_value(std::make_pair(1, true)));
 static_assert([:rvfirst:].first == 1);
 }  // namespace values_from_objects
 
+
+                           // ======================
+                           // reflect_value_callable
+                           // ======================
+
+namespace reflect_value_callable {
+
+using std::meta::reflect_value;
+
+template<typename T>
+constexpr auto reflectValueCallable = 
+  requires { reflect_value<T>(std::declval<T>()); };
+
+enum class E {};
+
+struct StructuralTypeClass {
+  int x;
+};
+
+struct NonStructuralTypeClass {
+  mutable int x;
+};
+
+struct NonStructuralTypeClass2 {
+  int f() { return x; };
+private:
+  int x;
+};
+
+// scalar types are allowed
+static_assert(reflectValueCallable<int>);
+static_assert(reflectValueCallable<const int>);
+static_assert(reflectValueCallable<const volatile int>);
+static_assert(reflectValueCallable<int*>);
+static_assert(reflectValueCallable<const int*>);
+static_assert(reflectValueCallable<const int* const>);
+static_assert(reflectValueCallable<E>);
+static_assert(reflectValueCallable<int StructuralTypeClass::*>);
+static_assert(reflectValueCallable<std::nullptr_t>);
+
+// literal class type with all non-static member vars public & non-mutable
+static_assert(reflectValueCallable<StructuralTypeClass>);
+
+// references are not allowed
+static_assert(!reflectValueCallable<int&>);
+static_assert(!reflectValueCallable<const int&>);
+static_assert(!reflectValueCallable<int&&>);
+static_assert(!reflectValueCallable<const int&&>);
+
+// non structural class types
+static_assert(!reflectValueCallable<NonStructuralTypeClass>);
+static_assert(!reflectValueCallable<NonStructuralTypeClass2>);
+}  // namespace reflect_value_callable
+
 // ========================
 // pointer_object_ambiguity
 // ========================
