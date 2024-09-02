@@ -135,6 +135,10 @@ class WithDefaultInitializer {
 };
 constexpr WithDefaultInitializer with_default_init;
 
+// Type with a nested name specifier that can't be parsed as an identifier.
+namespace A { namespace B { using C = int; } }
+constexpr auto complicated_type = ^^A::B::C &;
+
                    // =======================================
                    // bb_clang_p2996_issue_35_regression_test
                    // =======================================

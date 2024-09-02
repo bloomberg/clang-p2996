@@ -78,6 +78,13 @@ ExprResult Parser::ParseCXXReflectExpression(SourceLocation OpLoc) {
   }
   TentativeAction.Revert();
 
+  if (SS.isSet() &&
+      TryAnnotateTypeOrScopeTokenAfterScopeSpec(SS, true,
+                                                ImplicitTypenameContext::No)) {
+    SkipUntil(tok::semi, StopAtSemi | StopBeforeMatch);
+    return ExprError();
+  }
+
   // Anything else must be a type-id (e.g., 'const int', 'Cls(*)(int)'.
   if (isCXXTypeId(TypeIdAsReflectionOperand)) {
     TypeResult TR = ParseTypeName(nullptr, DeclaratorContext::ReflectOperator);

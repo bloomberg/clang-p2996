@@ -2539,7 +2539,7 @@ consteval auto pretty_printer<CharT>::tprint_impl::render() -> string_t {
 
     if (R == LIFT(decltype(nullptr)) || R == LIFT(nullptr_t))
       return string_constant("std::nullptr_t");
-    if (R == LIFT(info))
+    if (R == LIFT(info) || R == dealias(LIFT(info)))
       return string_constant("std::meta::info");
 
     if (R == LIFT(bool)) return string_constant("bool");

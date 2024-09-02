@@ -1009,7 +1009,12 @@ ExprDependence clang::computeDependence(CXXSpliceExpr *E) {
 }
 
 ExprDependence clang::computeDependence(CXXDependentMemberSpliceExpr *E) {
-  auto D = E->getBase()->getDependence() | E->getRHS()->getDependence();
+  auto D = ExprDependence::None;
+  if (E->getBase()->containsErrors() || E->getRHS()->containsErrors())
+    D |= ExprDependence::Error;
+  else
+    D |= E->getBase()->getDependence() | E->getRHS()->getDependence();
+
   if (D & ExprDependence::Value)
     D |= ExprDependence::Type;
   return D;
