@@ -2646,7 +2646,7 @@ void StmtPrinter::VisitCXXReflectExpr(CXXReflectExpr *S) {
 
 void StmtPrinter::VisitCXXMetafunctionExpr(CXXMetafunctionExpr *S) {
   OS << "__metafunction(";
-  for (unsigned I = 0; I < S->getNumArgs(); ++S) {
+  for (unsigned I = 0; I < S->getNumArgs(); ++I) {
     PrintExpr(S->getArg(I));
     if (I + 1 != S->getNumArgs())
       OS << ", ";
