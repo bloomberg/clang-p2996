@@ -4518,6 +4518,12 @@ CXXMethodDecl *getCXXMethodDeclFromDeclRefExpr(DeclRefExpr *DRE) {
     // pointer to non-static method
     // validation was done in is_nonstatic_member_function
     auto *VarD = cast<VarDecl>(VD);
+    if (!VarD->isConstexpr()) {
+      // avoid extracting constexpr method declaration
+      // from non-constexpr function pointers
+      return nullptr;
+    }
+
     Expr *Init = VarD->getInit();
 
     if (auto *UnaryOp = dyn_cast<UnaryOperator>(Init)) {
@@ -4763,7 +4769,10 @@ bool reflect_invoke(APValue &Result, Sema &S, EvalFn Evaluator,
         }
 
         CXXMethodDecl *MD = getCXXMethodDeclFromDeclRefExpr(DRE);
-        assert(MD && "failed to get method?");
+        if (!MD) {
+          return true;
+        }
+
         // this call is needed to make
         // CXXSpliceExpr work with pointers to non-static methods
         // (we unwrap pointer in getCXXMethodDeclFromDeclRefExpr(DRE) function)

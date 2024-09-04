@@ -332,6 +332,10 @@ constexpr int (*foo_pointer)(int) = &foo;
 static_assert(reflect_invoke(^^foo_pointer, {std::meta::reflect_value(0)})
               == std::meta::reflect_value(42));
 
+constexpr static int (*foo_static_pointer)(int) = &foo;
+static_assert(reflect_invoke(^^foo_static_pointer, {std::meta::reflect_value(2)})
+              == std::meta::reflect_value(44));
+
 // pointer to template function
 template <typename T>
 constexpr T bar(T a) {
@@ -365,7 +369,7 @@ constexpr int (Cls::*get_pointer)() const = &Cls::get;
 static_assert(reflect_invoke(^^get_pointer, {^^data}) == std::meta::reflect_value(42));
 
 // object with static storage duration holding a pointer to a constexpr function
-static int (Cls::*get_static_pointer)() const = &Cls::get;
+constexpr static int (Cls::*get_static_pointer)() const = &Cls::get;
 static_assert(reflect_invoke(^^get_static_pointer, {^^data}) == std::meta::reflect_value(42));
 
 } // namespace function_pointer

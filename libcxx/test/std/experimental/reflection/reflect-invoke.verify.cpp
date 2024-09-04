@@ -25,7 +25,7 @@ struct A {
 } // namespace NS
 
 struct A {
-  consteval int fn() const { return 42; }
+  constexpr int fn() const { return 42; }
 
   consteval void void_fn() const {
     // no-op
@@ -62,4 +62,12 @@ int main() {
  reflect_invoke(^^A::fn, {^^differentNamespaceClass});
  // expected-error-re@-1 {{call to consteval function 'std::meta::reflect_invoke<{{.*}}>' is not a constant expression}}
  // expected-note@-2 {{method is not a member of given object reflection}}
+
+ // test that implementation workaround with getting constexpr method from pointer couldn't be abused
+ constexpr int (A::*constexpr_pointer)() const = &A::fn;
+ reflect_invoke(^^constexpr_pointer, {^^expectedClass}); // ok
+
+ int (A::*pointer)() const = &A::fn;
+ reflect_invoke(^^pointer, {^^expectedClass});
+ // expected-error-re@-1 {{call to consteval function 'std::meta::reflect_invoke<{{.*}}>' is not a constant expression}}
 }
