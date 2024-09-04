@@ -4541,7 +4541,10 @@ CXXMethodDecl *getCXXMethodDeclFromDeclRefExpr(DeclRefExpr *DRE) {
     }
   }
 
-  return nullptr;
+  // if we reach this point
+  // then probably there is a bug in `is_nonstatic_member_function`
+  // or we failed to extract method from pointer
+  llvm_unreachable("failed to get member function from decl ref expression");
 }
 
 bool reflect_invoke(APValue &Result, Sema &S, EvalFn Evaluator,
@@ -4770,6 +4773,7 @@ bool reflect_invoke(APValue &Result, Sema &S, EvalFn Evaluator,
 
         CXXMethodDecl *MD = getCXXMethodDeclFromDeclRefExpr(DRE);
         if (!MD) {
+          // most likely, non-constexpr pointer to method was passed
           return true;
         }
 
