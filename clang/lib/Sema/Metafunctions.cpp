@@ -4508,7 +4508,7 @@ bool is_nonstatic_member_function(ValueDecl *FD) {
   return false;
 }
 
-CXXMethodDecl *getCXXMethodDeclFromDeclRefExpr(DeclRefExpr *DRE) {
+CXXMethodDecl *getCXXMethodDeclFromDeclRefExpr(DeclRefExpr *DRE, Sema &S) {
   ValueDecl *VD = DRE->getDecl();
 
   if (auto *MD = dyn_cast<CXXMethodDecl>(VD)) {
@@ -4517,34 +4517,24 @@ CXXMethodDecl *getCXXMethodDeclFromDeclRefExpr(DeclRefExpr *DRE) {
   } else {
     // pointer to non-static method
     // validation was done in is_nonstatic_member_function
-    auto *VarD = cast<VarDecl>(VD);
-    if (!VarD->isConstexpr()) {
-      // avoid extracting constexpr method declaration
-      // from non-constexpr function pointers
+    Expr::EvalResult ER;
+    if (!DRE->EvaluateAsRValue(ER, S.Context)) {
       return nullptr;
     }
 
-    Expr *Init = VarD->getInit();
-
-    if (auto *UnaryOp = dyn_cast<UnaryOperator>(Init)) {
-      // get the operand of &
-      Init = UnaryOp->getSubExpr();
+    APValue Result = ER.Val;
+    if (!Result.isMemberPointer()) {
+      return nullptr;
     }
 
-    while (auto *CastExpr = dyn_cast<ImplicitCastExpr>(Init)) {
-      // handle ImplicitCastExpr if it is wrapping the actual expression
-      Init = CastExpr->getSubExpr();
-    }
-
-    if (auto *DREFromUnary = dyn_cast<DeclRefExpr>(Init)) {
-      return dyn_cast<CXXMethodDecl>(DREFromUnary->getDecl());
+    const ValueDecl *MemberDecl = Result.getMemberPointerDecl();
+    if (const CXXMethodDecl *MethodDecl = dyn_cast<CXXMethodDecl>(MemberDecl)) {
+      // get non-const version
+      return const_cast<CXXMethodDecl *>(MethodDecl);
     }
   }
 
-  // if we reach this point
-  // then probably there is a bug in `is_nonstatic_member_function`
-  // or we failed to extract method from pointer
-  llvm_unreachable("failed to get member function from decl ref expression");
+  return nullptr;
 }
 
 bool reflect_invoke(APValue &Result, Sema &S, EvalFn Evaluator,
@@ -4771,7 +4761,7 @@ bool reflect_invoke(APValue &Result, Sema &S, EvalFn Evaluator,
                  << Range;
         }
 
-        CXXMethodDecl *MD = getCXXMethodDeclFromDeclRefExpr(DRE);
+        CXXMethodDecl *MD = getCXXMethodDeclFromDeclRefExpr(DRE, S);
         if (!MD) {
           // most likely, non-constexpr pointer to method was passed
           return true;
