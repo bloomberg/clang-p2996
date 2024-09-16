@@ -297,6 +297,11 @@ static_assert(std::meta::reflect_value(84) ==
                              {^^int},
                              {^^num, std::meta::reflect_value(2)}));
 
+// template member function + template argument deduction
+static_assert(std::meta::reflect_value(84) ==
+              reflect_invoke(^^Number::multiply,
+                             {^^num, std::meta::reflect_value(2)}));
+
 // Invoking Base::fn() with an object of type Child
 struct IsReal {
   consteval IsReal(bool v): value(v){}
@@ -345,6 +350,10 @@ constexpr T bar(T a) {
 constexpr int (*bar_pointer)(int) = &bar<int>;
 static_assert(reflect_invoke(^^bar_pointer, {std::meta::reflect_value(1)})
               == std::meta::reflect_value(43));
+static_assert(reflect_invoke(std::meta::reflect_value(bar_pointer), {std::meta::reflect_value(1)}) ==
+              std::meta::reflect_value(43));
+static_assert(reflect_invoke(std::meta::reflect_object(bar_pointer), {std::meta::reflect_value(1)}) ==
+              std::meta::reflect_value(43));
 
 // pointer to method
 struct Cls {
