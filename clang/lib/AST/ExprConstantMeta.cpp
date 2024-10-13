@@ -2081,14 +2081,19 @@ bool type_of(APValue &Result, ASTContext &C, MetaActions &Meta,
 
   switch (RV.getReflectionKind()) {
   case ReflectionKind::Null:
-  case ReflectionKind::Type:
+  case ReflectionKind::Type: {
+    QualType QT = desugarType(RV.getTypeOfReflectedResult(C), 
+                              /*UnwrapAliases=*/ true, /*DropCV=*/false,
+                              /*DropRefs=*/false);
+    return SetAndSucceed(Result, makeReflection(QT));
+  }
   case ReflectionKind::Template:
   case ReflectionKind::Namespace:
     return Diagnoser(Range.getBegin(), diag::metafn_no_associated_property)
         << DescriptionOf(RV) << 0 << Range;
   case ReflectionKind::Object: {
     QualType QT = desugarType(RV.getTypeOfReflectedResult(C),
-                              /*UnwrapAliases=*/false, /*DropCV=*/false,
+                              /*UnwrapAliases=*/ true, /*DropCV=*/false,
                               /*DropRefs=*/false);
     return SetAndSucceed(Result, makeReflection(QT));
   }
@@ -2106,20 +2111,21 @@ bool type_of(APValue &Result, ASTContext &C, MetaActions &Meta,
 
     bool UnwrapAliases = isa<ParmVarDecl>(VD) || isa<BindingDecl>(VD);
     bool DropCV = isa<ParmVarDecl>(VD);
-    QualType QT = desugarType(VD->getType(), UnwrapAliases, DropCV,
+    QualType QT = desugarType(VD->getType(), 
+                              /*UnwrapAliases=*/ true, DropCV,
                               /*DropRefs=*/false);
     return SetAndSucceed(Result, makeReflection(QT));
   }
   case ReflectionKind::BaseSpecifier: {
     QualType QT = RV.getReflectedBaseSpecifier()->getType();
-    QT = desugarType(QT, /*UnwrapAliases=*/false, /*DropCV=*/false,
+    QT = desugarType(QT, /*UnwrapAliases=*/true, /*DropCV=*/false,
                      /*DropRefs=*/false);
     return SetAndSucceed(Result, makeReflection(QT));
   }
   case ReflectionKind::DataMemberSpec:
   {
     QualType QT = RV.getReflectedDataMemberSpec()->Ty;
-    QT = desugarType(QT, /*UnwrapAliases=*/false, /*DropCV=*/false,
+    QT = desugarType(QT, /*UnwrapAliases=*/true, /*DropCV=*/false,
                      /*DropRefs=*/false);
     return SetAndSucceed(Result, makeReflection(QT));
   }
@@ -5768,12 +5774,19 @@ bool return_type_of(APValue &Result, ASTContext &C, MetaActions &Meta,
     return true;
 
   switch (RV.getReflectionKind()) {
-  case ReflectionKind::Type:
-    if (auto *FPT = dyn_cast<FunctionProtoType>(RV.getReflectedType()))
-      return SetAndSucceed(Result, makeReflection(FPT->getReturnType()));
+  case ReflectionKind::Type: {
+    if (auto *FPT = dyn_cast<FunctionProtoType>(RV.getReflectedType())) {
+      QualType QT =
+          desugarType(FPT->getReturnType(), /*UnwrapAliases=*/ true, /*DropCV=*/false,
+                      /*DropRefs=*/false);
+      return SetAndSucceed(Result, makeReflection(QT));
+    }
 
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_introspect_type)
         << 3 << 2 << Range;
+  }
+
+
   case ReflectionKind::Declaration:
     if (auto *FD = dyn_cast<FunctionDecl>(RV.getReflectedDecl());
         FD && !isa<CXXConstructorDecl>(FD) && !isa<CXXDestructorDecl>(FD))
