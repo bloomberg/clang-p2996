@@ -741,6 +741,11 @@ ExprResult Sema::ActOnCXXReflectExpr(SourceLocation OperatorLoc,
   return BuildCXXReflectExpr(OperatorLoc, E);
 }
 
+ExprResult Sema::ActOnCXXReflectExpr(SourceLocation OperatorLoc,
+                                     ParsedAttr *A) {
+  return BuildCXXReflectExpr(OperatorLoc, A);
+}
+
 /// Returns an expression representing the result of a metafunction operating
 /// on a reflection.
 ExprResult Sema::ActOnCXXMetafunction(SourceLocation KwLoc,
@@ -955,6 +960,10 @@ ParsedTemplateArgument Sema::ActOnTemplateSpliceSpecifierArgument(
     Diag(Splice->getExprLoc(), diag::err_unsupported_splice_kind)
       << "data member specs" << 0 << 0;
     break;
+  case ReflectionKind::Attribute:
+    Diag(Splice->getExprLoc(), diag::err_unsupported_splice_kind)
+      << "attribute" << 0 << 0;
+    break;
   }
   return ParsedTemplateArgument();
 }
@@ -1125,6 +1134,16 @@ ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
 
   return CXXReflectExpr::Create(Context, OperatorLoc, E->getSourceRange(),
                                 ER.Val);
+}
+
+ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
+                                     ParsedAttr *A) {
+  Diag(A->getLoc(), diag::p3385_trace_building_attribute_reflection)
+      << A->getAttrName()->getName();
+
+  return CXXReflectExpr::Create(
+      Context, OperatorLoc, A->getRange(),
+      APValue{ReflectionKind::Attribute, static_cast<void *>(A)});
 }
 
 ExprResult Sema::BuildCXXMetafunctionExpr(
@@ -1481,6 +1500,7 @@ ExprResult Sema::BuildReflectionSpliceExpr(
     case ReflectionKind::BaseSpecifier:
     case ReflectionKind::DataMemberSpec:
     case ReflectionKind::Annotation:
+    case ReflectionKind::Attribute:
       Diag(SpliceOp->getOperand()->getExprLoc(),
            diag::err_unexpected_reflection_kind_in_splice)
           << 1 << SpliceOp->getOperand()->getSourceRange();
@@ -1609,6 +1629,7 @@ DeclContext *Sema::TryFindDeclContextOf(const Expr *E) {
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
     Diag(E->getExprLoc(), diag::err_expected_class_or_namespace)
         << "spliced entity" << getLangOpts().CPlusPlus;
     return nullptr;

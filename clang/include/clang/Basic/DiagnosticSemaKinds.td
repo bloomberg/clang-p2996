@@ -3173,6 +3173,9 @@ def note_dependent_splice_explicit_this_may_fix : Note<
 def err_cannot_expand_over_type : Error<
   "cannot expand over an expression of type %0">;
 
+def p3385_trace_building_attribute_reflection : Warning<
+  "(p3385) building a CXX reflection on attribute %0">;
+
 // C++11 char16_t/char32_t
 def warn_cxx98_compat_unicode_type : Warning<
   "'%0' type specifier is incompatible with C++98">,

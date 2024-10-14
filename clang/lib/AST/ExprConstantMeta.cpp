@@ -22,7 +22,9 @@
 #include "clang/AST/Metafunction.h"
 #include "clang/AST/RecordLayout.h"
 #include "clang/AST/Reflection.h"
+#include "clang/Basic/AttributeCommonInfo.h"
 #include "clang/Basic/DiagnosticMetafn.h"
+#include "clang/Basic/IdentifierTable.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Lex/Lexer.h"
 #include "clang/Lex/Preprocessor.h"
@@ -568,6 +570,19 @@ static bool annotate(APValue &Result, ASTContext &C, MetaActions &Meta,
                      EvalFn Evaluator, DiagFn Diagnoser, QualType ResultTy,
                      SourceRange Range, ArrayRef<Expr *> Args);
 
+// -----------------------------------------------------------------------------
+// P3385 Metafunction declarations
+// -----------------------------------------------------------------------------
+
+static bool get_ith_attribute_of(APValue &Result, ASTContext &C,
+                                 MetaActions &Meta, EvalFn Evaluator,
+                                 DiagFn Diagnoser, QualType ResultTy,
+                                 SourceRange Range,
+                                 ArrayRef<Expr *> Args);
+
+static bool is_attribute(APValue &Result, ASTContext &C, MetaActions &Meta,
+                         EvalFn Evaluator, DiagFn Diagnoser, QualType ResultTy,
+                         SourceRange Range, ArrayRef<Expr *> Args);
 
 // -----------------------------------------------------------------------------
 // Metafunction table
@@ -698,6 +713,11 @@ static constexpr Metafunction Metafunctions[] = {
   { Metafunction::MFRK_metaInfo, 3, 3, get_ith_annotation_of },
   { Metafunction::MFRK_bool, 1, 1, is_annotation },
   { Metafunction::MFRK_metaInfo, 2, 2, annotate },
+
+  // P3385 attributes reflection
+  { Metafunction::MFRK_metaInfo, 3, 3, get_ith_attribute_of },
+  { Metafunction::MFRK_bool, 1, 1, is_attribute },
+
 };
 constexpr const unsigned NumMetafunctions = sizeof(Metafunctions) /
                                             sizeof(Metafunction);
@@ -758,6 +778,10 @@ static APValue makeReflection(TagDataMemberSpec *TDMS) {
 
 static APValue makeReflection(CXX26AnnotationAttr *A) {
   return APValue(ReflectionKind::Annotation, A);
+}
+
+static APValue makeReflection(AttributeCommonInfo *Attr) {
+  return APValue(ReflectionKind::Attribute, Attr);
 }
 
 static Expr *makeStrLiteral(StringRef Str, ASTContext &C, bool Utf8) {
@@ -1408,6 +1432,9 @@ StringRef DescriptionOf(APValue RV, bool Granular = true) {
   case ReflectionKind::Annotation: {
     return "an annotation";
   }
+  case ReflectionKind::Attribute: {
+    return "an attribute";
+  }
   }
 }
 
@@ -1427,6 +1454,73 @@ bool DiagnoseReflectionKind(DiagFn Diagnoser, SourceRange Range,
 // -----------------------------------------------------------------------------
 // Metafunction implementations
 // -----------------------------------------------------------------------------
+
+bool get_ith_attribute_of(APValue &Result, ASTContext &C,
+                          MetaActions &Meta, EvalFn Evaluator,
+                          DiagFn Diagnoser, QualType ResultTy,
+                          SourceRange Range, ArrayRef<Expr *> Args) {
+  assert(Args[0]->getType()->isReflectionType());
+  assert(ResultTy == C.MetaInfoTy);
+
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
+    return true;
+
+  APValue Sentinel;
+  if (!Evaluator(Sentinel, Args[1], true))
+    return true;
+  assert(Sentinel.isReflectedType());
+
+  APValue Idx;
+  if (!Evaluator(Idx, Args[2], true))
+    return true;
+  size_t idx = Idx.getInt().getExtValue();
+
+  switch (RV.getReflectionKind()) {
+    case ReflectionKind::Attribute: {
+      // We don't allow ^^[[ attribute, attribute]], so when reflected type is
+      // attribute idx must be 0
+      if (idx == 0) {
+        AttributeCommonInfo *attr = RV.getReflectedAttribute();
+        if (attr->getForm().getSyntax() == AttributeCommonInfo::Syntax::AS_CXX11) {
+          return SetAndSucceed(Result, makeReflection(attr));
+        }
+        Diagnoser(Range.getBegin(), diag::metafn_p3385_non_standard_attribute) << attr->getAttrName();
+      }
+      return SetAndSucceed(Result, Sentinel);
+    }
+    case ReflectionKind::Declaration: {
+      Decl *D = RV.getReflectedDecl();
+      auto attrs = C.getDeclAttrs(D);
+      if (attrs.empty()) {
+        return SetAndSucceed(Result, Sentinel);
+      }
+      if (idx == attrs.size()) {
+        return SetAndSucceed(Result, Sentinel);
+      }
+      
+      Attr* attr = attrs[idx];
+        if (attr->getForm().getSyntax() == AttributeCommonInfo::Syntax::AS_CXX11) {
+          return SetAndSucceed(Result, makeReflection(attr));
+        }
+        Diagnoser(Range.getBegin(), diag::metafn_p3385_non_standard_attribute) << attr->getAttrName();
+        return SetAndSucceed(Result, Sentinel);
+    }
+    case ReflectionKind::Type: 
+    case ReflectionKind::Null:
+    case ReflectionKind::Template:
+    case ReflectionKind::Object:
+    case ReflectionKind::Value:
+    case ReflectionKind::Namespace:
+    case ReflectionKind::BaseSpecifier:
+    case ReflectionKind::DataMemberSpec:
+    case ReflectionKind::Annotation:
+      return DiagnoseReflectionKind(Diagnoser, Range, "declaration or attribute",
+                                    DescriptionOf(RV));
+  }
+  llvm_unreachable("unknown reflection kind");
+  return false;
+}
 
 bool get_begin_enumerator_decl_of(APValue &Result, ASTContext &C,
                                   MetaActions &Meta, EvalFn Evaluator,
@@ -1465,6 +1559,7 @@ bool get_begin_enumerator_decl_of(APValue &Result, ASTContext &C,
   case ReflectionKind::Namespace:
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
+  case ReflectionKind::Attribute:
   case ReflectionKind::Annotation: {
     return DiagnoseReflectionKind(Diagnoser, Range, "an enum type",
                                   DescriptionOf(RV));
@@ -1505,6 +1600,7 @@ bool get_next_enumerator_decl_of(APValue &Result, ASTContext &C,
   case ReflectionKind::Namespace:
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
+  case ReflectionKind::Attribute:
   case ReflectionKind::Annotation: {
     llvm_unreachable("should have failed in 'get_begin_enumerator_decl_of'");
   }
@@ -1562,6 +1658,7 @@ bool get_ith_base_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
     return DiagnoseReflectionKind(Diagnoser, Range, "a class type",
                                   DescriptionOf(RV));
   }
@@ -1616,6 +1713,7 @@ bool get_ith_template_argument_of(APValue &Result, ASTContext &C,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
     return DiagnoseReflectionKind(Diagnoser, Range, "a template specialization",
                                   DescriptionOf(RV));
   }
@@ -1705,6 +1803,7 @@ bool get_begin_member_decl_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
     return true;
   }
   llvm_unreachable("unknown reflection kind");
@@ -1883,6 +1982,11 @@ bool identifier_of(APValue &Result, ASTContext &C, MetaActions &Meta,
     getDeclName(Name, C, RV.getReflectedNamespace());
     break;
   }
+  case ReflectionKind::Attribute: {
+    AttributeCommonInfo* attr = RV.getReflectedAttribute();
+    Name = attr->getAttrName()->getName();
+    break;
+  }
   case ReflectionKind::DataMemberSpec: {
     TagDataMemberSpec *TDMS = RV.getReflectedDataMemberSpec();
     if (TDMS->Name)
@@ -1974,6 +2078,7 @@ bool has_identifier(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::Object:
   case ReflectionKind::Value:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
     break;
   }
 
@@ -2082,6 +2187,7 @@ bool type_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   switch (RV.getReflectionKind()) {
   case ReflectionKind::Null:
   case ReflectionKind::Type:
+  case ReflectionKind::Attribute:
   case ReflectionKind::Template:
   case ReflectionKind::Namespace:
     return Diagnoser(Range.getBegin(), diag::metafn_no_associated_property)
@@ -2157,6 +2263,7 @@ bool parent_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
     if (Diagnoser)
       return Diagnoser(Range.getBegin(), diag::metafn_no_associated_property)
           << DescriptionOf(RV) << 1 << Range;
@@ -2210,6 +2317,7 @@ bool dealias(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
     return SetAndSucceed(Result, RV);
   case ReflectionKind::Type: {
     QualType QT = RV.getReflectedType();
@@ -2271,6 +2379,7 @@ bool object_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
         << 1 << DescriptionOf(RV) << Range;
   }
@@ -2360,6 +2469,7 @@ bool value_of(APValue &Result, ASTContext &C, MetaActions &Meta,
                               /*DropCV=*/true, /*DropRefs=*/false);
     return SetAndSucceed(Result, A->getValue().Lift(Ty));
   }
+  case ReflectionKind::Attribute: // TODO P3385 anything to do ?
   case ReflectionKind::Null:
   case ReflectionKind::Type:
   case ReflectionKind::Template:
@@ -2407,6 +2517,7 @@ bool template_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
     return DiagnoseReflectionKind(Diagnoser, Range, "a template specialization",
                                   DescriptionOf(RV));
     return true;
@@ -2430,6 +2541,7 @@ static bool CanActAsTemplateArg(const APValue &RV) {
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
   case ReflectionKind::Null:
     return false;
   }
@@ -2897,6 +3009,7 @@ bool is_public(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
   case ReflectionKind::Namespace:
+  case ReflectionKind::Attribute:
     return SetAndSucceed(Result, makeBool(C, false));
   }
   llvm_unreachable("invalid reflection type");
@@ -3039,6 +3152,7 @@ bool is_access_specified(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::Namespace:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
     return SetAndSucceed(Result, makeBool(C, false));
   }
   llvm_unreachable("invalid reflection type");
@@ -3147,6 +3261,7 @@ bool is_accessible(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::Namespace:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
     return DiagnoseReflectionKind(Diagnoser, Range, "a class member",
                                   DescriptionOf(RV));
   }
@@ -3182,7 +3297,8 @@ bool is_virtual(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::Namespace:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
-    return SetAndSucceed(Result, makeBool(C, IsVirtual));
+  case ReflectionKind::Attribute:
+    return SetAndSucceed(Result, makeBool(C, false));
   }
   llvm_unreachable("invalid reflection type");
 }
@@ -3207,6 +3323,7 @@ bool is_pure_virtual(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
     return SetAndSucceed(Result, makeBool(C, false));
   case ReflectionKind::Declaration: {
     bool IsPureVirtual = false;
@@ -3240,6 +3357,7 @@ bool is_override(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
     return SetAndSucceed(Result, makeBool(C, false));
   case ReflectionKind::Declaration: {
     if (const auto *MD = dyn_cast<CXXMethodDecl>(RV.getReflectedDecl()))
@@ -3270,6 +3388,7 @@ bool is_deleted(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
     return SetAndSucceed(Result, makeBool(C, false));
   case ReflectionKind::Declaration: {
     bool IsDeleted = false;
@@ -3301,6 +3420,7 @@ bool is_defaulted(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
     return SetAndSucceed(Result, makeBool(C, false));
   case ReflectionKind::Declaration: {
     bool IsDefaulted = false;
@@ -3332,6 +3452,7 @@ bool is_explicit(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
   case ReflectionKind::Template:
     return SetAndSucceed(Result, makeBool(C, false));
   case ReflectionKind::Declaration: {
@@ -3896,6 +4017,18 @@ bool is_namespace(APValue &Result, ASTContext &C, MetaActions &Meta,
   return SetAndSucceed(Result, makeBool(C, RV.isReflectedNamespace()));
 }
 
+bool is_attribute(APValue &Result, ASTContext &C, MetaActions &Meta,
+                  EvalFn Evaluator, DiagFn Diagnoser, QualType ResultTy,
+                  SourceRange Range, ArrayRef<Expr *> Args) {
+  assert(Args[0]->getType()->isReflectionType());
+  assert(ResultTy == C.BoolTy);
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
+    return true;
+
+  return SetAndSucceed(Result, makeBool(C, RV.isReflectedAttribute()));
+}
+
 bool is_function(APValue &Result, ASTContext &C, MetaActions &Meta,
                  EvalFn Evaluator, DiagFn Diagnoser, QualType ResultTy,
                  SourceRange Range, ArrayRef<Expr *> Args) {
@@ -4307,6 +4440,7 @@ bool has_template_arguments(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
     return SetAndSucceed(Result, makeBool(C, false));
   }
   llvm_unreachable("unknown reflection kind");
@@ -4406,6 +4540,7 @@ bool is_constructor(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
     return SetAndSucceed(Result, makeBool(C, false));
   case ReflectionKind::Declaration: {
     bool result = isa<CXXConstructorDecl>(RV.getReflectedDecl());
@@ -4544,6 +4679,7 @@ bool is_destructor(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
     return SetAndSucceed(Result, makeBool(C, false));
   case ReflectionKind::Declaration: {
     bool result = isa<CXXDestructorDecl>(RV.getReflectedDecl());
@@ -4573,6 +4709,7 @@ bool is_special_member_function(APValue &Result, ASTContext &C,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
     return SetAndSucceed(Result, makeBool(C, false));
   case ReflectionKind::Declaration: {
     bool IsSpecial = false;
@@ -5211,6 +5348,7 @@ bool offset_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
     return DiagnoseReflectionKind(Diagnoser, Range, "a non-static data member",
                                   DescriptionOf(RV));
   case ReflectionKind::Declaration: {
@@ -5267,6 +5405,7 @@ bool size_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::Namespace:
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
         << 3 << DescriptionOf(RV);
   }
@@ -5293,6 +5432,7 @@ bool bit_offset_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
     return DiagnoseReflectionKind(Diagnoser, Range, "a non-static data member",
                                   DescriptionOf(RV));
   case ReflectionKind::Declaration: {
@@ -5355,6 +5495,7 @@ bool bit_size_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::Namespace:
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
         << 3 << DescriptionOf(RV);
   }
@@ -5418,6 +5559,7 @@ bool alignment_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::Namespace:
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
         << 4 << DescriptionOf(RV) << Range;
   }
@@ -5606,6 +5748,7 @@ bool get_ith_parameter_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
     return true;
   }
   return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
@@ -5641,6 +5784,7 @@ bool has_consistent_identifier(APValue &Result, ASTContext &C,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
     return has_identifier(Result, C, Meta, Evaluator, Diagnoser, ResultTy,
                           Range, Args);
   }
@@ -5667,6 +5811,7 @@ bool has_ellipsis_parameter(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
       << 5 << DescriptionOf(RV) << Range;
   case ReflectionKind::Type:
@@ -5713,6 +5858,7 @@ bool has_default_argument(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
     return DiagnoseReflectionKind(Diagnoser, Range, "a function parameter",
                                   DescriptionOf(RV));
   }
@@ -5787,6 +5933,7 @@ bool return_type_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
         << 6 << DescriptionOf(RV) << Range;
   }
@@ -5859,6 +6006,7 @@ bool get_ith_annotation_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
         << 7 << DescriptionOf(RV) << Range;
   }
@@ -5933,6 +6081,7 @@ bool annotate(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_annotate)
         << DescriptionOf(Appertainee) << Range;
   }
