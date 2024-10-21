@@ -396,6 +396,10 @@ template <typename T>
 consteval auto is_annotation(info) -> bool;
 consteval auto annotate(info) -> info;
 
+// Attributes reflection (P3385)
+consteval auto is_attribute(info) -> bool;
+consteval auto attributes_of(info r) -> vector<info>;
+
 } // namespace reflection_v2
 } // namespace meta
 } // namespace std
@@ -555,6 +559,10 @@ enum : unsigned {
   __metafn_get_ith_annotation_of,
   __metafn_is_annotation,
   __metafn_annotate,
+
+  // P3385 attributes reflection
+  __metafn_get_ith_attribute_of,
+  __metafn_is_attribute,
 };
 
 consteval auto __workaround_expand_compiler_builtins(info type) -> info;
@@ -764,6 +772,25 @@ struct front_annotation_of {
                           reflectedEntity, LIFT(sentinel), 0);
   }
 };
+
+// TODO #ifdef P3385 feature flag
+
+struct front_attribute_of {
+  consteval info operator()(info reflectedEntity) const {
+    return __metafunction(detail::__metafn_get_ith_attribute_of,
+                          reflectedEntity, LIFT(sentinel), 0);
+  }
+};
+
+struct next_attribute_of {
+  consteval info operator()(auto /*currItrInfo */, info reflectedEntity,
+                            size_t idx) const {
+    return __metafunction(detail::__metafn_get_ith_attribute_of,
+                          reflectedEntity, LIFT(sentinel), idx);
+  }
+};
+
+// TODO #endif P3385 feature flag
 
 }  // namespace __range_of_infos
 
@@ -2265,6 +2292,24 @@ consteval auto annotate(info entity, info val) -> info {
 
 #endif  // __has_feature(annotation_attributes)
 
+// #ifdef TODO Feature flag for P3385
+
+// Returns whether the reflected entity is an attribute.
+consteval auto is_attribute(info r) -> bool {
+  return __metafunction(detail::__metafn_is_attribute, r);
+}
+
+consteval auto attributes_of(info r) -> vector<info> {
+  using iterator =
+  __range_of_infos::iterator<__range_of_infos::front_attribute_of,
+                             __range_of_infos::next_attribute_of,
+                             __range_of_infos::map_identity_fn>;
+  using range = __range_of_infos::range<iterator>;
+  auto rng = range{r};
+  return vector<info>{rng.begin(), rng.end()};
+}
+
+// #endif TODO Feature flag for P3385
 
 template <typename Ty>
 [[deprecated("separated into 'reflect_value', 'reflect_result', and "

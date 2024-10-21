@@ -48,7 +48,7 @@ enum class ReflectionKind {
   ///
   /// Corresponds to an APValue (plus a QualType).
   Object,
-  
+
   /// \brief A reflection of a value (i.e., the result of a prvalue).
   ///
   /// Corresponds to an APValue (plus a QualType).
@@ -102,8 +102,10 @@ enum class ReflectionKind {
 
   /// \brief A reflection of an annotation (P2996 ext).
   Annotation,
-};
 
+  /// \brief A reflection of a standard attribute (P3385).
+  Attribute,
+};
 
 /// \brief Representation of a hypothetical data member, which could be used to
 /// complete an incomplete class definition using the 'std::meta::define_class'

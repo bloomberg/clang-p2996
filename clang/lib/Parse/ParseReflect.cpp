@@ -12,6 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "clang/AST/Attr.h"
 #include "clang/Parse/ParseDiagnostic.h"
 #include "clang/Parse/Parser.h"
 #include "clang/Parse/RAIIObjectsForParser.h"
@@ -78,6 +79,26 @@ ExprResult Parser::ParseCXXReflectExpression(SourceLocation OpLoc) {
     return Actions.ActOnCXXReflectExpr(OpLoc, SourceLocation(), TUDecl);
   }
   TentativeAction.Revert();
+
+  // Check for a standard attribute
+  {
+    ParsedAttributes attrs(AttrFactory);
+    if (MaybeParseCXX11Attributes(attrs)) {
+      Diag(OperandLoc, diag::p3385_trace_attribute_parsed);
+
+      // FIXME handle empty [[]] gracefully
+      if (attrs.empty()) {
+        Diag(OperandLoc, diag::p3385_trace_empty_attributes_list);
+        return ExprError();
+      }
+      if (attrs.size() > 1) {
+        Diag(OperandLoc, diag::p3385_err_attributes_list) << attrs.size();
+        return ExprError();
+      }
+
+      return Actions.ActOnCXXReflectExpr(OpLoc, &attrs.front());
+    }
+  }
 
   if (SS.isSet() &&
       TryAnnotateTypeOrScopeTokenAfterScopeSpec(SS, true,

@@ -989,6 +989,7 @@ ExprDependence clang::computeDependence(CXXReflectExpr *E,
   case ReflectionKind::Namespace:
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
+  case ReflectionKind::Attribute:
     return ExprDependence::None;
   }
   llvm_unreachable("unknown reflection kind while computing dependence");

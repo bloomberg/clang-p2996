@@ -35,6 +35,7 @@
 #include "clang/AST/Type.h"
 #include "clang/AST/TypeLoc.h"
 #include "clang/Basic/AttrSubjectMatchRules.h"
+#include "clang/Basic/AttributeCommonInfo.h"
 #include "clang/Basic/Builtins.h"
 #include "clang/Basic/CapturedStmt.h"
 #include "clang/Basic/Cuda.h"
@@ -15200,6 +15201,7 @@ public:
   ExprResult ActOnCXXReflectExpr(SourceLocation OpLoc,
                                  ParsedTemplateArgument Template);
   ExprResult ActOnCXXReflectExpr(SourceLocation OpLoc, CXXSpliceExpr *E);
+  ExprResult ActOnCXXReflectExpr(SourceLocation OpLoc, ParsedAttr *a);
 
   ExprResult ActOnCXXMetafunction(SourceLocation KwLoc,
                                   SourceLocation LParenLoc,
@@ -15249,6 +15251,7 @@ public:
   ExprResult BuildCXXReflectExpr(SourceLocation OperatorLoc,
                                  SourceLocation OperandLoc,
                                  TemplateName Template);
+  ExprResult BuildCXXReflectExpr(SourceLocation OperatorLoc, ParsedAttr *A);
 
   // Reflection of expression operands.
   ExprResult BuildCXXReflectExpr(SourceLocation OperatorLoc, Expr *E);

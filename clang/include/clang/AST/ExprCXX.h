@@ -5321,7 +5321,8 @@ public:
 };
 
 /// Represents a C++2c reflect expression (P2996). The operand of the expression
-/// is either a type, an expression, a template-name, or a namespace.
+/// is either a type, an expression, a template-name, an attribute or a
+/// namespace.
 class CXXReflectExpr : public Expr {
   enum class OperandKind {
     Unset,
@@ -5408,12 +5409,12 @@ public:
 /// reflections (P2996). Arguments vary by function.
 class CXXMetafunctionExpr : public Expr {
 public:
-  // Type of callback provided to executing metafunctinons to help evaluate an
+  // Type of callback provided to executing metafunctions to help evaluate an
   // expression in the current constant evaluation context.
   using EvaluateFn = std::function<bool(APValue &, const Expr *,
                                         bool ConvertToRValue)>;
 
-  // Type of callback provided to report a diagnistc to the evaluation context.
+  // Type of callback provided to report a diagnostic to the evaluation context.
   using DiagnoseFn = std::function<PartialDiagnostic &(SourceLocation,
                                                        unsigned)>;
 

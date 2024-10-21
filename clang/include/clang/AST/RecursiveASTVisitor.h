@@ -2992,6 +2992,7 @@ DEF_TRAVERSE_STMT(CXXReflectExpr, {
     case ReflectionKind::Namespace:
     case ReflectionKind::BaseSpecifier:
     case ReflectionKind::DataMemberSpec:
+    case ReflectionKind::Attribute: // TODO P3385 ?
       break;
     }
   }

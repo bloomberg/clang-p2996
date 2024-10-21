@@ -22,6 +22,7 @@
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/LocInfoType.h"
 #include "clang/AST/Type.h"
+#include "clang/Basic/AttributeCommonInfo.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 using namespace clang;
@@ -545,6 +546,7 @@ static void profileReflection(llvm::FoldingSetNodeID &ID, APValue V) {
   case ReflectionKind::Namespace:
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
     ID.AddPointer(V.getOpaqueReflectionData());
     return;
   case ReflectionKind::DataMemberSpec: {
@@ -940,6 +942,13 @@ CXX26AnnotationAttr *APValue::getReflectedAnnotation() const {
           const_cast<void *>(getOpaqueReflectionData()));
 }
 
+AttributeCommonInfo *APValue::getReflectedAttribute() const {
+  assert(getReflectionKind() == ReflectionKind::Attribute &&
+         "not a reflection of an attribute");
+  return reinterpret_cast<AttributeCommonInfo *>(
+          const_cast<void *>(getOpaqueReflectionData()));
+}
+
 static double GetApproxValue(const llvm::APFloat &F) {
   llvm::APFloat V = F;
   bool ignored;
@@ -1293,6 +1302,9 @@ void APValue::printPretty(raw_ostream &Out, const PrintingPolicy &Policy,
     case ReflectionKind::Annotation:
       Repr = "annotation";
       break;
+    case ReflectionKind::Attribute:
+      Repr = "attribute";
+      break;
     }
     Out << "^^(" << Repr << ")";
     return;
@@ -1633,6 +1645,7 @@ void APValue::setReflection(ReflectionKind RK, const void *Ptr) {
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
     SelfData.Kind = RK;
     SelfData.Data = Ptr;
     return;
