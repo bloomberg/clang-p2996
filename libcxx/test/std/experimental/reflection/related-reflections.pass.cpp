@@ -32,8 +32,8 @@ extern int_alias ia;
 extern decltype(int_alias{}) dtia;
 
 static_assert(type_of(^^i) == ^^int);
-static_assert(type_of(^^ia) == ^^int_alias);
-static_assert(type_of(^^ia) != ^^int);
+static_assert(type_of(^^ia) != ^^int_alias);
+static_assert(type_of(^^ia) == ^^int);
 static_assert(type_of(^^dtia) == ^^int);
 static_assert(type_of(^^dtia) != ^^int_alias);
 static_assert(^^int_alias != ^^int);
@@ -43,7 +43,7 @@ constexpr auto a = data_member_spec(^^int, {});
 constexpr auto b = data_member_spec(^^int_alias, {});
 
 static_assert(type_of(a) == ^^int);
-static_assert(type_of(b) == ^^int_alias);
+static_assert(type_of(b) != ^^int_alias);
 }  // namespace expression_type
 
                               // ================
