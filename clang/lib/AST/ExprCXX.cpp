@@ -2034,6 +2034,7 @@ CXXSpliceExpr::CXXSpliceExpr(QualType ResultTy, ExprValueKind ValueKind,
 
 CXXSpliceExpr::CXXSpliceExpr(EmptyShell Empty)
   : Expr(CXXSpliceExprClass, Empty) {
+  SpliceExprBits.HasTemplateKWAndArgsInfo = false;
 }
 
 CXXSpliceExpr *CXXSpliceExpr::Create(ASTContext &C,
