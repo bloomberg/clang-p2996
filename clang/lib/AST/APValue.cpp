@@ -548,9 +548,25 @@ static void profileReflection(llvm::FoldingSetNodeID &ID, APValue V) {
   case ReflectionKind::Namespace:
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::Annotation:
-  case ReflectionKind::Attribute:
     ID.AddPointer(V.getOpaqueReflectionData());
     return;
+  case ReflectionKind::Attribute: {
+    ParsedAttr* attr = V.getReflectedAttribute();
+    ID.AddString(attr->getAttrName()->getName());
+    if(attr->getNumArgs() > 0)
+    {
+        auto *Arg0 = attr->getArgAsExpr(0);
+        StringLiteral *Literal =
+          dyn_cast<StringLiteral>(Arg0->IgnoreParenCasts());
+        if(Literal) {
+          StringRef String = Literal->getString();
+          ID.AddInteger(String.size());
+          ID.AddString(String.data());
+        }
+    }
+
+    return;
+  }
   case ReflectionKind::DataMemberSpec: {
     TagDataMemberSpec *TDMS = V.getReflectedDataMemberSpec();
     TDMS->Ty.Profile(ID);
