@@ -1540,7 +1540,57 @@ bool get_ith_attribute_of(APValue &Result, ASTContext &C,
       );
       return SetAndSucceed(Result, makeReflection(fetchedAttribute));
     }
-    case ReflectionKind::Declaration:
+    case ReflectionKind::Declaration: {
+      ValueDecl *D = RV.getReflectedDecl();
+
+      if (!D) {
+        // FIXME how would we end up here ?
+        return DiagnoseReflectionKind(Diagnoser, Range, "attribute or type",
+                                    DescriptionOf(RV));
+      }
+
+      auto attrs = D->attrs();
+      
+      if (attrs.empty()) {
+        return SetAndSucceed(Result, Sentinel);
+      }
+
+      std::vector<Attr * const *> cxx11Attrs;
+      // poor man ::filter, copy_if, etc....
+      for (Attr *const *attr = attrs.begin(); attr != attrs.end(); ++attr) {
+       if ((*attr)->isCXX11Attribute()){
+        cxx11Attrs.push_back(attr);
+       }
+      }
+
+      if (idx >= cxx11Attrs.size()) {
+        return SetAndSucceed(Result, Sentinel);
+      }
+
+      // Attr -> ParsedAttr
+      Attr * const val = *cxx11Attrs[idx];
+      assert(val);
+      static AttributeScratchpad scratchpad;
+
+      const ParsedAttr * parsedAttr = val->fromParsedAttr();
+      assert(parsedAttr && "no backlink from semantic attribute");
+
+      if (scratchpad.argFound = parsedAttr->getNumArgs() != 0; scratchpad.argFound) {
+        scratchpad.ArgExprs.push_back(parsedAttr->getArg(0));
+      } else {
+        scratchpad.ArgExprs.clear();
+      }
+      auto * fetchedAttribute = scratchpad.attributes.addNew(
+        const_cast<IdentifierInfo*>(parsedAttr->getAttrName()),
+        val->getRange(),
+        nullptr,
+        val->getLoc(),
+        scratchpad.ArgExprs.data(), scratchpad.argFound,
+        parsedAttr->getForm()
+      );
+      return SetAndSucceed(Result, makeReflection(fetchedAttribute));
+
+    }
     case ReflectionKind::Null:
     case ReflectionKind::Template:
     case ReflectionKind::Object:
