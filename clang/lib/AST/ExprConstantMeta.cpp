@@ -711,6 +711,15 @@ static bool reflect_invoke(APValue &Result, ASTContext &C, MetaActions &Meta,
                            SourceRange Range, ArrayRef<Expr *> Args,
                            Decl *ContainingDecl);
 
+               // ================================================
+               // std::hash<std::meta::info> specialization helper
+               // ================================================
+
+static bool reflection_hash(APValue &Result, ASTContext &C, MetaActions &Meta,
+                            EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
+                            QualType ResultTy, SourceRange Range,
+                            ArrayRef<Expr *> Args, Decl *ContainingDecl);
+
 // -----------------------------------------------------------------------------
 // Metafunction table
 //
@@ -844,6 +853,9 @@ static constexpr Metafunction Metafunctions[] = {
   // Other bespoke functions (not proposed at this time)
   { Metafunction::MFRK_bool, 1, 1, is_access_specified },
   { Metafunction::MFRK_metaInfo, 5, 5, reflect_invoke },
+
+  // std::hash<std::meta::info> specialization helper
+  { Metafunction::MFRK_sizeT, 1, 1, reflection_hash },
 };
 constexpr const unsigned NumMetafunctions = sizeof(Metafunctions) /
                                             sizeof(Metafunction);
@@ -6403,6 +6415,25 @@ bool reflect_invoke(APValue &Result, ASTContext &C, MetaActions &Meta,
                   const_cast<ValueDecl *>(LVBase.get<const ValueDecl *>())));
 
   return SetAndSucceed(Result, EvalResult.Val.Lift(CallExpr->getType()));
+}
+
+bool reflection_hash(APValue &Result, ASTContext &C, MetaActions &Meta,
+                    EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
+                    QualType ResultTy, SourceRange Range, ArrayRef<Expr *> Args,
+                    Decl *ContainingDecl) {
+  assert(Args[0]->getType()->isReflectionType());
+  assert(ResultTy == C.getSizeType());
+
+  APValue R;
+  if (!Evaluator(R, Args[0], true)) {
+    return true;
+  }
+
+  llvm::FoldingSetNodeID ID;
+  R.getReflectedType().Profile(ID);
+  return SetAndSucceed(
+    Result,
+    APValue(C.MakeIntValue(ID.ComputeHash(), C.getSizeType())));
 }
 
 }  // end namespace clang
