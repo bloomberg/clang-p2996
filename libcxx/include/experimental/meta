@@ -2607,6 +2607,9 @@ consteval auto pretty_printer<CharT>::render_template_argument_list_of()
       -> string_t {
   string_t result;
 
+  if (template_arguments_of(R).empty())
+    return string_constant("<>");
+
   size_t Idx = 0;
   [:expand(template_arguments_of(R)):] >> [&]<auto TArg> {
     result += (Idx++ < 1 ? string_constant("<") : string_constant(", "));
