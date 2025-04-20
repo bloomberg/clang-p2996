@@ -114,9 +114,10 @@ public:
 
   // Backlink to the syntactic form of the attribute
   const ParsedAttr* fromParsedAttr() const { return Backlink; }
+
   // FIXME p3385, garbage design
   void setParsedAttr(const ParsedAttr* parsedAttr) {
-    assert(parsedAttr && "backlink to parsed attributes should not be null");
+    // Note that backlink can be null (for delayed splice attribute for ex)
     assert(Backlink == nullptr && "backlink should not be reassigned");
     Backlink = parsedAttr;
   }

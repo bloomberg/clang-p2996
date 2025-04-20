@@ -1754,6 +1754,8 @@ def p3385_trace_empty_attributes_list : Warning<
   "(p3385-Parse) reflection of an empty attribute list">;
 def p3385_trace_execution_checkpoint : Warning<
   "(p3385-Parse) trace_execution_checkpoint %0">;
+def p3385_delayed_splice_attr : Warning<
+  "(p3385-Sema) Found delayed splice attribute while instantiating %0">;
 def p3385_err_attributes_list : Error<
   "(p3385-Parse) reflection of attribute list is not supported, found %0 attributes">;
 def p3385_err_attribute_splicing_error : Error<

@@ -21,6 +21,7 @@
 #include "clang/Basic/Attributes.h"
 #include "clang/Basic/CharInfo.h"
 #include "clang/Basic/DiagnosticParse.h"
+#include "clang/Basic/IdentifierTable.h"
 #include "clang/Basic/OperatorKinds.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Basic/TokenKinds.h"
@@ -5113,15 +5114,26 @@ bool Parser::tryParseSpliceAttrSpecifier(ParsedAttributes &Attrs,
   ExprResult Result = getExprAnnotation(Tok);
   ConsumeAnnotationToken();
 
+  ArgsVector ArgExprs;
   auto *SpliceExpr = cast<CXXSpliceSpecifierExpr>(Result.get());
 
-  // In `template <class T> [[ [: ^^T :] ]] ... ` ^^T is found to be
-  // a value dependent expression and EvaluateAsRValue die... so for
-  // now we refuse it
+  // In `template <class T> [[ [: ^^T :] ]] ... ` ^^T is found to be a value dependent
+  // expression and EvaluateAsRValue die... so for now we ll smuggle the expression in
+  // [[clang::DelayedSplice(expr)]] and we'll evaluate it at instantiation
   if (SpliceExpr->isValueDependent()) {
-    Diag(Tok.getLocation(), diag::p3385_err_attribute_splicing_error)
-        << "Found value dependent expression in attribute splicing";
-        return true;
+    Diag(Tok.getLocation(), diag::p3385_trace_execution_checkpoint)
+        << "Found value dependent expression in attribute splicing, creating 'DelayedSpliceAttr'";
+
+    IdentifierInfo& delayedAttributeName = PP.getIdentifierTable().getOwn("clang::DelayedSplice");
+
+    ArgExprs.push_back(SpliceExpr);
+    Attrs.addNew(
+      &delayedAttributeName,
+      range,
+      nullptr, loc, ArgExprs.data(), ArgExprs.size(),
+      ParsedAttr::Form::CXX11());
+    // Early return if we find a splice... there should be nothing else in the [[ ]]
+    return true;
   }
   Expr::EvalResult ER;
   if (!SpliceExpr->EvaluateAsRValue(ER, Actions.getASTContext(), true)) {
@@ -5132,7 +5144,6 @@ bool Parser::tryParseSpliceAttrSpecifier(ParsedAttributes &Attrs,
   switch (ER.Val.getReflectionKind()) {
     case ReflectionKind::Attribute: {
       auto * attr = ER.Val.getReflectedAttribute();
-      ArgsVector ArgExprs;
       if (attr->getNumArgs() != 0) {
         Diag(Tok.getLocation(), diag::p3385_trace_execution_checkpoint)
           << "Found argument while splicing a reflected attribute";
@@ -5154,17 +5165,21 @@ bool Parser::tryParseSpliceAttrSpecifier(ParsedAttributes &Attrs,
         return true;
       }
       for (auto *const attr : D->attrs()) {
+        ArgExprs.clear();
         // Only splice [[ ]] attributes
         if (!attr->isCXX11Attribute()) {
           continue;
         }
+        // We dont copy over spliced attributes
+        if (DelayedSpliceAttr::classof(attr)) {
+          continue;
+        }
         const ParsedAttr * parsedAttr = attr->fromParsedAttr();
-        ArgsVector ArgExprs;
 
         if (!parsedAttr) {
           Diag(Tok.getLocation(), diag::p3385_err_attribute_splicing_error)
             << "Found no backlink, ignoring attribute arguments";
-          } else if (size_t nbArgs= parsedAttr->getNumArgs(); nbArgs >0) {
+          } else if (size_t nbArgs = parsedAttr->getNumArgs(); nbArgs >0) {
             Diag(Tok.getLocation(), diag::p3385_trace_execution_checkpoint)
               << "Found argument(s) while splicing a reflected attribute";
             for (size_t i = 0; i != nbArgs; ++i) {

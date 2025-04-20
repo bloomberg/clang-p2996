@@ -14,6 +14,7 @@
 
 #include "clang/AST/APValue.h"
 #include "clang/AST/Attr.h"
+#include "clang/AST/Attrs.inc"
 #include "clang/AST/CXXInheritance.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclGroup.h"
@@ -1550,7 +1551,6 @@ bool get_ith_attribute_of(APValue &Result, ASTContext &C,
       }
 
       auto attrs = D->attrs();
-      
       if (attrs.empty()) {
         return SetAndSucceed(Result, Sentinel);
       }
@@ -1558,9 +1558,9 @@ bool get_ith_attribute_of(APValue &Result, ASTContext &C,
       std::vector<Attr * const *> cxx11Attrs;
       // poor man ::filter, copy_if, etc....
       for (Attr *const *attr = attrs.begin(); attr != attrs.end(); ++attr) {
-       if ((*attr)->isCXX11Attribute()){
-        cxx11Attrs.push_back(attr);
-       }
+        if ((*attr)->isCXX11Attribute() && !DelayedSpliceAttr::classof(*attr)){
+          cxx11Attrs.push_back(attr);
+        }
       }
 
       if (idx >= cxx11Attrs.size()) {
@@ -1575,11 +1575,11 @@ bool get_ith_attribute_of(APValue &Result, ASTContext &C,
       const ParsedAttr * parsedAttr = val->fromParsedAttr();
       assert(parsedAttr && "no backlink from semantic attribute");
 
+      scratchpad.ArgExprs.clear();
       if (scratchpad.argFound = parsedAttr->getNumArgs() != 0; scratchpad.argFound) {
         scratchpad.ArgExprs.push_back(parsedAttr->getArg(0));
-      } else {
-        scratchpad.ArgExprs.clear();
       }
+
       auto * fetchedAttribute = scratchpad.attributes.addNew(
         const_cast<IdentifierInfo*>(parsedAttr->getAttrName()),
         val->getRange(),

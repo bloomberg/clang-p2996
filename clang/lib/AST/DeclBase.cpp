@@ -18,6 +18,7 @@
 #include "clang/AST/ASTMutationListener.h"
 #include "clang/AST/Attr.h"
 #include "clang/AST/AttrIterator.h"
+#include "clang/AST/Attrs.inc"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclContextInternals.h"
@@ -1014,7 +1015,7 @@ void Decl::dropAttrs() {
 }
 
 void Decl::addAttr(Attr *A, const ParsedAttr* pA) {
-  assert(pA != nullptr && "Found null syntactic attribute while creating semantic attribute");
+  assert((pA != nullptr || DelayedSpliceAttr::classof(A)) && "Found null syntactic attribute while creating semantic attribute");
   A->setParsedAttr(pA);
   this->addAttr(A);
 }
