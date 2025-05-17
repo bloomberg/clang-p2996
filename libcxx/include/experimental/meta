@@ -1010,7 +1010,7 @@ public:
 
 consteval auto is_accessible(info r, access_context ctx) -> bool {
   // Note: The accessibility of an enumerator may be looked up in a class
-  // for which it's not a member, since that enumerator could be 
+  // for which it's not a member, since that enumerator could be
   if (!is_class_member(r) && !is_base(r) && !is_enumerator(r))
     return true;
 
@@ -1402,8 +1402,8 @@ consteval auto is_user_declared(info r) -> bool {
 }
 
 // Returns a reflection of the value held by the provided argument.
-template <typename T> 
-  requires (!is_reference_v<T> && 
+template <typename T>
+  requires (!is_reference_v<T> &&
             __metafunction(detail::__metafn_is_structural_type, ^^T))
 consteval auto reflect_constant(const T &r) -> info {
   return __metafunction(detail::__metafn_reflect_result, ^^T,
@@ -2320,31 +2320,27 @@ consteval auto has_complete_definition(info r) -> bool {
   return __metafunction(detail::__metafn_has_complete_definition, r);
 }
 
-_LIBCPP_END_NAMESPACE_REFLECTION_V2
-
-_LIBCPP_BEGIN_NAMESPACE_STD
-
 namespace __define_static {
 
 template <typename ValTy, ValTy... Vals>
 inline constexpr ValTy FixedArray[sizeof...(Vals)] = {Vals...};
 
-template <auto &S>
-inline constexpr span StaticSpan(S, size(S));
-
-template <typename ValTy>
-consteval span<const ValTy> impl(const span<const ValTy> &in) {
-  if (in.size() == 0)
-    return {};
-
-  vector Args = {^^ValTy};
-  for (const auto &V : in)
-    Args.push_back(meta::reflect_constant(V));
-
-  return meta::extract<span<const ValTy>>(
-    meta::substitute(^^StaticSpan, { meta::substitute(^^FixedArray, Args) }));
-}
 }  // namespace __define_static
+
+template <ranges::input_range R>
+    requires (is_constructible_v<ranges::range_value_t<R>,
+                                 ranges::range_reference_t<R>>)
+consteval auto reflect_constant_array(R &&elems) -> info {
+  using ValTy = ranges::range_value_t<R>;
+  vector Args = {^^ValTy};
+  for (const auto &V : elems)
+    Args.push_back(reflect_constant(V));
+  return substitute(^^__define_static::FixedArray, Args);
+}
+
+_LIBCPP_END_NAMESPACE_REFLECTION_V2
+
+_LIBCPP_BEGIN_NAMESPACE_STD
 
 template <ranges::input_range R>
     requires (is_constructible_v<ranges::range_value_t<R>,
@@ -2352,12 +2348,8 @@ template <ranges::input_range R>
 consteval auto define_static_array(R &&elems)
     -> span<const ranges::range_value_t<R>> {
   using ValTy  = ranges::range_value_t<R>;
-  using ImplTy = span<const ValTy>(*)(const span<const ValTy> &);
-  auto impl = meta::extract<ImplTy>(meta::substitute(^^__define_static::impl,
-                                                     {^^ValTy}));
-
-  vector<ValTy> vals(from_range, elems);
-  return impl(vals);
+  meta::info array = meta::reflect_constant_array(elems);
+  return span<const ValTy>(extract<const ValTy*>(array), meta::extent(type_of(array)));
 }
 
 // Returns a static string having the provided contents.
