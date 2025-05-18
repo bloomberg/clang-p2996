@@ -211,8 +211,11 @@ namespace extract_ref_semantics {
                             // ====================
 
 namespace extract_array_as_ptr {
-constexpr int arr[] = {1, 2, 3};
-static_assert(extract<const int *>(^^arr)[2] == 3);
+constexpr int a[] = {1, 2, 3};
+static_assert(extract<const int *>(^^a)[2] == 3);
+
+constexpr int b[3] = {1, 2, 3};
+static_assert(extract<const int *>(^^b)[2] == 3);
 
 }  // namespace extract_array_as_ptr
 
@@ -331,7 +334,7 @@ static_assert([:rvfirst:].first == 1);
 namespace reflect_constant_callable {
 
 template<typename T>
-constexpr auto reflectValueCallable = 
+constexpr auto reflectValueCallable =
   requires { std::meta::reflect_constant<T>(std::declval<T>()); };
 
 enum class E {};
