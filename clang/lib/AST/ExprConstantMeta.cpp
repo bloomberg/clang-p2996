@@ -3105,10 +3105,8 @@ bool extract(APValue &Result, ASTContext &C, MetaActions &Meta,
           }
         }
 
-        bool IsValid = RawResultTy->isPointerType() && RawResultTy->getPointeeType().isAtLeastAsQualifiedAs(Elt, C);
-
         ReturnsLValue = true;
-        if (!IsValid)
+        if (!RawResultTy->isPointerType() || !RawResultTy->getPointeeType().isAtLeastAsQualifiedAs(Elt, C))
           return Diagnoser(Range.getBegin(), diag::metafn_extract_type_mismatch)
               << 1 << C.getPointerType(Elt) << 1 << ResultTy << Range;
 
