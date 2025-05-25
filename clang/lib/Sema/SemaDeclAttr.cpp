@@ -2924,12 +2924,6 @@ static void handleSentinelAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
   D->addAttr(::new (S.Context) SentinelAttr(S.Context, AL, sentinel, nullPos));
 }
 
-static void handlDelayedSpliceAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
-  CXXSpliceExpr * expr = static_cast<CXXSpliceExpr *>(AL.getArgAsExpr(0));
-  // Note the backlink is meaningless here...
-  D->addAttr(::new (S.Context) DelayedSpliceAttr(S.Context, AL, expr), nullptr);
-}
-
 static void handleWarnUnusedResult(Sema &S, Decl *D, const ParsedAttr &AL) {
   if (D->getFunctionType() &&
       D->getFunctionType()->getReturnType()->isVoidType() &&
@@ -7461,9 +7455,6 @@ ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D, const ParsedAttr &AL,
     break;
   case ParsedAttr::AT_TypeVisibility:
     handleVisibilityAttr(S, D, AL, true);
-    break;
-  case ParsedAttr::AT_DelayedSplice:
-    handlDelayedSpliceAttr(S, D, AL);
     break;
   case ParsedAttr::AT_WarnUnusedResult:
     handleWarnUnusedResult(S, D, AL);

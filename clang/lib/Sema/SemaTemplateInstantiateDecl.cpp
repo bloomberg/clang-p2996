@@ -149,59 +149,6 @@ static void instantiateDependentAlignedAttr(
   }
 }
 
-// We are not _really_ instantiating that attribute as it's merely
-// a placeholder for the dependent type attributes we want to extract
-// and appertain to 'New'
-static void instantiateDelayedSpliceAttr(
-  Sema &S, const MultiLevelTemplateArgumentList &TemplateArgs,
-  const DelayedSpliceAttr *DelayedSplice, Decl *New) {
-  S.Diag(New->getLocation(), diag::p3385_trace_execution_checkpoint) << "In InstantiateAttrs";
-  Expr* delayedSpliceExpr = DelayedSplice->getSpliceExpression();
-  auto substResult = S.SubstExpr(delayedSpliceExpr, TemplateArgs);
-  if (Expr* splicedExpr = substResult.isInvalid() ? nullptr : substResult.get(); splicedExpr != nullptr) {
-    Expr::EvalResult ER;
-    if (!splicedExpr->EvaluateAsRValue(ER, S.getASTContext(), true)) {
-      S.Diag(New->getLocation(), diag::p3385_err_attribute_splicing_error) << "Error while EvaluateAsRValue";
-      return;
-    }
-    SourceLocation loc = New->getLocation();
-    SourceRange range(loc);
-    switch (ER.Val.getReflectionKind()) {
-      case ReflectionKind::Type: {
-        QualType qType = ER.Val.getReflectedType();
-        NamedDecl *D = findTypeDecl(qType);
-        if (!D) {
-          S.Diag(loc, diag::p3385_err_attribute_splicing_error)
-            << "Error no declaration found related to the type";
-          return;
-        }
-        for (auto *const attr : D->attrs()) {
-          // We dont attach another DelayedSplice attr
-          if (DelayedSpliceAttr::classof(attr)) {
-            S.Diag(loc, diag::p3385_trace_execution_checkpoint) << "Not attaching 'DelayedSpliceAttr'";
-            continue;
-          }
-          // Only splice [[ ]] attributes
-          if (!attr->isCXX11Attribute()) {
-            S.Diag(loc, diag::p3385_trace_execution_checkpoint) << "(1/2) Skipping non CXX11 attribute...";
-            S.Diag(loc, diag::p3385_trace_execution_checkpoint) << attr->getAttrName();
-            continue;
-          }
-          S.Diag(loc, diag::p3385_trace_execution_checkpoint) << "(1/2) Attaching attribute...";
-          S.Diag(loc, diag::p3385_trace_execution_checkpoint) << attr->getAttrName();
-
-          New->addAttr(attr);
-          New->dropAttr<DelayedSpliceAttr>();
-        }
-        break;
-      }
-      default:
-          S.Diag(loc, diag::p3385_err_attribute_splicing_error)
-            << "Only reflection of 'type' is supported in dependent attribute splicing";
-    }
-  }
-}
-
 static void instantiateDependentAlignedAttr(
     Sema &S, const MultiLevelTemplateArgumentList &TemplateArgs,
     const AlignedAttr *Aligned, Decl *New) {
@@ -877,12 +824,6 @@ void Sema::InstantiateAttrs(const MultiLevelTemplateArgumentList &TemplateArgs,
                             LocalInstantiationScope *OuterMostScope) {
   bool AddAnnotations = New->attrs().empty();
   for (const auto *TmplAttr : Tmpl->attrs()) {
-
-    if (const auto *DelayedSplice = dyn_cast<DelayedSpliceAttr>(TmplAttr)) {
-      // Act on stashed spliced reflection attribute
-      instantiateDelayedSpliceAttr(*this, TemplateArgs, DelayedSplice, New);
-      continue;
-    }
 
     if (!isRelevantAttr(*this, New, TmplAttr))
       continue;

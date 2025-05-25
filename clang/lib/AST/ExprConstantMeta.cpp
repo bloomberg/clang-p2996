@@ -1821,7 +1821,7 @@ bool get_ith_attribute_of(APValue &Result, ASTContext &C,
       std::vector<Attr * const *> cxx11Attrs;
       // poor man ::filter, copy_if, etc....
       for (Attr *const *attr = attrs.begin(); attr != attrs.end(); ++attr) {
-        if ((*attr)->isCXX11Attribute() && !DelayedSpliceAttr::classof(*attr)){
+        if ((*attr)->isCXX11Attribute()) {
           cxx11Attrs.push_back(attr);
         }
       }
