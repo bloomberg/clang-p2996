@@ -360,9 +360,8 @@ consteval auto annotate(info) -> info;
 // Attributes reflection (P3385)
 consteval auto is_attribute(info) -> bool;
 consteval auto attributes_of(info r) -> vector<info>;
-
 template <reflection_range R = initializer_list<info>>
-consteval auto appertain(info, R&&) -> info;
+  consteval auto appertain(info, R&&) -> info;
 
 // modeling access control (P3547)
 struct access_context {
@@ -401,7 +400,7 @@ template <reflection_range R1 = initializer_list<info>,
 } // namespace meta
 } // namespace std
 
- */
+*/
 
 #include <__config>
 #include <algorithm>
@@ -773,7 +772,7 @@ struct front_annotation_of {
   }
 };
 
-// TODO #ifdef P3385 feature flag
+#if __has_feature(attribute_reflection)
 
 struct front_attribute_of {
   consteval info operator()(info reflectedEntity) const {
@@ -790,7 +789,7 @@ struct next_attribute_of {
   }
 };
 
-// TODO #endif P3385 feature flag
+#endif // __has_feature(attribute_reflection)
 
 }  // namespace __range_of_infos
 
@@ -2226,8 +2225,6 @@ consteval auto appertain(info r, R&& v) -> info {
 }
 
 #endif
-
-#if __has_feature(access_contexts)
 
 consteval auto has_inaccessible_nonstatic_data_members(
         info r,

@@ -1914,13 +1914,13 @@ bool appertain(APValue &Result, ASTContext &C,
       Meta.Appertain(D->getMostRecentDecl(), recoveredAttr, Range.getBegin());
 
       return SetAndSucceed(Result, makeReflection(D));
+    }
     default:
       Diagnoser(Range.getBegin(), diag::metafn_p3385_appertain)
-          << DescriptionOf(Appertainee) << Range;
+        << DescriptionOf(Appertainee) << Range;
       return false;
   }
   llvm_unreachable("unknown reflection kind");
-  return true;
 }
 
 bool get_begin_enumerator_decl_of(APValue &Result, ASTContext &C,
