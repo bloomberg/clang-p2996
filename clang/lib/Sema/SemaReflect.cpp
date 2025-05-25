@@ -737,11 +737,8 @@ public:
 
     size_t nbAttrPost = TargetDecl->hasAttrs() ? TargetDecl->getAttrs().size() : 0;
     if (++nbAttr != nbAttrPost) {
-      S.Diag(DefinitionLoc, diag::p3385_sema_trace_execution_checkpoint)
-        << "Attribute was not attached";
-    } else {
-      S.Diag(DefinitionLoc, diag::p3385_sema_trace_appertain)
-        << attr->getAttrName() << nbAttrPost;
+      S.Diag(DefinitionLoc, diag::p3385_sema_appertain_failed)
+        << attr->getAttrName();
     }
   }
 
@@ -1439,9 +1436,6 @@ ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
 
 ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
                                      ParsedAttr *A) {
-  Diag(A->getLoc(), diag::p3385_sema_trace_execution_checkpoint)
-      << A->getAttrName()->getName();
-
   return CXXReflectExpr::Create(
       Context, OperatorLoc, A->getRange(),
       APValue{ReflectionKind::Attribute, static_cast<void *>(A)});

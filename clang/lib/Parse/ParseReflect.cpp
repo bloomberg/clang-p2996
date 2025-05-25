@@ -90,7 +90,6 @@ ExprResult Parser::ParseCXXReflectExpression(SourceLocation OpLoc) {
     size_t last = Attrs.size();
     if (MaybeParseCXX11Attributes(Attrs)) {
       size_t newLast = Attrs.size();
-      Diag(OperandLoc, diag::p3385_trace_attribute_parsed);
 
       // FIXME handle empty [[]] gracefully
       if (last == newLast) {

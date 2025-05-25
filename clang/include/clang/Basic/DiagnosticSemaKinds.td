@@ -3171,10 +3171,9 @@ def err_compute_expansion_size_index : Error<
 def err_cannot_expand_over_type : Error<
   "cannot expand over an expression of type %0">;
 
-def p3385_sema_trace_execution_checkpoint : Warning<
-  "(p3385-Sema) trace_execution_checkpoint %0">;
-def p3385_sema_trace_appertain : Warning<
-  "(p3385-Sema) Appertained %0, new total %1">;
+// P3385
+def p3385_sema_appertain_failed : Warning<
+  "failed while appertaining %0 attribute">;
 
 // C++11 char16_t/char32_t
 def warn_cxx98_compat_unicode_type : Warning<

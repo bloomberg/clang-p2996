@@ -101,12 +101,10 @@ def metafn_value_not_structural_type : Note<
 def metafn_result_not_representable : Note<
   "provided %select{value|object}0 cannot be represented by a reflection">;
 
-def metafn_p3385_trace_execution_checkpoint : Warning<
-  "(p3385-metafn) trace_execution_checkpoint %0">;
 def metafn_p3385_non_standard_attribute : Warning<
-  "(p3385-metafn) Non standard attribute discovered %0">;
+  "non-standard attribute %0 found when expanding attributes">;
 def metafn_p3385_appertain : Warning<
-  "(p3385-metafn) Can not appertain a non attribute reflection, found %0">;
+  "found %0, expected attribute for appertain">;
 
 // Class definition.
 def metafn_name_invalid_identifier : Note<
