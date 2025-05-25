@@ -3521,6 +3521,11 @@ defm parameter_reflection : BoolFOption<"parameter-reflection",
   PosFlag<SetTrue, [], [ClangOption, CC1Option],
           "Enable proposed parameter reflection as described by P3096">,
   NegFlag<SetFalse>>;
+defm attribute_reflection : BoolFOption<"attribute-reflection",
+  LangOpts<"AttributeReflection">, DefaultFalse,
+  PosFlag<SetTrue, [], [ClangOption, CC1Option],
+          "Enable proposed parameter reflection as described by P3385">,
+  NegFlag<SetFalse>>;
 defm expansion_statements : BoolFOption<"expansion-statements",
   LangOpts<"ExpansionStatements">, DefaultFalse,
   PosFlag<SetTrue, [], [ClangOption, CC1Option],

@@ -7517,6 +7517,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   // -fparameter-reflection is likewise off by default.
   Args.addOptInFlag(CmdArgs, options::OPT_fparameter_reflection,
                     options::OPT_fno_parameter_reflection);
+  // -fattribute-reflection is likewise off by default.
+  Args.addOptInFlag(CmdArgs, options::OPT_fattribute_reflection,
+                    options::OPT_fno_attribute_reflection);
   // -fexpansion-statements is likewise off by default.
   Args.addOptInFlag(CmdArgs, options::OPT_fexpansion_statements,
                     options::OPT_fno_expansion_statements);

@@ -3592,6 +3592,13 @@ def ObjCRequiresPropertyDefs : InheritableAttr {
   let SimpleHandler = 1;
 }
 
+def DelayedSplice : InheritableAttr {
+  let Spellings = [Clang<"DelayedSplice">];
+  let Args = [ExprArgument<"SpliceExpression">];
+  let Subjects = SubjectList<[FunctionLike, Type]>;
+  let Documentation = [InternalOnly];
+}
+
 def Unused : InheritableAttr {
   let Spellings = [CXX11<"", "maybe_unused", 201603>, GCC<"unused">,
                    C23<"", "maybe_unused", 202106>];

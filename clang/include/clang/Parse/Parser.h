@@ -19,6 +19,7 @@
 #include "clang/Basic/OperatorPrecedence.h"
 #include "clang/Lex/CodeCompletionHandler.h"
 #include "clang/Lex/Preprocessor.h"
+#include "clang/Sema/ParsedAttr.h"
 #include "clang/Sema/Sema.h"
 #include "clang/Sema/SemaCodeCompletion.h"
 #include "clang/Sema/SemaObjC.h"
@@ -318,6 +319,8 @@ class Parser : public CodeCompletionHandler {
 
   /// Factory object for creating ParsedAttr objects.
   AttributeFactory AttrFactory;
+  /// FIXNE P3385
+  ParsedAttributes Attrs;
 
   /// Gathers and cleans up TemplateIdAnnotations when parsing of a
   /// top-level declaration is finished.
@@ -3065,6 +3068,11 @@ private:
     ParseCXX11AttributeSpecifierInternal(Attrs, OpenMPTokens, EndLoc);
     ReplayOpenMPAttributeTokens(OpenMPTokens);
   }
+
+  bool tryParseSpliceAttrSpecifier(ParsedAttributes &Attrs,
+                                   SourceLocation *EndLoc = nullptr);
+  /// Try parsing a splice expression when inside an attribute specifier
+
   void ParseCXX11Attributes(ParsedAttributes &attrs);
   /// Parses a C++11 (or C23)-style attribute argument list. Returns true
   /// if this results in adding an attribute to the ParsedAttributes list.
@@ -4021,6 +4029,9 @@ private:
   ExprResult ParseCXXMetafunctionExpression();
 
   bool ParseSpliceSpecifier(bool TryParseSpecialization = false);
+
+  // Try to parse a splice expression as the reflection of a standard attribute
+  bool ParseAttributeReflection(ParsedAttr* &attribute);
 
   ExprResult ParseCXXSpliceAsExpr(SourceLocation TemplateKWLoc,
                                   bool AllowMemberReference);

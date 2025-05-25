@@ -1003,6 +1003,7 @@ ExprDependence clang::computeDependence(CXXReflectExpr *E,
   case ReflectionKind::Namespace:
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
+  case ReflectionKind::Attribute:
     return ExprDependence::None;
   case ReflectionKind::EntityProxy:
     llvm_unreachable("should already have been unwrapped");

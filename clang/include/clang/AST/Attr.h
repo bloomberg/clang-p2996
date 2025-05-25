@@ -38,6 +38,7 @@ class ASTContext;
 class AttributeCommonInfo;
 class FunctionDecl;
 class OMPTraitInfo;
+class ParsedAttr;
 class OpenACCClause;
 
 /// Attr - This represents one attribute.
@@ -62,6 +63,8 @@ protected:
   LLVM_PREFERRED_TYPE(bool)
   unsigned InheritEvenIfAlreadyPresent : 1;
 
+  const ParsedAttr* Backlink;
+
   void *operator new(size_t bytes) noexcept {
     llvm_unreachable("Attrs cannot be allocated with regular 'new'.");
   }
@@ -84,7 +87,7 @@ protected:
        attr::Kind AK, bool IsLateParsed)
       : AttributeCommonInfo(CommonInfo), AttrKind(AK), Inherited(false),
         IsPackExpansion(false), Implicit(false), IsLateParsed(IsLateParsed),
-        InheritEvenIfAlreadyPresent(false) {}
+        InheritEvenIfAlreadyPresent(false), Backlink(nullptr) {}
 
 public:
   attr::Kind getKind() const { return static_cast<attr::Kind>(AttrKind); }
@@ -110,6 +113,16 @@ public:
   Attr *clone(ASTContext &C) const;
 
   bool isLateParsed() const { return IsLateParsed; }
+
+  // Backlink to the syntactic form of the attribute
+  const ParsedAttr* fromParsedAttr() const { return Backlink; }
+
+  // FIXME p3385, garbage design
+  void setParsedAttr(const ParsedAttr* parsedAttr) {
+    // Note that backlink can be null (for delayed splice attribute for ex)
+    assert(Backlink == nullptr && "backlink should not be reassigned");
+    Backlink = parsedAttr;
+  }
 
   // Pretty print this attribute.
   void printPretty(raw_ostream &OS, const PrintingPolicy &Policy) const;

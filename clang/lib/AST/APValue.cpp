@@ -22,6 +22,7 @@
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/LocInfoType.h"
 #include "clang/AST/Type.h"
+#include "clang/Sema/ParsedAttr.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 using namespace clang;
@@ -558,6 +559,23 @@ static void profileReflection(llvm::FoldingSetNodeID &ID, APValue V) {
   case ReflectionKind::Annotation:
     ID.AddPointer(V.getOpaqueReflectionData());
     return;
+  case ReflectionKind::Attribute: {
+    ParsedAttr* attr = V.getReflectedAttribute();
+    ID.AddString(attr->getAttrName()->getName());
+    if(attr->getNumArgs() > 0)
+    {
+        auto *Arg0 = attr->getArgAsExpr(0);
+        StringLiteral *Literal =
+          dyn_cast<StringLiteral>(Arg0->IgnoreParenCasts());
+        if(Literal) {
+          StringRef String = Literal->getString();
+          ID.AddInteger(String.size());
+          ID.AddString(String.data());
+        }
+    }
+
+    return;
+  }
   case ReflectionKind::DataMemberSpec: {
     TagDataMemberSpec *TDMS = V.getReflectedDataMemberSpec();
     TDMS->Ty.Profile(ID);
@@ -958,6 +976,13 @@ CXX26AnnotationAttr *APValue::getReflectedAnnotation() const {
           const_cast<void *>(getOpaqueReflectionData()));
 }
 
+ParsedAttr *APValue::getReflectedAttribute() const {
+  assert(getReflectionKind() == ReflectionKind::Attribute &&
+         "not a reflection of an attribute");
+  return reinterpret_cast<ParsedAttr *>(
+          const_cast<void *>(getOpaqueReflectionData()));
+}
+
 static double GetApproxValue(const llvm::APFloat &F) {
   llvm::APFloat V = F;
   bool ignored;
@@ -1314,6 +1339,9 @@ void APValue::printPretty(raw_ostream &Out, const PrintingPolicy &Policy,
     case ReflectionKind::Annotation:
       Repr = "annotation";
       break;
+    case ReflectionKind::Attribute:
+      Repr = "attribute";
+      break;
     }
     Out << "^^(" << Repr << ")";
     return;
@@ -1651,6 +1679,7 @@ void APValue::setReflection(ReflectionKind RK, const void *Ptr) {
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
     SelfData.Kind = RK;
     SelfData.Data = Ptr;
     return;

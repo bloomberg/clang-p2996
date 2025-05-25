@@ -17,6 +17,7 @@
 #ifndef LLVM_CLANG_AST_METAACTIONS_H
 #define LLVM_CLANG_AST_METAACTIONS_H
 
+#include "clang/Sema/ParsedAttr.h"
 #include <clang/AST/TemplateBase.h>
 #include <clang/AST/Type.h>
 #include <clang/Basic/SourceLocation.h>
@@ -141,6 +142,9 @@ public:
   virtual CXX26AnnotationAttr *Annotate(Decl *TargetDecl, const APValue &Value,
                                         Decl *ContainingDecl,
                                         SourceLocation DefinitionLoc) = 0;
+
+  virtual void Appertain(Decl *TargetDecl, ParsedAttr * attr,
+                         SourceLocation DefinitionLoc) = 0;
 
                         // ============================
                         // Annotation Synthesis Support

@@ -81,6 +81,18 @@ namespace AttributeLangSupport {
   };
 } // end namespace AttributeLangSupport
 
+namespace {
+
+struct AttributeScratchpad {
+  AttributeFactory factory;
+  ParsedAttributes attributes;
+  ArgsVector ArgExprs;
+  bool argFound;
+  AttributeScratchpad() : factory(), attributes(factory), ArgExprs(), argFound(false) {}
+};
+
+} // namespace
+
 static unsigned getNumAttributeArgs(const ParsedAttr &AL) {
   // FIXME: Include the type in the argument list.
   return AL.getNumArgs() + AL.hasParsedType();
@@ -2127,7 +2139,20 @@ static void handleUnusedAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
   if (!S.getLangOpts().CPlusPlus17 && IsCXX17Attr)
     S.Diag(AL.getLoc(), diag::ext_cxx17_attr) << AL;
 
-  D->addAttr(::new (S.Context) UnusedAttr(S.Context, AL));
+  static AttributeScratchpad scratchpad;
+  if (scratchpad.argFound = AL.getNumArgs() != 0; scratchpad.argFound) {
+    scratchpad.ArgExprs.push_back(AL.getArg(0));
+  } else {
+    scratchpad.ArgExprs.clear();
+  }
+  auto * stashedSyntacticAttribute = scratchpad.attributes.addNew(
+    const_cast<IdentifierInfo*>(AL.getAttrName()),
+    AL.getRange(),
+    nullptr,
+    AL.getLoc(),
+    scratchpad.ArgExprs.data(), scratchpad.argFound,
+    AL.getForm());
+  D->addAttr(::new (S.Context) UnusedAttr(S.Context, AL), stashedSyntacticAttribute);
 }
 
 static void handleConstructorAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
@@ -2899,6 +2924,12 @@ static void handleSentinelAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
   D->addAttr(::new (S.Context) SentinelAttr(S.Context, AL, sentinel, nullPos));
 }
 
+static void handlDelayedSpliceAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
+  CXXSpliceExpr * expr = static_cast<CXXSpliceExpr *>(AL.getArgAsExpr(0));
+  // Note the backlink is meaningless here...
+  D->addAttr(::new (S.Context) DelayedSpliceAttr(S.Context, AL, expr), nullptr);
+}
+
 static void handleWarnUnusedResult(Sema &S, Decl *D, const ParsedAttr &AL) {
   if (D->getFunctionType() &&
       D->getFunctionType()->getReturnType()->isVoidType() &&
@@ -2949,7 +2980,23 @@ static void handleWarnUnusedResult(Sema &S, Decl *D, const ParsedAttr &AL) {
     return;
   }
 
-  D->addAttr(::new (S.Context) WarnUnusedResultAttr(S.Context, AL, Str));
+  static AttributeScratchpad scratchpad;
+  if (scratchpad.argFound = AL.getNumArgs() != 0; scratchpad.argFound) {
+    scratchpad.ArgExprs.push_back(AL.getArg(0));
+  } else {
+    scratchpad.ArgExprs.clear();
+  }
+  auto * stashedSyntacticAttribute = scratchpad.attributes.addNew(
+    const_cast<IdentifierInfo*>(AL.getAttrName()),
+    AL.getRange(),
+    nullptr,
+    AL.getLoc(),
+    scratchpad.ArgExprs.data(), scratchpad.argFound,
+    AL.getForm()
+  );
+
+  // Add semantic attribute and backlink to syntactic one
+  D->addAttr(::new (S.Context) WarnUnusedResultAttr(S.Context, AL, Str), stashedSyntacticAttribute);
 }
 
 static void handleWeakImportAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
@@ -6405,7 +6452,23 @@ static void handleDeprecatedAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
   if (!S.getLangOpts().CPlusPlus14 && AL.isCXX11Attribute() && !AL.isGNUScope())
     S.Diag(AL.getLoc(), diag::ext_cxx14_attr) << AL;
 
-  D->addAttr(::new (S.Context) DeprecatedAttr(S.Context, AL, Str, Replacement));
+  static AttributeScratchpad scratchpad;
+  if (scratchpad.argFound = AL.getNumArgs() != 0; scratchpad.argFound) {
+    scratchpad.ArgExprs.push_back(AL.getArg(0));
+  } else {
+    scratchpad.ArgExprs.clear();
+  }
+  auto * stashedSyntacticAttribute = scratchpad.attributes.addNew(
+    const_cast<IdentifierInfo*>(AL.getAttrName()),
+    AL.getRange(),
+    nullptr,
+    AL.getLoc(),
+    scratchpad.ArgExprs.data(), scratchpad.argFound,
+    AL.getForm()
+  );
+
+  // Add semantic attribute and backlink to syntactic one
+  D->addAttr(::new (S.Context) DeprecatedAttr(S.Context, AL, Str, Replacement), stashedSyntacticAttribute);
 }
 
 static bool isGlobalVar(const Decl *D) {
@@ -7398,6 +7461,9 @@ ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D, const ParsedAttr &AL,
     break;
   case ParsedAttr::AT_TypeVisibility:
     handleVisibilityAttr(S, D, AL, true);
+    break;
+  case ParsedAttr::AT_DelayedSplice:
+    handlDelayedSpliceAttr(S, D, AL);
     break;
   case ParsedAttr::AT_WarnUnusedResult:
     handleWarnUnusedResult(S, D, AL);

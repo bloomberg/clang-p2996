@@ -57,6 +57,7 @@ class Module;
 class NamedDecl;
 class ObjCContainerDecl;
 class ObjCMethodDecl;
+class ParsedAttr;
 struct PrintingPolicy;
 class RecordDecl;
 class SourceManager;
@@ -531,6 +532,8 @@ public:
   const AttrVec &getAttrs() const;
   void dropAttrs();
   void addAttr(Attr *A);
+  void addAttr(Attr *A, const ParsedAttr* pA);
+
 
   using attr_iterator = AttrVec::const_iterator;
   using attr_range = llvm::iterator_range<attr_iterator>;

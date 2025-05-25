@@ -22,6 +22,7 @@
 #include "clang/Basic/StackExhaustionHandler.h"
 #include "clang/Parse/RAIIObjectsForParser.h"
 #include "clang/Sema/DeclSpec.h"
+#include "clang/Sema/ParsedAttr.h"
 #include "clang/Sema/EnterExpressionEvaluationContext.h"
 #include "clang/Sema/ParsedTemplate.h"
 #include "clang/Sema/Scope.h"
@@ -60,7 +61,7 @@ Parser::Parser(Preprocessor &pp, Sema &actions, bool skipFunctionBodies)
       Diags(PP.getDiagnostics()), StackHandler(Diags),
       GreaterThanIsOperator(true), ColonIsSacred(false),
       InMessageExpression(false), TemplateParameterDepth(0),
-      ParsingInObjCContainer(false) {
+      Attrs(AttrFactory), ParsingInObjCContainer(false) {
   SkipFunctionBodies = pp.isCodeCompletionEnabled() || skipFunctionBodies;
   Tok.startToken();
   Tok.setKind(tok::eof);

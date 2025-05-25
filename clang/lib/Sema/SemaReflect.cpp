@@ -18,9 +18,12 @@
 #include "clang/AST/DeclBase.h"
 #include "clang/AST/MetaActions.h"
 #include "clang/AST/Metafunction.h"
+#include "clang/AST/Reflection.h"
 #include "clang/Basic/DiagnosticSema.h"
 #include "clang/Sema/EnterExpressionEvaluationContext.h"
 #include "clang/Sema/Lookup.h"
+#include "clang/Sema/Ownership.h"
+#include "clang/Sema/ParsedAttr.h"
 #include "clang/Sema/ParsedTemplate.h"
 #include "clang/Sema/Sema.h"
 #include "clang/Sema/Template.h"
@@ -723,6 +726,25 @@ public:
     return NewDecl;
   }
 
+  void Appertain(Decl *TargetDecl, ParsedAttr * attr,
+                 SourceLocation DefinitionLoc) override
+  {
+    size_t nbAttr = TargetDecl->hasAttrs() ? TargetDecl->getAttrs().size() : 0;
+
+    ParsedAttributesView view;
+    view.addAtEnd(attr);
+    S.ProcessDeclAttributeList(nullptr /*scope */, TargetDecl, view);
+
+    size_t nbAttrPost = TargetDecl->hasAttrs() ? TargetDecl->getAttrs().size() : 0;
+    if (++nbAttr != nbAttrPost) {
+      S.Diag(DefinitionLoc, diag::p3385_sema_trace_execution_checkpoint)
+        << "Attribute was not attached";
+    } else {
+      S.Diag(DefinitionLoc, diag::p3385_sema_trace_appertain)
+        << attr->getAttrName() << nbAttrPost;
+    }
+  }
+
   CXX26AnnotationAttr *Annotate(Decl *TargetDecl, const APValue &Value,
                                 Decl *ContainingDecl,
                                 SourceLocation DefinitionLoc) override {
@@ -978,6 +1000,11 @@ ExprResult Sema::ActOnCXXReflectExpr(SourceLocation OperatorLoc,
   return BuildCXXReflectExpr(OperatorLoc, E);
 }
 
+ExprResult Sema::ActOnCXXReflectExpr(SourceLocation OperatorLoc,
+                                     ParsedAttr *A) {
+  return BuildCXXReflectExpr(OperatorLoc, A);
+}
+
 /// Returns an expression representing the result of a metafunction operating
 /// on a reflection.
 ExprResult Sema::ActOnCXXMetafunction(SourceLocation KwLoc,
@@ -1190,6 +1217,10 @@ Sema::ActOnSpliceTemplateArgument(SpliceSpecifier *Splice) {
   case ReflectionKind::DataMemberSpec:
     Diag(Splice->getBeginLoc(), diag::err_unsupported_splice_kind)
       << "data member specs" << 0 << 0;
+    break;
+  case ReflectionKind::Attribute:
+    Diag(Splice->getBeginLoc(), diag::err_unsupported_splice_kind)
+    << "attribute" << 0 << 0;
     break;
   case ReflectionKind::Annotation:
     Diag(Splice->getBeginLoc(), diag::err_unsupported_splice_kind)
@@ -1404,6 +1435,16 @@ ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
 
   return CXXReflectExpr::Create(Context, OperatorLoc, E->getSourceRange(),
                                 ER.Val);
+}
+
+ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
+                                     ParsedAttr *A) {
+  Diag(A->getLoc(), diag::p3385_sema_trace_execution_checkpoint)
+      << A->getAttrName()->getName();
+
+  return CXXReflectExpr::Create(
+      Context, OperatorLoc, A->getRange(),
+      APValue{ReflectionKind::Attribute, static_cast<void *>(A)});
 }
 
 ExprResult Sema::BuildCXXMetafunctionExpr(
@@ -1780,6 +1821,7 @@ ExprResult Sema::BuildReflectionSpliceExpr(SourceLocation TemplateKWLoc,
     case ReflectionKind::BaseSpecifier:
     case ReflectionKind::DataMemberSpec:
     case ReflectionKind::Annotation:
+    case ReflectionKind::Attribute:
       Diag(Splice->getBeginLoc(),
            diag::err_unexpected_reflection_kind_in_splice)
           << 1 << Splice->getSourceRange();
@@ -1948,6 +1990,7 @@ DeclContext *Sema::TryFindDeclContextOf(SpliceSpecifier *Splice) {
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
     Diag(Splice->getBeginLoc(), diag::err_expected_class_or_namespace)
         << "spliced entity" << getLangOpts().CPlusPlus;
     return nullptr;

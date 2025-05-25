@@ -12,10 +12,13 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "clang/AST/ASTContext.h"
+#include "clang/AST/Attr.h"
 #include "clang/Basic/DiagnosticParse.h"
 #include "clang/Parse/Parser.h"
 #include "clang/Parse/RAIIObjectsForParser.h"
 #include "clang/Sema/EnterExpressionEvaluationContext.h"
+#include "clang/Sema/ParsedAttr.h"
 using namespace clang;
 
 ExprResult Parser::ParseCXXReflectExpression(SourceLocation OpLoc) {
@@ -81,6 +84,27 @@ ExprResult Parser::ParseCXXReflectExpression(SourceLocation OpLoc) {
             Actions.ActOnCXXReflectExpr(OpLoc, SourceLocation(), TUDecl));
   }
   TentativeAction.Revert();
+
+  // Check for a standard attribute
+  {
+    size_t last = Attrs.size();
+    if (MaybeParseCXX11Attributes(Attrs)) {
+      size_t newLast = Attrs.size();
+      Diag(OperandLoc, diag::p3385_trace_attribute_parsed);
+
+      // FIXME handle empty [[]] gracefully
+      if (last == newLast) {
+        Diag(OperandLoc, diag::p3385_trace_empty_attributes_list);
+        return ExprError();
+      }
+      if (newLast - last > 1) {
+        Diag(OperandLoc, diag::p3385_err_attributes_list) << (newLast - last);
+        return ExprError();
+      }
+
+      return Actions.ActOnCXXReflectExpr(OpLoc, &Attrs.back());
+    }
+  }
 
   if (SS.isSet() &&
       TryAnnotateTypeOrScopeTokenAfterScopeSpec(SS, true,
@@ -182,6 +206,34 @@ bool Parser::ParseSpliceSpecifier(bool TryParseSpecialization) {
   Tok.setAnnotationEndLoc(Splice->getEndLoc());
   PP.AnnotateCachedTokens(Tok);
 
+  return false;
+}
+
+bool Parser::ParseAttributeReflection(ParsedAttr* &attribute) {
+  assert(Tok.is(tok::annot_splice) && "expected a splice annotation");
+  attribute = nullptr;
+  SpliceResult SR = getSpliceAnnotation(Tok);
+  if (SR.isInvalid())
+    return true;
+
+  SpliceSpecifier *Splice = SR.get();
+  Expr::EvalResult ER;
+  ASTContext& context = Actions.getASTContext();
+
+  if (!Splice->getOperand()->EvaluateAsConstantExpr(ER, context)) {
+    Diag(Splice->getBeginLoc(), diag::err_splice_operand_not_constexpr);
+    return true;
+  }
+
+  if (!ER.Val.isReflection()) {
+    Diag(Splice->getBeginLoc(), diag::err_splice_operand_not_reflection);
+    return true;
+  }
+  ReflectionKind reflectionKind = ER.Val.getReflectionKind();
+  if (reflectionKind != ReflectionKind::Attribute) {
+    return true;
+  }
+  attribute = ER.Val.getReflectedAttribute();
   return false;
 }
 
