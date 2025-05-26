@@ -3069,10 +3069,6 @@ private:
     ReplayOpenMPAttributeTokens(OpenMPTokens);
   }
 
-  bool tryParseSpliceAttrSpecifier(ParsedAttributes &Attrs,
-                                   SourceLocation *EndLoc = nullptr);
-  /// Try parsing a splice expression when inside an attribute specifier
-
   void ParseCXX11Attributes(ParsedAttributes &attrs);
   /// Parses a C++11 (or C23)-style attribute argument list. Returns true
   /// if this results in adding an attribute to the ParsedAttributes list.

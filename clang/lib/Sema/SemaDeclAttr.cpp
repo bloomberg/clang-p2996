@@ -81,18 +81,6 @@ namespace AttributeLangSupport {
   };
 } // end namespace AttributeLangSupport
 
-namespace {
-
-struct AttributeScratchpad {
-  AttributeFactory factory;
-  ParsedAttributes attributes;
-  ArgsVector ArgExprs;
-  bool argFound;
-  AttributeScratchpad() : factory(), attributes(factory), ArgExprs(), argFound(false) {}
-};
-
-} // namespace
-
 static unsigned getNumAttributeArgs(const ParsedAttr &AL) {
   // FIXME: Include the type in the argument list.
   return AL.getNumArgs() + AL.hasParsedType();
@@ -2139,20 +2127,7 @@ static void handleUnusedAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
   if (!S.getLangOpts().CPlusPlus17 && IsCXX17Attr)
     S.Diag(AL.getLoc(), diag::ext_cxx17_attr) << AL;
 
-  static AttributeScratchpad scratchpad;
-  if (scratchpad.argFound = AL.getNumArgs() != 0; scratchpad.argFound) {
-    scratchpad.ArgExprs.push_back(AL.getArg(0));
-  } else {
-    scratchpad.ArgExprs.clear();
-  }
-  auto * stashedSyntacticAttribute = scratchpad.attributes.addNew(
-    const_cast<IdentifierInfo*>(AL.getAttrName()),
-    AL.getRange(),
-    nullptr,
-    AL.getLoc(),
-    scratchpad.ArgExprs.data(), scratchpad.argFound,
-    AL.getForm());
-  D->addAttr(::new (S.Context) UnusedAttr(S.Context, AL), stashedSyntacticAttribute);
+  D->addAttr(::new (S.Context) UnusedAttr(S.Context, AL));
 }
 
 static void handleConstructorAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
@@ -2974,23 +2949,7 @@ static void handleWarnUnusedResult(Sema &S, Decl *D, const ParsedAttr &AL) {
     return;
   }
 
-  static AttributeScratchpad scratchpad;
-  if (scratchpad.argFound = AL.getNumArgs() != 0; scratchpad.argFound) {
-    scratchpad.ArgExprs.push_back(AL.getArg(0));
-  } else {
-    scratchpad.ArgExprs.clear();
-  }
-  auto * stashedSyntacticAttribute = scratchpad.attributes.addNew(
-    const_cast<IdentifierInfo*>(AL.getAttrName()),
-    AL.getRange(),
-    nullptr,
-    AL.getLoc(),
-    scratchpad.ArgExprs.data(), scratchpad.argFound,
-    AL.getForm()
-  );
-
-  // Add semantic attribute and backlink to syntactic one
-  D->addAttr(::new (S.Context) WarnUnusedResultAttr(S.Context, AL, Str), stashedSyntacticAttribute);
+  D->addAttr(::new (S.Context) WarnUnusedResultAttr(S.Context, AL, Str));
 }
 
 static void handleWeakImportAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
@@ -6446,23 +6405,7 @@ static void handleDeprecatedAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
   if (!S.getLangOpts().CPlusPlus14 && AL.isCXX11Attribute() && !AL.isGNUScope())
     S.Diag(AL.getLoc(), diag::ext_cxx14_attr) << AL;
 
-  static AttributeScratchpad scratchpad;
-  if (scratchpad.argFound = AL.getNumArgs() != 0; scratchpad.argFound) {
-    scratchpad.ArgExprs.push_back(AL.getArg(0));
-  } else {
-    scratchpad.ArgExprs.clear();
-  }
-  auto * stashedSyntacticAttribute = scratchpad.attributes.addNew(
-    const_cast<IdentifierInfo*>(AL.getAttrName()),
-    AL.getRange(),
-    nullptr,
-    AL.getLoc(),
-    scratchpad.ArgExprs.data(), scratchpad.argFound,
-    AL.getForm()
-  );
-
-  // Add semantic attribute and backlink to syntactic one
-  D->addAttr(::new (S.Context) DeprecatedAttr(S.Context, AL, Str, Replacement), stashedSyntacticAttribute);
+  D->addAttr(::new (S.Context) DeprecatedAttr(S.Context, AL, Str, Replacement));
 }
 
 static bool isGlobalVar(const Decl *D) {

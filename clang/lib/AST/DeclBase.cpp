@@ -1029,14 +1029,6 @@ void Decl::dropAttrs() {
   getASTContext().eraseDeclAttrs(this);
 }
 
-void Decl::addAttr(Attr *A, const ParsedAttr* pA) {
-  assert((pA != nullptr)
-    && "Found null syntactic attribute while creating semantic attribute");
-  A->setParsedAttr(pA);
-  this->addAttr(A);
-}
-
-
 void Decl::addAttr(Attr *A) {
   if (!hasAttrs()) {
     setAttrs(AttrVec(1, A));

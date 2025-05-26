@@ -105,6 +105,10 @@ def metafn_p3385_non_standard_attribute : Warning<
   "non-standard attribute %0 found when expanding attributes">;
 def metafn_p3385_appertain : Warning<
   "found %0, expected attribute for appertain">;
+def metafn_p3385_non_string_mandatory_argument : Error<
+  "can not recover non string mandatory argument for attribute %0">;
+def metafn_p3385_no_declaration_for_type : Error<
+  "can not locate declaration for reflected type: %0">;
 
 // Class definition.
 def metafn_name_invalid_identifier : Note<

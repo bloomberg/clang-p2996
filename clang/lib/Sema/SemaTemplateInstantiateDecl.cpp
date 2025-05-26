@@ -37,45 +37,9 @@
 #include "clang/Sema/Template.h"
 #include "clang/Sema/TemplateInstCallback.h"
 #include "llvm/Support/TimeProfiler.h"
-#include "llvm/Support/raw_ostream.h"
 #include <optional>
 
 using namespace clang;
-
-// FIXME I'm copypasting this straight from ExprConstantMeta
-//
-static NamedDecl *findTypeDecl(QualType QT) {
-  // If it's an ElaboratedType, get the underlying NamedType.
-  if (const ElaboratedType *ET = dyn_cast<ElaboratedType>(QT))
-    QT = ET->getNamedType();
-
-  // Get the type's declaration.
-  NamedDecl *D = nullptr;
-  if (auto *TDT = dyn_cast<TypedefType>(QT))
-    D = TDT->getDecl();
-  else if (auto *UT = dyn_cast<UsingType>(QT))
-    D = UT->getFoundDecl();
-  else if (auto *TD = QT->getAsTagDecl())
-    return TD;
-  else if (auto *TT = dyn_cast<TagType>(QT))
-    D = TT->getDecl();
-  else if (auto *UUTD = dyn_cast<UnresolvedUsingType>(QT))
-    D = UUTD->getDecl();
-  else if (auto *TS = dyn_cast<TemplateSpecializationType>(QT)) {
-    if (auto *CTD = dyn_cast<ClassTemplateDecl>(
-          TS->getTemplateName().getAsTemplateDecl())) {
-      void *InsertPos;
-      D = CTD->findSpecialization(TS->template_arguments(), InsertPos);
-    }
-  } else if (auto *STTP = dyn_cast<SubstTemplateTypeParmType>(QT))
-    D = findTypeDecl(STTP->getReplacementType());
-  else if (auto *ICNT = dyn_cast<InjectedClassNameType>(QT))
-    D = ICNT->getDecl();
-  else if (auto *DTT = dyn_cast<DecltypeType>(QT))
-    D = findTypeDecl(DTT->getUnderlyingType());
-
-  return D;
-}
 
 static bool isDeclWithinFunction(const Decl *D) {
   const DeclContext *DC = D->getDeclContext();
@@ -824,7 +788,6 @@ void Sema::InstantiateAttrs(const MultiLevelTemplateArgumentList &TemplateArgs,
                             LocalInstantiationScope *OuterMostScope) {
   bool AddAnnotations = New->attrs().empty();
   for (const auto *TmplAttr : Tmpl->attrs()) {
-
     if (!isRelevantAttr(*this, New, TmplAttr))
       continue;
 

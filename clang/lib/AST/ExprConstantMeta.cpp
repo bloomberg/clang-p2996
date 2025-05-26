@@ -29,6 +29,7 @@
 #include "clang/Basic/IdentifierTable.h"
 #include "clang/Lex/Lexer.h"
 #include "clang/Sema/ParsedAttr.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/Support/raw_ostream.h"
 
 namespace clang {
@@ -1700,14 +1701,6 @@ bool DiagnoseReflectionKind(DiagFn Diagnoser, SourceRange Range,
   return true;
 }
 
-struct AttributeScratchpad {
-  AttributeFactory factory;
-  ParsedAttributes attributes;
-  ArgsVector ArgExprs;
-  bool argFound;
-  AttributeScratchpad() : factory(), attributes(factory), ArgExprs(), argFound(false) {}
-};
-
 llvm::SmallVector<const Attr*, 8> static collectUniqueCxx11Attrs(const Decl *D) {
   llvm::SmallVector<const Attr*, 8> Result;
   llvm::SmallSet<attr::Kind, 8> SeenKinds;
@@ -1722,6 +1715,30 @@ llvm::SmallVector<const Attr*, 8> static collectUniqueCxx11Attrs(const Decl *D) 
 
   return Result;
 }
+
+// Pull back the string argument from a semantic attribute
+// FIXME Should really be codegened... and does not belong here
+static StringRef stringArgumentFromAttr(const Attr *A) {
+  // Note that we dont really check whether it's cxx11 style here
+  if (auto *D = dyn_cast<DeprecatedAttr>(A))
+    return D->getMessage();              // [[deprecated("…")]]
+  if (auto *W = dyn_cast<WarnUnusedResultAttr>(A))
+    return W->getMessage();              // [[nodiscard("…")]]
+  if (auto *Al = dyn_cast<AliasAttr>(A))
+    return Al->getAliasee();             // __attribute__((alias("…")))
+  if (auto *Sec = dyn_cast<SectionAttr>(A))
+    return Sec->getName();               // __attribute__((section("…")))
+  if (auto *AS = dyn_cast<AsmLabelAttr>(A))
+    return AS->getLabel();               // [[clang::asm("…")]]
+  return {};
+}
+
+struct AttributeScratchpad {
+  AttributeFactory factory;
+  ParsedAttributes attributes;
+  ArgsVector argExprs;
+  AttributeScratchpad() : factory(), attributes(factory), argExprs() {}
+};
 
 // -----------------------------------------------------------------------------
 // Metafunction implementations
@@ -1749,6 +1766,47 @@ bool get_ith_attribute_of(APValue &Result, ASTContext &C,
     return true;
   size_t idx = Idx.getInt().getExtValue();
 
+  static AttributeScratchpad scratchpad;
+
+  // Fetch the ith attribute, build and return a ParsedAttr out of it
+  auto fetchIthAttrFromDecl = [&](Decl* decl, ParsedAttr* &result) -> bool {
+    auto cxx11Attrs = collectUniqueCxx11Attrs(decl);
+    if (idx + 1 > cxx11Attrs.size()) {
+      result = nullptr;
+      return false;
+    }
+
+    // Attr -> ParsedAttr
+    const Attr * const val = cxx11Attrs[idx];
+    assert(val);
+
+    bool hasFoundStringArg = false;
+    if (StringRef stringArg = stringArgumentFromAttr(val); !stringArg.empty()) {
+      const bool isUtf8 = false; // ah ?... why ?
+      scratchpad.argExprs.push_back(makeStrLiteral(stringArg, C, isUtf8));
+      hasFoundStringArg = true;
+    }
+
+    AttributeCommonInfo::AttrArgsInfo AttrArgsInfo
+      = AttributeCommonInfo::getCXX11AttrArgsInfo(val->getAttrName());
+    if (AttrArgsInfo == AttributeCommonInfo::AttrArgsInfo::Required && !hasFoundStringArg) {
+      Diagnoser(Range.getBegin(), diag::metafn_p3385_non_string_mandatory_argument)
+        << val->getAttrName();
+      return true;
+    }
+    IdentifierInfo &attrName = C.Idents.get(val->getAttrName()->getName());
+    result = scratchpad.attributes.addNew(
+      &attrName, // const_cast<IdentifierInfo*>(val->getAttrName()),
+      val->getRange(),
+      nullptr,
+      val->getLoc(),
+      hasFoundStringArg ? scratchpad.argExprs.data() : nullptr,
+      hasFoundStringArg,
+      val->getForm() // Better be cxx11 by now...
+    );
+    return false;
+  };
+
   switch (RV.getReflectionKind()) {
     case ReflectionKind::Attribute: {
       if (idx != 0) {
@@ -1758,7 +1816,7 @@ bool get_ith_attribute_of(APValue &Result, ASTContext &C,
       if (attr->getForm().getSyntax() == AttributeCommonInfo::Syntax::AS_CXX11) {
         return SetAndSucceed(Result, makeReflection(attr));
       }
-      // Non standard
+      // Non standard [[ ]] style
       return Diagnoser(Range.getBegin(), diag::metafn_p3385_non_standard_attribute)
         << attr->getAttrName();
     }
@@ -1766,93 +1824,32 @@ bool get_ith_attribute_of(APValue &Result, ASTContext &C,
       QualType qType = RV.getReflectedType();
       Decl *D = findTypeDecl(qType)->getMostRecentDecl();
       if (!D) {
-        // FIXME how would we end up here ?
-        return DiagnoseReflectionKind(Diagnoser, Range, "attribute, type or declaration",
-                                    DescriptionOf(RV));
+        return Diagnoser(Range.getBegin(), diag::metafn_p3385_no_declaration_for_type)
+          << DescriptionOf(RV);
       }
 
-      if (!D->hasAttrs()) {
+      if (ParsedAttr* fetchedAttribute{}; !fetchIthAttrFromDecl(D, fetchedAttribute)) {
+        if (fetchedAttribute) {
+          return SetAndSucceed(Result, makeReflection(fetchedAttribute));
+        }
         return SetAndSucceed(Result, Sentinel);
       }
-
-      auto cxx11Attrs = collectUniqueCxx11Attrs(D);
-
-      if (idx >= cxx11Attrs.size()) {
-        return SetAndSucceed(Result, Sentinel);
-      }
-
-      // Attr -> ParsedAttr
-      const Attr * const val = cxx11Attrs[idx];
-      assert(val);
-      static AttributeScratchpad scratchpad;
-
-      const ParsedAttr * parsedAttr = val->fromParsedAttr();
-      assert(parsedAttr && "no backlink from semantic attribute");
-
-      if (scratchpad.argFound = parsedAttr->getNumArgs() != 0; scratchpad.argFound) {
-        scratchpad.ArgExprs.push_back(parsedAttr->getArg(0));
-      } else {
-        scratchpad.ArgExprs.clear();
-      }
-      auto * fetchedAttribute = scratchpad.attributes.addNew(
-        const_cast<IdentifierInfo*>(parsedAttr->getAttrName()),
-        val->getRange(),
-        nullptr,
-        val->getLoc(),
-        scratchpad.ArgExprs.data(), scratchpad.argFound,
-        parsedAttr->getForm()
-      );
-      return SetAndSucceed(Result, makeReflection(fetchedAttribute));
+      return true;
     }
     case ReflectionKind::Declaration: {
       ValueDecl *D = RV.getReflectedDecl();
-
       if (!D) {
-        // FIXME how would we end up here ?
-        return DiagnoseReflectionKind(Diagnoser, Range, "attribute, type or declaration",
-                                    DescriptionOf(RV));
+        return DiagnoseReflectionKind(
+          Diagnoser, Range, "attribute, type, declaration", DescriptionOf(RV));
       }
 
-      auto attrs = D->attrs();
-      if (attrs.empty()) {
-        return SetAndSucceed(Result, Sentinel);
-      }
-
-      std::vector<Attr * const *> cxx11Attrs;
-      // poor man ::filter, copy_if, etc....
-      for (Attr *const *attr = attrs.begin(); attr != attrs.end(); ++attr) {
-        if ((*attr)->isCXX11Attribute()) {
-          cxx11Attrs.push_back(attr);
+      if (ParsedAttr* fetchedAttribute{}; !fetchIthAttrFromDecl(D, fetchedAttribute)) {
+        if (fetchedAttribute) {
+          return SetAndSucceed(Result, makeReflection(fetchedAttribute));
         }
-      }
-
-      if (idx >= cxx11Attrs.size()) {
         return SetAndSucceed(Result, Sentinel);
       }
-
-      // Attr -> ParsedAttr
-      Attr * const val = *cxx11Attrs[idx];
-      assert(val);
-      static AttributeScratchpad scratchpad;
-
-      const ParsedAttr * parsedAttr = val->fromParsedAttr();
-      assert(parsedAttr && "no backlink from semantic attribute");
-
-      scratchpad.ArgExprs.clear();
-      if (scratchpad.argFound = parsedAttr->getNumArgs() != 0; scratchpad.argFound) {
-        scratchpad.ArgExprs.push_back(parsedAttr->getArg(0));
-      }
-
-      auto * fetchedAttribute = scratchpad.attributes.addNew(
-        const_cast<IdentifierInfo*>(parsedAttr->getAttrName()),
-        val->getRange(),
-        nullptr,
-        val->getLoc(),
-        scratchpad.ArgExprs.data(), scratchpad.argFound,
-        parsedAttr->getForm()
-      );
-      return SetAndSucceed(Result, makeReflection(fetchedAttribute));
-
+      return true;
     }
     case ReflectionKind::Null:
     case ReflectionKind::Template:
@@ -1862,6 +1859,7 @@ bool get_ith_attribute_of(APValue &Result, ASTContext &C,
     case ReflectionKind::BaseSpecifier:
     case ReflectionKind::DataMemberSpec:
     case ReflectionKind::Annotation:
+    case ReflectionKind::EntityProxy:
       return DiagnoseReflectionKind(Diagnoser, Range, "declaration or attribute",
                                     DescriptionOf(RV));
   }
@@ -2810,6 +2808,7 @@ bool proxied_entity_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
     return DiagnoseReflectionKind(Diagnoser, Range, "an entity proxy");
   case ReflectionKind::EntityProxy:
     return SetAndSucceed(Result, MaybeUnproxy(C, RV, false));

@@ -14,15 +14,12 @@
 
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/DeclTemplate.h"
-#include "clang/AST/ExprCXX.h"
 #include "clang/AST/PrettyDeclStackTrace.h"
-#include "clang/AST/Reflection.h"
 #include "clang/Basic/AttributeCommonInfo.h"
 #include "clang/Basic/Attributes.h"
 #include "clang/Basic/CharInfo.h"
 #include "clang/Basic/DiagnosticParse.h"
-#include "clang/Basic/IdentifierTable.h"
-#include "clang/Basic/SourceLocation.h"
+#include "clang/Basic/OperatorKinds.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Basic/TokenKinds.h"
 #include "clang/Lex/LiteralSupport.h"
@@ -30,12 +27,11 @@
 #include "clang/Parse/RAIIObjectsForParser.h"
 #include "clang/Sema/DeclSpec.h"
 #include "clang/Sema/EnterExpressionEvaluationContext.h"
-#include "clang/Sema/ParsedAttr.h"
 #include "clang/Sema/ParsedTemplate.h"
 #include "clang/Sema/Scope.h"
 #include "clang/Sema/SemaCodeCompletion.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/Support/TimeProfiler.h"
-#include <cstddef>
 #include <optional>
 
 using namespace clang;
@@ -5034,47 +5030,11 @@ bool Parser::ParseCXX11AttributeArgs(
   return true;
 }
 
-// FIXME I'm copypasting this straight from ExprConstantMeta
-//
-static NamedDecl *findTypeDecl(QualType QT) {
-  // If it's an ElaboratedType, get the underlying NamedType.
-  if (const ElaboratedType *ET = dyn_cast<ElaboratedType>(QT))
-    QT = ET->getNamedType();
-
-  // Get the type's declaration.
-  NamedDecl *D = nullptr;
-  if (auto *TDT = dyn_cast<TypedefType>(QT))
-    D = TDT->getDecl();
-  else if (auto *UT = dyn_cast<UsingType>(QT))
-    D = UT->getFoundDecl();
-  else if (auto *TD = QT->getAsTagDecl())
-    return TD;
-  else if (auto *TT = dyn_cast<TagType>(QT))
-    D = TT->getDecl();
-  else if (auto *UUTD = dyn_cast<UnresolvedUsingType>(QT))
-    D = UUTD->getDecl();
-  else if (auto *TS = dyn_cast<TemplateSpecializationType>(QT)) {
-    if (auto *CTD = dyn_cast<ClassTemplateDecl>(
-          TS->getTemplateName().getAsTemplateDecl())) {
-      void *InsertPos;
-      D = CTD->findSpecialization(TS->template_arguments(), InsertPos);
-    }
-  } else if (auto *STTP = dyn_cast<SubstTemplateTypeParmType>(QT))
-    D = findTypeDecl(STTP->getReplacementType());
-  else if (auto *ICNT = dyn_cast<InjectedClassNameType>(QT))
-    D = ICNT->getDecl();
-  else if (auto *DTT = dyn_cast<DecltypeType>(QT))
-    D = findTypeDecl(DTT->getUnderlyingType());
-
-  return D;
-}
-
 /// Parse a C++11 or C23 attribute-specifier.
 ///
 /// [C++11] attribute-specifier:
 ///         '[' '[' attribute-list ']' ']'
 ///         alignment-specifier
-///         '[' '[' splice-name-qualifier ']' ']'
 ///
 /// [C++11] attribute-list:
 ///         attribute[opt]
@@ -5144,8 +5104,7 @@ void Parser::ParseCXX11AttributeSpecifierInternal(ParsedAttributes &Attrs,
 
   SourceLocation CommonScopeLoc;
   IdentifierInfo *CommonScopeName = nullptr;
-  bool hasAttributeUsing = Tok.is(tok::kw_using);
-  if (hasAttributeUsing) {
+  if (Tok.is(tok::kw_using)) {
     Diag(Tok.getLocation(), getLangOpts().CPlusPlus17
                                 ? diag::warn_cxx14_compat_using_attribute_ns
                                 : diag::ext_using_attribute_ns);
@@ -5180,8 +5139,6 @@ void Parser::ParseCXX11AttributeSpecifierInternal(ParsedAttributes &Attrs,
 
     SourceLocation ScopeLoc, AttrLoc;
     IdentifierInfo *ScopeName = nullptr, *AttrName = nullptr;
-
-
 
     if (Tok.is(tok::equal) && getLangOpts().AnnotationAttributes) {
       // This is a C++2c annotation.
