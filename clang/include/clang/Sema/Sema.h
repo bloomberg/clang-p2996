@@ -36,7 +36,6 @@
 #include "clang/AST/Type.h"
 #include "clang/AST/TypeLoc.h"
 #include "clang/Basic/AttrSubjectMatchRules.h"
-#include "clang/Basic/AttributeCommonInfo.h"
 #include "clang/Basic/Builtins.h"
 #include "clang/Basic/CapturedStmt.h"
 #include "clang/Basic/Cuda.h"
