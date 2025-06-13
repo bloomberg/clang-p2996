@@ -88,12 +88,14 @@ struct Align {
     alignas(8) char a8;
 
     alignas(16) int &r1;
+    int &r2;
 };
 static_assert(alignment_of(^^Align::a1) == 1);
 static_assert(alignment_of(^^Align::a2) == 2);
 static_assert(alignment_of(^^Align::a4) == 4);
 static_assert(alignment_of(^^Align::a8) == 8);
 static_assert(alignment_of(^^Align::r1) == 16);
+static_assert(alignment_of(^^Align::r2) == 8);
 static_assert(alignment_of(^^Align) == 16);
 static_assert(offset_of(^^Align::a1) == std::meta::member_offset{0, 0});
 static_assert(offset_of(^^Align::a2) == std::meta::member_offset{2, 0});
