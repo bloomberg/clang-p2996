@@ -10,9 +10,7 @@
 
 // UNSUPPORTED: c++03 || c++11 || c++14 || c++17 || c++20
 // ADDITIONAL_COMPILE_FLAGS: -fblocks
-// ADDITIONAL_COMPILE_FLAGS: -freflection
-// ADDITIONAL_COMPILE_FLAGS: -fexpansion-statements
-// ADDITIONAL_COMPILE_FLAGS: -Wno-inconsistent-missing-override
+// ADDITIONAL_COMPILE_FLAGS: -freflection-latest
 
 // <experimental/reflection>
 //
@@ -227,6 +225,24 @@ void run_test() {
 }
 }  // namespace compatible_with_blocks
 
+                          // =========================
+                          // expansions_over_std_tuple
+                          // =========================
+
+namespace expansions_over_std_tuple {
+void run_test() {
+  std::tuple<int, bool, char> t;
+  template for (auto e : t)
+    (void) e;
+
+  template for (constexpr auto v : std::tuple{1, 2, 3})
+    (void) v;
+
+  static constexpr auto my_tuple = std::tuple{1, 2, 3};
+  template for (constexpr auto v : my_tuple)
+    (void) v;
+}
+}  // namespace expansions_over_std_tuple
 
 template <std::meta::info... Tests>
 void run_tests() {
@@ -239,6 +255,7 @@ int main() {
       ^^pdimov_sorted_type_list,
       ^^alisdair_universal_swap,
       ^^std_apply_with_function_splice,
-      ^^compatible_with_blocks
+      ^^compatible_with_blocks,
+      ^^expansions_over_std_tuple
   >();
 }

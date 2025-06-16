@@ -371,4 +371,25 @@ template <bool B> consteval auto baz() -> int {
 static_assert(baz<true>() == 42);
 }  // namespace access_context_always_value_dependent
 
+                  // ========================================
+                  // bb_clang_p2996_issue_148_regression_test
+                  // ========================================
+
+namespace bb_clang_p2996_issue_148_regression_test {
+struct A {};
+struct B {};
+struct C {};
+
+struct D : A, protected B, private C {
+    static consteval auto foo()
+    {
+        constexpr auto ctx = std::meta::access_context::current();
+        constexpr auto n = bases_of(^^D, ctx).size();
+        static_assert(n == 3);
+        static_assert(bases_of(^^D, ctx).size() == 3);
+    }
+};
+
+}  // namespace bb_clang_p2996_issue_148_regression_test
+
 int main() { }

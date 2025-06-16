@@ -2071,7 +2071,7 @@ ExtractLValueExpr *ExtractLValueExpr::Create(ASTContext &C, SourceRange Range,
   return new (C) ExtractLValueExpr(ResultTy, Range, Decl);
 }
 
-ExplDependentCallExpr::ExplDependentCallExpr(CallExpr *SubExpr,
+ExplDependentCallExpr::ExplDependentCallExpr(Expr *SubExpr,
                                              unsigned TemplateDepth)
     : Expr(ExplDependentCallExprClass, SubExpr->getType(),
            SubExpr->getValueKind(), OK_Ordinary),
@@ -2080,7 +2080,7 @@ ExplDependentCallExpr::ExplDependentCallExpr(CallExpr *SubExpr,
 }
 
 ExplDependentCallExpr *ExplDependentCallExpr::Create(ASTContext &C,
-                                                     CallExpr *SubExpr,
+                                                     Expr *SubExpr,
                                                      unsigned TemplateDepth) {
   return new (C) ExplDependentCallExpr(SubExpr, TemplateDepth);
 }

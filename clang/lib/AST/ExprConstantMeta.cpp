@@ -2648,6 +2648,9 @@ bool type_of(APValue &Result, ASTContext &C, MetaActions &Meta,
       return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
           << 0 << DescriptionOf(RV) << Range;
 
+    if (auto *FD = dyn_cast<FunctionDecl>(VD))
+      Meta.EnsureInstantiationOfExceptionSpec(Range.getBegin(), FD);
+
     bool DropCV = isa<ParmVarDecl>(VD);
     QualType QT = desugarType(VD->getType(),
                               /*UnwrapAliases=*/ true, DropCV,
@@ -2963,11 +2966,18 @@ bool constant_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   }
   case ReflectionKind::Annotation: {
     CXX26AnnotationAttr *A = RV.getReflectedAnnotation();
-    APValue Value = RV.getReflectedAnnotation()->getValue();
+    APValue Constant = RV.getReflectedAnnotation()->getValue();
 
-    QualType Ty = desugarType(A->getArg()->getType(), /*UnwrapAliases=*/true,
-                              /*DropCV=*/true, /*DropRefs=*/false);
-    return SetAndSucceed(Result, A->getValue().Lift(Ty));
+    QualType ConstantTy = desugarType(A->getArg()->getType(),
+                                      /*UnwrapAliases=*/true, /*DropCV=*/true,
+                                      /*DropRefs=*/false);
+    if (ConstantTy->isRecordType()) {
+      auto *TPO = C.getTemplateParamObjectDecl(ConstantTy, Constant);
+      Constant = APValue(APValue::LValueBase{TPO}, CharUnits::Zero(), {}, false,
+                    false);
+      ConstantTy = QualType{};
+    }
+    return SetAndSucceed(Result, Constant.Lift(ConstantTy));
   }
   case ReflectionKind::Attribute: // TODO P3385 anything to do ?
   case ReflectionKind::Null:
@@ -3053,8 +3063,8 @@ static bool CanActAsTemplateArg(const APValue &RV) {
   llvm_unreachable("unknown reflection kind");
 }
 
-static TemplateArgument TArgFromReflection(ASTContext &C, EvalFn Evaluator,
-                                           const APValue &RV,
+static TemplateArgument TArgFromReflection(ASTContext &C, MetaActions &Meta,
+                                           EvalFn Evaluator, const APValue &RV,
                                            SourceLocation Loc) {
   switch (RV.getReflectionKind()) {
   case ReflectionKind::Type:
@@ -3076,6 +3086,9 @@ static TemplateArgument TArgFromReflection(ASTContext &C, EvalFn Evaluator,
     ValueDecl *Decl = RV.getReflectedDecl();
     if (Decl->isInvalidDecl())
       break;
+
+    if (!Meta.EnsureInstantiated(Decl, SourceRange(Loc, Loc)))
+      return TemplateArgument();
 
     QualType QT = desugarType(Decl->getType(), /*UnwrapAliases=*/ false,
                               /*DropCV=*/false, /*DropRefs=*/true);
@@ -3159,7 +3172,7 @@ bool substitute(APValue &Result, ASTContext &C, MetaActions &Meta,
                Diagnoser(Range.getBegin(), diag::metafn_cannot_be_arg)
                  << DescriptionOf(Unwrapped) << 1 << Range;
 
-      TemplateArgument TArg = TArgFromReflection(C, Evaluator, Unwrapped,
+      TemplateArgument TArg = TArgFromReflection(C, Meta, Evaluator, Unwrapped,
                                                  Range.getBegin());
       if (TArg.isNull())
         return true;
@@ -3709,8 +3722,12 @@ bool is_noexcept(APValue &Result, ASTContext &C, MetaActions &Meta,
   bool IsNoexcept = false;
   if (RV.isReflectedType())
     IsNoexcept = isFunctionOrMethodNoexcept(RV.getReflectedType());
-  else if (RV.isReflectedDecl())
+  else if (RV.isReflectedDecl()) {
+    if (auto *FD = dyn_cast<FunctionDecl>(RV.getReflectedDecl()))
+      Meta.EnsureInstantiationOfExceptionSpec(Range.getBegin(), FD);
+
     IsNoexcept = isFunctionOrMethodNoexcept(RV.getReflectedDecl()->getType());
+  }
 
   return SetAndSucceed(Result, makeBool(C, IsNoexcept));
 }
@@ -6427,7 +6444,7 @@ bool reflect_invoke(APValue &Result, ASTContext &C, MetaActions &Meta,
         return Diagnoser(Range.getBegin(), diag::metafn_cannot_be_arg)
             << DescriptionOf(RV) << 1 << Range;
 
-      TemplateArgument TArg = TArgFromReflection(C, Evaluator, RV,
+      TemplateArgument TArg = TArgFromReflection(C, Meta, Evaluator, RV,
                                                  Range.getBegin());
       if (TArg.isNull())
         return true;

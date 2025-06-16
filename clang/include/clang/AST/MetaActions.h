@@ -103,6 +103,10 @@ public:
   // Ensures that any implicit members of 'RD' have been declared.
   virtual void EnsureDeclarationOfImplicitMembers(CXXRecordDecl *RD) = 0;
 
+  // Ensures instantiation of the exception specification of 'FD'.
+  virtual void EnsureInstantiationOfExceptionSpec(SourceLocation Loc,
+                                                  FunctionDecl *FD) = 0;
+
   // Returns 'true' if the constraints of 'FD' are satisfied.
   // Otherwise, 'false'.
   virtual bool HasSatisfiedConstraints(FunctionDecl *FD) = 0;

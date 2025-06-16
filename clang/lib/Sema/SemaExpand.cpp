@@ -487,7 +487,10 @@ Sema::BuildCXXDestructurableExpansionSelectExpr(DecompositionDecl *DD,
   assert(I < DD->bindings().size());
 
   MarkAnyDeclReferenced(Idx->getBeginLoc(), DD, true);
-  return DD->bindings()[I]->getBinding();
+  if (auto *BD = DD->bindings()[I]; auto *HVD = BD->getHoldingVar())
+    return HVD->getInit();
+  else
+    return BD->getBinding();
 }
 
 ExprResult

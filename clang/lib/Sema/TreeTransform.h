@@ -9256,8 +9256,7 @@ TreeTransform<Derived>::TransformExplDependentCallExpr(
   unsigned OldDepth = E->getTemplateDepth();
   unsigned NewDepth = getDerived().TransformTemplateDepth(OldDepth);
 
-  return getSema().BuildExplDependentCallExpr(cast<CallExpr>(Call.get()),
-                                              NewDepth);
+  return getSema().BuildExplDependentCallExpr(Call.get(), NewDepth);
 }
 
 // Expansions Statements (C++2c, P1306).

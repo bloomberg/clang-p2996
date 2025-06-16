@@ -373,4 +373,27 @@ consteval { (void) fn2(fn1()); }
 
 }  // namespace out_of_scope_injections
 
+                  // ========================================
+                  // bb_clang_p2996_issue_145_regression_test
+                  // ========================================
+
+namespace bb_clang_p2996_issue_145_regression_test {
+template<int>
+struct int_template;
+
+struct int_holder { int x; };
+
+template<int_holder>
+struct int_holder_template;
+
+consteval {
+    std::meta::define_aggregate(^^int_template<0>, {});
+    std::meta::define_aggregate(^^int_holder_template<int_holder{0}>, {});
+}
+
+int_template<0> o1;
+int_holder_template<int_holder{0}> o2;
+
+}  // namespace bb_clang_p2996_issue_145_regression_test
+
 int main() { }

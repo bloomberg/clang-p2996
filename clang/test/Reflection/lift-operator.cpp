@@ -233,3 +233,28 @@ tfoo<int> instantiation;
 static_assert(^^foo == ^^::bb_clang_p2996_issue_73_regression_test::foo);
 static_assert(^^tfoo == ^^::bb_clang_p2996_issue_73_regression_test::tfoo);
 }  // namespace bb_clang_p2996_issue_73_regression_test
+
+                   // =======================================
+                   // bb_clang_p2996_issue_11_regression_test
+                   // =======================================
+
+namespace bb_clang_p2996_issue_11_regression_test {
+constexpr auto a = ^^:: != ^^int &;
+constexpr auto b = ^^:: != ^^int &&;
+constexpr auto c = ^^:: != ^^int() &;
+constexpr auto d = ^^:: != ^^int() &&;
+
+constexpr auto e = ^^:: != ^^int & true;
+  //expected-error@-1 {{after top level declarator}} \
+  //expected-warning@-1 {{'&' binds to reflection operand}}
+constexpr auto f = ^^:: != ^^int && true;
+  //expected-error@-1 {{after top level declarator}} \
+  //expected-warning@-1 {{'&&' binds to reflection operand}}
+constexpr auto g = ^^:: != ^^int() & true;
+  //expected-error@-1 {{after top level declarator}} \
+  //expected-warning@-1 {{'&' binds to reflection operand}}
+constexpr auto h = ^^:: != ^^int() && true;
+  //expected-error@-1 {{after top level declarator}} \
+  //expected-warning@-1 {{'&&' binds to reflection operand}}
+
+}  // namespace bb_clang_p2996_issue_11_regression_test

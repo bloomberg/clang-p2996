@@ -252,9 +252,11 @@ public:
     DeclContext *PreviousDC = S.CurContext;
     {
       S.CurContext = Ctx;
+      auto Undelayed = S.DelayedDiagnostics.pushUndelayed();
       Result = S.CheckBaseClassAccess(AccessLoc, BaseTy, DerivedTy, Path, 0,
                                       /*ForceCheck=*/true,
                                       /*ForceUnprivileged=*/false);
+      S.DelayedDiagnostics.popUndelayed(Undelayed);
       S.CurContext = PreviousDC;
     }
     return (Result == Sema::AR_accessible);
@@ -344,6 +346,11 @@ public:
 
   void EnsureDeclarationOfImplicitMembers(CXXRecordDecl *RD) override {
     S.ForceDeclarationOfImplicitMembers(RD);
+  }
+
+  void EnsureInstantiationOfExceptionSpec(SourceLocation Loc,
+                                          FunctionDecl *FD) override {
+    S.InstantiateExceptionSpec(Loc, FD);
   }
 
   QualType Substitute(TypeAliasTemplateDecl *TD,
@@ -537,6 +544,12 @@ public:
           case TemplateArgument::Template: {
             ParsedTemplateTy P = ParsedTemplateTy::make(TArg.getAsTemplate());
             ParsedTArgs.emplace_back(SS, P, SourceLocation());
+            break;
+          }
+          case TemplateArgument::Declaration: {
+            Expr *E = CreateRefToDecl(S, TArg.getAsDecl(), SourceLocation());
+            ParsedTArgs.emplace_back(ParsedTemplateArgument::NonType, E,
+                                     SourceLocation());
             break;
           }
           // TODO(P2996): Handle other kinds of TemplateArgument
@@ -1510,7 +1523,7 @@ ExprResult Sema::BuildCXXMetafunctionExpr(
                                      KwLoc, LParenLoc, RParenLoc);
 }
 
-ExprResult Sema::BuildExplDependentCallExpr(CallExpr *SubExpr,
+ExprResult Sema::BuildExplDependentCallExpr(Expr *SubExpr,
                                             unsigned TemplateDepth) {
   return ExplDependentCallExpr::Create(Context, SubExpr, TemplateDepth);
 }

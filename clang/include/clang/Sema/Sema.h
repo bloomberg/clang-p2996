@@ -15518,8 +15518,7 @@ public:
                                       const CXXMetafunctionExpr::ImplFn &Impl,
                                       SmallVectorImpl<Expr *> &Args);
 
-  ExprResult BuildExplDependentCallExpr(CallExpr *SubExpr,
-                                        unsigned TemplateDepth);
+  ExprResult BuildExplDependentCallExpr(Expr *SubExpr, unsigned TemplateDepth);
 
   SpliceResult BuildSpliceSpecifier(
       SourceLocation LSpliceLoc, Expr *Operand, SourceLocation RSpliceLoc,

@@ -3180,8 +3180,9 @@ Sema::CheckDerivedToBaseConversion(QualType Derived, QualType Base,
                      /*DetectVirtual=*/false);
   bool DerivationOkay = IsDerivedFrom(Loc, Derived, Base, Paths);
   if (!DerivationOkay) {
-    Diag(Loc,
-         diag::err_class_not_derived_from_base) << Derived << Base << Range;
+    if (auto *RD = Derived->getAsCXXRecordDecl(); RD && !RD->isInvalidDecl())
+      Diag(Loc,
+           diag::err_class_not_derived_from_base) << Derived << Base << Range;
     return true;
   }
 

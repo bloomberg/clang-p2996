@@ -5611,15 +5611,15 @@ public:
 // if and only if 'TemplateDepth' is nonzero.
 class ExplDependentCallExpr : public Expr {
   unsigned TemplateDepth;
-  CallExpr *SubExpr;
+  Expr *SubExpr;
 
-  ExplDependentCallExpr(CallExpr *SubExpr, unsigned TemplateDepth);
+  ExplDependentCallExpr(Expr *SubExpr, unsigned TemplateDepth);
 
 public:
-  static ExplDependentCallExpr *Create(ASTContext &C, CallExpr *SubExpr,
+  static ExplDependentCallExpr *Create(ASTContext &C, Expr *SubExpr,
                                        unsigned TemplateDepth);
 
-  CallExpr *getSubExpr() const {
+  Expr *getSubExpr() const {
     return SubExpr;
   }
 
