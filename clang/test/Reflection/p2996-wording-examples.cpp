@@ -23,14 +23,14 @@ template <int V> struct TCls {
   static constexpr int s = V + 1;
 };
 
-using alias = [:^^TCls:]<[:^^v:]>;
+using alias = [:^^TCls:]<([:^^v:])>;
 
 static_assert(alias::s == 2);
 
-auto o1 = [:^^TCls:]<[:^^v:]>();
+auto o1 = [:^^TCls:]<([:^^v:])>();
   // expected-error@-1 {{not usable in a splice expression}} \
   // expected-error@-1 {{expected expression}}
-auto o2 = typename [:^^TCls:]<[:^^v:]>();
+auto o2 = typename [:^^TCls:]<([:^^v:])>();
 
 consteval int bad_splice(info v) {  // expected-note {{declared here}}
     return [:v:]; // expected-error {{operand must be a constant expression}} \
@@ -137,21 +137,6 @@ template<class T> void f(T* p) {
   T* p4 = template [:r:]<200>();
 }
 }  // namespace temp_names
-
-                              // ================
-                              // temp_arg_general
-                              // ================
-
-namespace temp_arg_general {
-template<class T> void f() {}
-template<int I> void f() {}
-
-void g() {
-  constexpr int x = 42;
-  f<[:^^int:]>();
-  f<[:^^x:]>();
-}
-}  // namespace temp_arg_general
 
                               // ================
                               // temp_res_general

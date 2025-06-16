@@ -242,8 +242,8 @@ ExprResult makeCXXDestructurableExpansionSelectExpr(
     Ctx = Sema::ExpressionEvaluationContext::ImmediateFunctionContext;
   EnterExpressionEvaluationContext ExprEvalCtx(S, Ctx);
 
-  std::optional<unsigned> Arity =
-      S.GetDecompositionElementCount(Range->getType(), Range->getBeginLoc());
+  UnsignedOrNone Arity = S.GetDecompositionElementCount(Range->getType(),
+                                                        Range->getBeginLoc());
   if (!Arity)
     return ExprError();
 
@@ -253,7 +253,7 @@ ExprResult makeCXXDestructurableExpansionSelectExpr(
                               DeclarationName());
 
   SmallVector<BindingDecl *, 4> Bindings;
-  for (size_t k = 0; k < Arity.value(); ++k) {
+  for (size_t k = 0; k < *Arity; ++k) {
     Bindings.push_back(BindingDecl::Create(S.Context, S.CurContext,
                                            Range->getBeginLoc(),
                                            /*IdentifierInfo=*/nullptr, QT));

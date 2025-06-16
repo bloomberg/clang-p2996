@@ -1228,12 +1228,12 @@ public:
 
     case CK_AddressSpaceConversion: {
       auto C = Emitter.tryEmitPrivate(subExpr, subExpr->getType());
-      if (!C) return nullptr;
-      LangAS destAS = E->getType()->getPointeeType().getAddressSpace();
+      if (!C)
+        return nullptr;
       LangAS srcAS = subExpr->getType()->getPointeeType().getAddressSpace();
       llvm::Type *destTy = ConvertType(E->getType());
       return CGM.getTargetCodeGenInfo().performAddrSpaceCast(CGM, C, srcAS,
-                                                             destAS, destTy);
+                                                             destTy);
     }
 
     case CK_LValueToRValue: {
@@ -2051,10 +2051,13 @@ namespace {
 struct ConstantLValue {
   llvm::Constant *Value;
   bool HasOffsetApplied;
+  bool HasDestPointerAuth;
 
   /*implicit*/ ConstantLValue(llvm::Constant *value,
-                              bool hasOffsetApplied = false)
-    : Value(value), HasOffsetApplied(hasOffsetApplied) {}
+                              bool hasOffsetApplied = false,
+                              bool hasDestPointerAuth = false)
+      : Value(value), HasOffsetApplied(hasOffsetApplied),
+        HasDestPointerAuth(hasDestPointerAuth) {}
 
   /*implicit*/ ConstantLValue(ConstantAddress address)
     : ConstantLValue(address.getPointer()) {}
@@ -2159,6 +2162,14 @@ llvm::Constant *ConstantLValueEmitter::tryEmit() {
     value = applyOffset(value);
   }
 
+  // Apply pointer-auth signing from the destination type.
+  if (PointerAuthQualifier PointerAuth = DestType.getPointerAuth();
+      PointerAuth && !result.HasDestPointerAuth) {
+    value = Emitter.tryEmitConstantSignedPointer(value, PointerAuth);
+    if (!value)
+      return nullptr;
+  }
+
   // Convert to the appropriate type; this could be an lvalue for
   // an integer.  FIXME: performAddrSpaceCast
   if (isa<llvm::PointerType>(destTy))
@@ -2202,6 +2213,12 @@ ConstantLValueEmitter::tryEmitBase(const APValue::LValueBase &base) {
       return CGM.GetWeakRefReference(D).getPointer();
 
     auto PtrAuthSign = [&](llvm::Constant *C) {
+      if (PointerAuthQualifier PointerAuth = DestType.getPointerAuth()) {
+        C = applyOffset(C);
+        C = Emitter.tryEmitConstantSignedPointer(C, PointerAuth);
+        return ConstantLValue(C, /*applied offset*/ true, /*signed*/ true);
+      }
+
       CGPointerAuthInfo AuthInfo;
 
       if (EnablePtrAuthFunctionTypeDiscrimination)
@@ -2215,14 +2232,18 @@ ConstantLValueEmitter::tryEmitBase(const APValue::LValueBase &base) {
         C = CGM.getConstantSignedPointer(
             C, AuthInfo.getKey(), nullptr,
             cast_or_null<llvm::ConstantInt>(AuthInfo.getDiscriminator()));
-        return ConstantLValue(C, /*applied offset*/ true);
+        return ConstantLValue(C, /*applied offset*/ true, /*signed*/ true);
       }
 
       return ConstantLValue(C);
     };
 
-    if (const auto *FD = dyn_cast<FunctionDecl>(D))
-      return PtrAuthSign(CGM.getRawFunctionPointer(FD));
+    if (const auto *FD = dyn_cast<FunctionDecl>(D)) {
+      llvm::Constant *C = CGM.getRawFunctionPointer(FD);
+      if (FD->getType()->isCFIUncheckedCalleeFunctionType())
+        C = llvm::NoCFIValue::get(cast<llvm::GlobalValue>(C));
+      return PtrAuthSign(C);
+    }
 
     if (const auto *VD = dyn_cast<VarDecl>(D)) {
       // We can never refer to a variable with local storage.
@@ -2429,6 +2450,10 @@ ConstantEmitter::tryEmitPrivate(const APValue &Value, QualType DestType,
                                  EnablePtrAuthFunctionTypeDiscrimination)
         .tryEmit();
   case APValue::Int:
+    if (PointerAuthQualifier PointerAuth = DestType.getPointerAuth();
+        PointerAuth &&
+        (PointerAuth.authenticatesNullValues() || Value.getInt() != 0))
+      return nullptr;
     return llvm::ConstantInt::get(CGM.getLLVMContext(), Value.getInt());
   case APValue::FixedPoint:
     return llvm::ConstantInt::get(CGM.getLLVMContext(),

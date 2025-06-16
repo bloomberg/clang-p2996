@@ -403,6 +403,7 @@ void Decl::setDeclContextsImpl(DeclContext *SemaDC, DeclContext *LexicalDC,
     auto *MDC = new (Ctx) Decl::MultipleDC();
     MDC->SemanticDC = SemaDC;
     MDC->LexicalDC = LexicalDC;
+    MDC->PrevMultDCSemaDecl = nullptr;
     DeclCtx = MDC;
   }
 }
@@ -701,27 +702,31 @@ static AvailabilityResult CheckAvailability(ASTContext &Context,
   if (!A->getIntroduced().empty() &&
       EnclosingVersion < A->getIntroduced()) {
     IdentifierInfo *IIEnv = A->getEnvironment();
-    StringRef TargetEnv =
-        Context.getTargetInfo().getTriple().getEnvironmentName();
-    StringRef EnvName = llvm::Triple::getEnvironmentTypeName(
-        Context.getTargetInfo().getTriple().getEnvironment());
-    // Matching environment or no environment on attribute
-    if (!IIEnv || (!TargetEnv.empty() && IIEnv->getName() == TargetEnv)) {
+    auto &Triple = Context.getTargetInfo().getTriple();
+    StringRef TargetEnv = Triple.getEnvironmentName();
+    StringRef EnvName =
+        llvm::Triple::getEnvironmentTypeName(Triple.getEnvironment());
+    // Matching environment or no environment on attribute.
+    if (!IIEnv || (Triple.hasEnvironment() && IIEnv->getName() == TargetEnv)) {
       if (Message) {
         Message->clear();
         llvm::raw_string_ostream Out(*Message);
         VersionTuple VTI(A->getIntroduced());
-        Out << "introduced in " << PrettyPlatformName << " " << VTI << " "
-            << EnvName << HintMessage;
+        Out << "introduced in " << PrettyPlatformName << " " << VTI;
+        if (Triple.hasEnvironment())
+          Out << " " << EnvName;
+        Out << HintMessage;
       }
     }
-    // Non-matching environment or no environment on target
+    // Non-matching environment or no environment on target.
     else {
       if (Message) {
         Message->clear();
         llvm::raw_string_ostream Out(*Message);
-        Out << "not available on " << PrettyPlatformName << " " << EnvName
-            << HintMessage;
+        Out << "not available on " << PrettyPlatformName;
+        if (Triple.hasEnvironment())
+          Out << " " << EnvName;
+        Out << HintMessage;
       }
     }
 
@@ -888,6 +893,7 @@ unsigned Decl::getIdentifierNamespaceForKind(Kind DeclKind) {
     case ObjCProperty:
     case MSProperty:
     case HLSLBuffer:
+    case HLSLRootSignature:
       return IDNS_Ordinary;
     case Label:
       return IDNS_Label;
@@ -1237,6 +1243,11 @@ bool Decl::isFunctionPointerType() const {
   return Ty.getCanonicalType()->isFunctionPointerType();
 }
 
+Decl *Decl::getPrevMultDCDeclInSemaContext() {
+  assert(!isInSemaDC());
+  return getMultipleDC()->PrevMultDCSemaDecl;
+}
+
 DeclContext *Decl::getNonTransparentDeclContext() {
   assert(getDeclContext());
   return getDeclContext()->getNonTransparentContext();
@@ -1434,7 +1445,18 @@ bool DeclContext::Encloses(const DeclContext *DC) const {
     return getPrimaryContext()->Encloses(DC);
 
   for (; DC; DC = DC->getParent())
-    if (!isa<LinkageSpecDecl>(DC) && !isa<ExportDecl>(DC) &&
+    if (!isa<LinkageSpecDecl, ExportDecl>(DC) &&
+        DC->getPrimaryContext() == this)
+      return true;
+  return false;
+}
+
+bool DeclContext::LexicallyEncloses(const DeclContext *DC) const {
+  if (getPrimaryContext() != this)
+    return getPrimaryContext()->LexicallyEncloses(DC);
+
+  for (; DC; DC = DC->getLexicalParent())
+    if (!isa<LinkageSpecDecl, ExportDecl>(DC) &&
         DC->getPrimaryContext() == this)
       return true;
   return false;
@@ -1782,6 +1804,14 @@ void DeclContext::addHiddenDecl(Decl *D) {
     FirstDecl = LastDecl = D;
   }
 
+  if (auto *NS = dyn_cast<NamespaceDecl>(D->getDeclContext());
+      NS && !D->isInSemaDC()) {
+    NS = NS->getCanonicalDecl();
+
+    D->getMultipleDC()->PrevMultDCSemaDecl = NS->getLastMultDCSemaDecl();
+    NS->setLastMultDCSemaDecl(D);
+  }
+
   // Notify a C++ record declaration that we've added a member, so it can
   // update its class-specific state.
   if (auto *Record = dyn_cast<CXXRecordDecl>(this))
@@ -1921,8 +1951,7 @@ DeclContext::lookupImpl(DeclarationName Name,
       Map = CreateStoredDeclsMap(getParentASTContext());
 
     // If we have a lookup result with no external decls, we are done.
-    std::pair<StoredDeclsMap::iterator, bool> R =
-        Map->insert(std::make_pair(Name, StoredDeclsList()));
+    std::pair<StoredDeclsMap::iterator, bool> R = Map->try_emplace(Name);
     if (!R.second && !R.first->second.hasExternalDecls())
       return R.first->second.getLookupResult();
 
@@ -1994,7 +2023,7 @@ void DeclContext::localUncachedLookup(DeclarationName Name,
   // the results.
   if (!hasExternalVisibleStorage() && !hasExternalLexicalStorage() && Name) {
     lookup_result LookupResults = lookup(Name);
-    Results.insert(Results.end(), LookupResults.begin(), LookupResults.end());
+    llvm::append_range(Results, LookupResults);
     if (!Results.empty())
       return;
   }
@@ -2151,8 +2180,7 @@ void DeclContext::makeDeclVisibleInContextImpl(NamedDecl *D, bool Internal) {
   // have already checked the external source.
   if (!Internal)
     if (ExternalASTSource *Source = getParentASTContext().getExternalSource())
-      if (hasExternalVisibleStorage() &&
-          Map->find(D->getDeclName()) == Map->end())
+      if (hasExternalVisibleStorage() && !Map->contains(D->getDeclName()))
         Source->FindExternalVisibleDeclsByName(this, D->getDeclName(),
                                                D->getDeclContext());
 

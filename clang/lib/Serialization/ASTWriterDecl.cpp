@@ -730,7 +730,9 @@ void ASTDeclWriter::VisitDeclaratorDecl(DeclaratorDecl *D) {
   if (D->hasExtInfo()) {
     DeclaratorDecl::ExtInfo *Info = D->getExtInfo();
     Record.AddQualifierInfo(*Info);
-    Record.AddStmt(Info->TrailingRequiresClause);
+    Record.AddStmt(
+        const_cast<Expr *>(Info->TrailingRequiresClause.ConstraintExpr));
+    Record.writeUnsignedOrNone(Info->TrailingRequiresClause.ArgPackSubstIndex);
   }
   // The location information is deferred until the end of the record.
   Record.AddTypeRef(D->getTypeSourceInfo() ? D->getTypeSourceInfo()->getType()
@@ -847,6 +849,8 @@ void ASTDeclWriter::VisitFunctionDecl(FunctionDecl *D) {
   FunctionDeclBits.addBit(D->isInstantiatedFromMemberTemplate());
   FunctionDeclBits.addBit(D->FriendConstraintRefersToEnclosingTemplate());
   FunctionDeclBits.addBit(D->usesSEHTry());
+  FunctionDeclBits.addBit(D->isDestroyingOperatorDelete());
+  FunctionDeclBits.addBit(D->isTypeAwareOperatorNewOrDelete());
   Record.push_back(FunctionDeclBits);
 
   Record.AddSourceLocation(D->getEndLoc());
@@ -1387,7 +1391,7 @@ void ASTDeclWriter::VisitBindingDecl(BindingDecl *D) {
 
 void ASTDeclWriter::VisitFileScopeAsmDecl(FileScopeAsmDecl *D) {
   VisitDecl(D);
-  Record.AddStmt(D->getAsmString());
+  Record.AddStmt(D->getAsmStringExpr());
   Record.AddSourceLocation(D->getRParenLoc());
   Code = serialization::DECL_FILE_SCOPE_ASM;
 }
@@ -1515,7 +1519,7 @@ void ASTDeclWriter::VisitNamespaceDecl(NamespaceDecl *D) {
         D->getParent()->getRedeclContext()->getPrimaryContext());
     if (Parent->isFromASTFile() || isa<TranslationUnitDecl>(Parent)) {
       Writer.DeclUpdates[Parent].push_back(
-          ASTWriter::DeclUpdate(UPD_CXX_ADDED_ANONYMOUS_NAMESPACE, D));
+          ASTWriter::DeclUpdate(DeclUpdateKind::CXXAddedAnonymousNamespace, D));
     }
   }
 }
@@ -1653,7 +1657,7 @@ void ASTDeclWriter::VisitCXXRecordDecl(CXXRecordDecl *D) {
     if (auto *FD = llvm::dyn_cast_or_null<FunctionDecl>(D->getDeclContext());
         FD && isDefinitionInDependentContext(FD)) {
       Writer.RelatedDeclsMap[Writer.GetDeclRef(FD)].push_back(
-          Writer.GetDeclRef(D));
+          Writer.GetDeclRef(D->getLambdaCallOperator()));
     }
   } else {
     Record.push_back(CXXRecNotTemplate);
@@ -1728,7 +1732,7 @@ void ASTDeclWriter::VisitCXXConstructorDecl(CXXConstructorDecl *D) {
                 "CXXConstructorDeclBits");
 
   Record.push_back(D->getTrailingAllocKind());
-  addExplicitSpecifier(D->getExplicitSpecifier(), Record);
+  addExplicitSpecifier(D->getExplicitSpecifierInternal(), Record);
   if (auto Inherited = D->getInheritedConstructor()) {
     Record.AddDeclRef(Inherited.getShadowDecl());
     Record.AddDeclRef(Inherited.getConstructor());
@@ -2038,9 +2042,8 @@ void ASTDeclWriter::VisitTemplateTypeParmDecl(TemplateTypeParmDecl *D) {
     if (CR)
       Record.AddConceptReference(CR);
     Record.AddStmt(TC->getImmediatelyDeclaredConstraint());
-    Record.push_back(D->isExpandedParameterPack());
-    if (D->isExpandedParameterPack())
-      Record.push_back(D->getNumExpansionParameters());
+    Record.writeUnsignedOrNone(TC->getArgPackSubstIndex());
+    Record.writeUnsignedOrNone(D->getNumExpansionParameters());
   }
 
   bool OwnsDefaultArg = D->hasDefaultArgument() &&
@@ -2595,7 +2598,7 @@ void ASTWriter::WriteDeclAbbrevs() {
   // RecordDecl
   Abv->Add(BitCodeAbbrevOp(
       BitCodeAbbrevOp::Fixed,
-      13)); // Packed Record Decl Bits: FlexibleArrayMember,
+      14)); // Packed Record Decl Bits: FlexibleArrayMember,
             // AnonymousStructUnion, hasObjectMember, hasVolatileMember,
             // isNonTrivialToPrimitiveDefaultInitialize,
             // isNonTrivialToPrimitiveCopy, isNonTrivialToPrimitiveDestroy,

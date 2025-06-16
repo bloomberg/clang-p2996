@@ -133,6 +133,37 @@ static_assert([:^^S::Red:] == Color::Red);
 }  // namespace using_enums
 
                                 // =============
+                                // deduplication
+                                // =============
+
+namespace deduplication {
+struct A { void fn(); void fn(int); };
+struct B : A { using A::fn; void fn(char); };
+struct C : B { using B::fn; };
+
+static_assert(
+  (members_of(^^C, ctx) |
+      std::views::filter(std::meta::is_entity_proxy) |
+      std::views::transform(std::meta::underlying_entity_of) |
+      std::ranges::to<std::vector>()) ==
+  std::vector {
+      members_of(^^A, ctx)[0], members_of(^^A, ctx)[1],
+      members_of(^^B, ctx)[2],
+  });
+
+namespace NS1 { /*D1*/void fn(); /*D2*/void fn(); /*D3*/void fn(int); }
+namespace NS2 { /*U1*/using NS1::fn; /*U2*/using NS1::fn; }
+
+static_assert(
+  (members_of(^^NS2, ctx) |
+       std::views::transform(std::meta::underlying_entity_of) |
+       std::ranges::to<std::vector>()) ==
+  std::vector {
+      members_of(^^NS1, ctx)[0], members_of(^^NS1, ctx)[1]
+  });
+}  // namespace deduplication
+
+                                // =============
                                 // paper_example
                                 // =============
 

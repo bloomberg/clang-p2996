@@ -780,7 +780,6 @@ ReflectionKind APValue::getReflectionKind() const {
 
         // Any APValue which is not an LValue is assumed to be a value.
       } else if (Kind == LValue) {
-
         // Handle the odd nullptr_t corner case, which is a value.
         if (getLValueBase().isNull())
           return ReflectionKind::Value;

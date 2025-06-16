@@ -37,5 +37,29 @@ constexpr auto v2 = std::meta::reflect_constant(htmp);
 
 }  // namespace disallowed_results
 
+                              // ================
+                              // self_referential
+                              // ================
+
+namespace self_referential {
+struct A {
+  int *const p;
+  consteval A(int *p) : p(p) {}
+  consteval A(const A &oth) : p(0) {
+    if (oth.p) {
+      ++*oth.p;
+    }
+  }
+};
+
+consteval int f() {
+  int x = 42;
+  std::meta::reflect_constant<A>(&x);
+  return x;
+}
+
+static_assert(f() == 43);
+  // expected-error@-1 {{not an integral constant expression}}
+}  // namespace self_referential
 
 int main() { }

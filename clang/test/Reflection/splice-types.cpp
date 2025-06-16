@@ -8,7 +8,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// RUN: %clang_cc1 %s -std=c++23 -freflection
+// RUN: %clang_cc1 %s -std=c++23 -freflection -fentity-proxy-reflection
 
 using info = decltype(^^int);
 
@@ -317,7 +317,7 @@ constexpr auto type_nested = requires { typename [:^^T:]::Nested; };
 
 template <typename T>
 constexpr auto type_class_is_float =
-  requires { typename RequiresFloat<[:^^T:]>; };
+  requires { typename RequiresFloat<typename [:^^T:]>; };
 
 template <typename T>
 constexpr auto type_class_is_float2 =
@@ -325,7 +325,7 @@ constexpr auto type_class_is_float2 =
 
 template <typename T>
 constexpr auto type_alias_is_float =
-  requires { typename AliasFloat<[:^^T:]>; };
+  requires { typename AliasFloat<typename [:^^T:]>; };
 
 template <typename T>
 constexpr auto type_alias_is_float2 =
@@ -353,11 +353,11 @@ constexpr auto compound_returns_addable =
 
 template <typename T>
 constexpr auto compound_returns_addable2 =
-  requires { {T()} -> same_as<[:^^Addable:]>; };
+  requires { {T()} -> same_as<typename [:^^Addable:]>; };
 
 template <typename T>
 constexpr auto compound_returns_addable3 =
-  requires { {[:^^Namespace:]::Addable()} -> same_as<[:^^T:]>; };
+  requires { {[:^^Namespace:]::Addable()} -> same_as<typename [:^^T:]>; };
 
 template <typename T>
 constexpr auto compound_returns_addable4 =
@@ -378,7 +378,7 @@ static_assert(!compound_returns_addable4<NonAddable>);
 // Nested requirements
 template <typename T>
 constexpr auto nested_addable = requires {
-  requires same_as<T, [:^^Addable:]>;
+  requires same_as<T, typename [:^^Addable:]>;
 };
 template <typename T>
 constexpr auto nested_addable2 = requires {

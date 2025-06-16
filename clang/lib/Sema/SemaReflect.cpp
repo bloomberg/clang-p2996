@@ -58,7 +58,7 @@ Expr *CreateRefToDecl(Sema &S, ValueDecl *D, SourceLocation ExprLoc) {
   if (const auto *RDC = dyn_cast<RecordDecl>(D->getDeclContext())) {
     QualType QT(RDC->getTypeForDecl(), 0);
     TypeSourceInfo *TSI = S.Context.CreateTypeSourceInfo(QT, 0);
-    SS.Extend(S.Context, SourceLocation(), TSI->getTypeLoc(), ExprLoc);
+    SS.Extend(S.Context, TSI->getTypeLoc(), ExprLoc);
   }
 
   ExprValueKind ValueKind = VK_LValue;
@@ -452,8 +452,8 @@ public:
     FunctionDecl *Spec;
     TemplateDeductionResult Result = S.DeduceTemplateArguments(
           TD, &TAListInfo, Args, Spec, DeductionInfo, false, true, false,
-          QualType{}, Expr::Classification(),
-          [](ArrayRef<QualType>) { return false; });
+          QualType{}, Expr::Classification(), false,
+          [](ArrayRef<QualType>, bool) { return false; });
     if (Result != TemplateDeductionResult::Success)
       return nullptr;
 
@@ -606,8 +606,8 @@ public:
                 DefinitionLoc, SS, IncompleteDecl->getIdentifier(),
                 IncompleteDecl->getBeginLoc(), ParsedAttributesView::none(),
                 AS_none, SourceLocation{}, MTP, OwnedDecl, IsDependent,
-                SourceLocation{}, false, TR, false, false, Sema::OOK_Outside,
-                nullptr);
+                SourceLocation{}, false, TR, false, false,
+                OffsetOfKind::Outside, nullptr);
 
         // The new tag -should- declare the same entity as the original tag.
         assert((NewDeclResult.isInvalid() ||
@@ -623,7 +623,8 @@ public:
     // Start the new definition.
     S.ActOnTagStartDefinition(&ClsScope, NewDecl);
     S.ActOnStartCXXMemberDeclarations(&ClsScope, NewDecl, SourceLocation{},
-                                      false, false, SourceLocation{});
+                                      false, false, SourceLocation{},
+                                      SourceLocation{}, SourceLocation{});
 
     // Derive member visibility.
     AccessSpecifier MemberAS = AS_public;
@@ -868,31 +869,6 @@ ExprResult Sema::ActOnCXXReflectExpr(SourceLocation OpLoc,
   if (Id.getKind() == UnqualifiedIdKind::IK_TemplateId &&
       Id.TemplateId->Template.get().getKind() == TemplateName::Template) {
     Found.addDecl(Id.TemplateId->Template.get().getAsTemplateDecl());
-  } else if (Id.getKind() == UnqualifiedIdKind::IK_TemplateId &&
-             Id.TemplateId->Template.get().getKind() ==
-                    TemplateName::DependentTemplate &&
-             Id.TemplateId->Template.get().getAsDependentTemplateName()
-                                          ->isSpliceSpecifier()) {
-    auto *Splice = const_cast<SpliceSpecifier *>(
-        Id.TemplateId->Template.get().getAsDependentTemplateName()
-                                     ->getSpliceSpecifier());
-
-    ExprResult Result;
-    if (TArgs) {
-      const ASTTemplateArgumentListInfo *ASTTArgs =
-            ASTTemplateArgumentListInfo::Create(Context, *TArgs);
-      SpliceResult SR = BuildSpliceSpecifier(Splice->getLSpliceLoc(),
-                                             Splice->getOperand(),
-                                             Splice->getRSpliceLoc(),
-                                             ASTTArgs);
-      assert(!SR.isInvalid());
-      Result = BuildReflectionSpliceExpr(TemplateKWLoc, SR.get(), false);
-    } else {
-      Result = BuildReflectionSpliceExpr(TemplateKWLoc, Splice, false);
-    }
-    assert(!Result.isInvalid());  // Should never fail for dependent operands.
-
-    return BuildCXXReflectExpr(OpLoc, Result.get());
   } else if (TemplateKWLoc.isValid() && !TArgs) {
     TemplateTy Template;
     TemplateNameKind TNK = ActOnTemplateName(getCurScope(), SS, TemplateKWLoc,
@@ -935,9 +911,10 @@ ExprResult Sema::ActOnCXXReflectExpr(SourceLocation OpLoc,
   if (auto *USD = dyn_cast<UsingShadowDecl>(ND)) {
     if (getLangOpts().EntityProxyReflection)
       return BuildCXXReflectExpr(OpLoc, NameInfo.getBeginLoc(), USD);
-    else do
-      ND = cast<UsingShadowDecl>(ND)->getTargetDecl();
-    while (isa<UsingShadowDecl>(ND));
+    else {
+      Diag(SS.getBeginLoc(), diag::err_reflect_using_declarator);
+      return ExprError();
+    }
   }
 
   if (auto *TD = dyn_cast<TypeDecl>(ND)) {
@@ -1157,89 +1134,6 @@ DeclResult Sema::ActOnCXXSpliceExpectingNamespace(SpliceSpecifier *Splice) {
   return BuildReflectionSpliceNamespace(Splice);
 }
 
-ParsedTemplateArgument
-Sema::ActOnSpliceTemplateArgument(SpliceSpecifier *Splice) {
-  assert(!Splice->isSpecialization() &&
-         "splice-template-argument cannot be a specialization");
-
-  if (Splice->getDependence() != SpliceSpecifierDependence::None) {
-    return ParsedTemplateArgument(ParsedTemplateArgument::Splice, Splice,
-                                  Splice->getBeginLoc());
-  }
-
-  SmallVector<PartialDiagnosticAt, 4> Diags;
-  Expr::EvalResult ER;
-  ER.Diag = &Diags;
-  if (!Splice->getOperand()->EvaluateAsRValue(ER, Context, true)) {
-    return ParsedTemplateArgument();
-  }
-  assert(ER.Val.getKind() == APValue::Reflection);
-
-  APValue Refl = MaybeUnproxy(Context, ER.Val);
-  switch (Refl.getReflectionKind()) {
-  case ReflectionKind::Type:
-    return ParsedTemplateArgument(ParsedTemplateArgument::Type,
-                                  const_cast<void *>(
-                                      Refl.getOpaqueReflectionData()),
-                                  Splice->getBeginLoc());
-  case ReflectionKind::Object: {
-    QualType ResultTy = Refl.getTypeOfReflectedResult(Context);
-    Expr *OVE = new (Context) OpaqueValueExpr(Splice->getBeginLoc(), ResultTy,
-                                              VK_LValue);
-    Expr *CE = ConstantExpr::Create(Context, OVE, Refl.getReflectedObject());
-    return ParsedTemplateArgument(ParsedTemplateArgument::NonType, CE,
-                                  Splice->getBeginLoc());
-  }
-  case ReflectionKind::Value: {
-    QualType ResultTy = Refl.getTypeOfReflectedResult(Context);
-    Expr *OVE = new (Context) OpaqueValueExpr(Splice->getBeginLoc(), ResultTy,
-                                              VK_PRValue);
-    Expr *CE = ConstantExpr::Create(Context, OVE, Refl.getReflectedValue());
-    return ParsedTemplateArgument(ParsedTemplateArgument::NonType, CE,
-                                  Splice->getBeginLoc());
-  }
-  case ReflectionKind::Template: {
-    TemplateName TName = Refl.getReflectedTemplate();
-    return ParsedTemplateArgument(ParsedTemplateArgument::Template,
-                                  TName.getAsTemplateDecl(),
-                                  Splice->getBeginLoc());
-  }
-  case ReflectionKind::Declaration: {
-    Expr *E = CreateRefToDecl(*this, cast<ValueDecl>(Refl.getReflectedDecl()),
-                              Splice->getBeginLoc());
-    return ParsedTemplateArgument(ParsedTemplateArgument::NonType, E,
-                                  E->getBeginLoc());
-  }
-  case ReflectionKind::Null:
-    Diag(Splice->getBeginLoc(), diag::err_unsupported_splice_kind)
-      << "null reflections" << 0 << 0;
-    break;
-  case ReflectionKind::Namespace:
-    Diag(Splice->getBeginLoc(), diag::err_unsupported_splice_kind)
-      << "namespaces" << 0 << 0;
-    break;
-  case ReflectionKind::BaseSpecifier:
-    Diag(Splice->getBeginLoc(), diag::err_unsupported_splice_kind)
-      << "base specifiers" << 0 << 0;
-    break;
-  case ReflectionKind::DataMemberSpec:
-    Diag(Splice->getBeginLoc(), diag::err_unsupported_splice_kind)
-      << "data member specs" << 0 << 0;
-    break;
-  case ReflectionKind::Attribute:
-    Diag(Splice->getBeginLoc(), diag::err_unsupported_splice_kind)
-    << "attribute" << 0 << 0;
-    break;
-  case ReflectionKind::Annotation:
-    Diag(Splice->getBeginLoc(), diag::err_unsupported_splice_kind)
-      << "annotations" << 0 << 0;
-    break;
-  case ReflectionKind::EntityProxy:
-    llvm_unreachable("proxies should already have been unwrapped");
-  }
-  return ParsedTemplateArgument();
-}
-
 bool Sema::ActOnCXXSpliceScopeSpecifier(CXXScopeSpec &SS,
                                         SourceLocation TemplateKWLoc,
                                         SpliceSpecifier *Splice,
@@ -1264,9 +1158,14 @@ ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
   if (auto *UT = dyn_cast<UsingType>(T)) {
     if (Context.getLangOpts().EntityProxyReflection)
       return BuildCXXReflectExpr(OperatorLoc, OperandLoc, UT->getFoundDecl());
-    else
-      T = UT->getUnderlyingType();
+    else {
+      Diag(OperandLoc, diag::err_reflect_using_declarator);
+      return ExprError();
+    }
   }
+
+  if (auto *STTPTy = T->getAs<SubstTemplateTypeParmType>())
+    T = STTPTy->getReplacementType().getCanonicalType();
 
   APValue RV(ReflectionKind::Type, T.getAsOpaquePtr());
   return CXXReflectExpr::Create(Context, OperatorLoc, OperandLoc, RV);
@@ -1290,12 +1189,15 @@ ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
   ReflectionKind RK = ReflectionKind::Declaration;
   if (isa<TranslationUnitDecl, NamespaceDecl, NamespaceAliasDecl>(D))
     RK = ReflectionKind::Namespace;
-  else if (isa<UsingShadowDecl>(D))
+  else if (isa<UsingShadowDecl>(D)) {
+    if (!getLangOpts().EntityProxyReflection) {
+      Diag(OperandLoc, diag::err_reflect_using_declarator);
+      return ExprError();
+    }
     RK = ReflectionKind::EntityProxy;
+  }
 
   APValue RV(RK, D);
-  if (!getLangOpts().EntityProxyReflection)
-    RV = MaybeUnproxy(Context, RV);
   return CXXReflectExpr::Create(Context, OperatorLoc,
                                 SourceRange(OperandLoc, OperandLoc), RV);
 }
@@ -1759,8 +1661,7 @@ ExprResult Sema::BuildReflectionSpliceExpr(SourceLocation TemplateKWLoc,
       if (auto *RD = dyn_cast<CXXRecordDecl>(TDecl->getDeclContext())) {
         TypeSourceInfo *TSI = Context.getTrivialTypeSourceInfo(
                 QualType(RD->getTypeForDecl(), 0), Splice->getBeginLoc());
-        ScopeSpec.Extend(Context, SourceLocation(), TSI->getTypeLoc(),
-                         Splice->getBeginLoc());
+        ScopeSpec.Extend(Context, TSI->getTypeLoc(), Splice->getBeginLoc());
       }
 
       // TODO(P2996): Would be nice not to have to copy these here.
@@ -1871,39 +1772,6 @@ DeclResult Sema::BuildReflectionSpliceNamespace(SpliceSpecifier *Splice) {
   }
 
   return ER.Val.getReflectedNamespace();
-}
-
-Sema::TemplateTy Sema::BuildReflectionSpliceTemplate(SpliceSpecifier *Splice,
-                                                     bool Complain) {
-  if (Splice->getDependence() != SpliceSpecifierDependence::None)
-    return TemplateTy::make(Context.getDependentTemplateName(Splice));
-
-  SmallVector<PartialDiagnosticAt, 4> Diags;
-  Expr::EvalResult ER;
-  ER.Diag = &Diags;
-
-  if (!Splice->getOperand()->EvaluateAsRValue(ER, Context, true)) {
-    Diag(Splice->getBeginLoc(),
-        diag::err_splice_operand_not_constexpr) << Splice->getOperand();
-    for (PartialDiagnosticAt PD : Diags)
-      Diag(PD.first, PD.second);
-    return TemplateTy();
-  }
-
-  if (!ER.Val.isReflection()) {
-    Diag(Splice->getBeginLoc(),
-         diag::err_splice_operand_not_reflection) << Splice->getSourceRange();
-    return TemplateTy();
-  }
-
-  if (!ER.Val.isReflectedTemplate()) {
-    if (Complain)
-      Diag(Splice->getBeginLoc(), diag::err_unexpected_reflection_kind)
-          << 3 << Splice->getSourceRange();
-    return TemplateTy();
-  }
-
-  return TemplateTy::make(ER.Val.getReflectedTemplate());
 }
 
 Decl *Sema::BuildConstevalBlockDeclaration(SourceLocation ConstevalLoc,

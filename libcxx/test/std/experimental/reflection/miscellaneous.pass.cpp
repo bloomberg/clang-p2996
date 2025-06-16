@@ -135,7 +135,8 @@ void do_swap_representations(T& lhs, T& rhs) {
                   define_static_array(
                       nonstatic_data_members_of(
                           ^^T, std::meta::access_context::unchecked()))) {
-      do_swap_representations<[:type_of(mem):]>(lhs.[:mem:], rhs.[:mem:]);
+      do_swap_representations<typename [:type_of(mem):]>(lhs.[:mem:],
+                                                         rhs.[:mem:]);
     }
   } else if constexpr (std::is_array_v<T>) {
     static_assert(0 < std::rank_v<T>, "cannot swap arrays of unknown bound");
@@ -248,6 +249,43 @@ template <std::meta::info... Tests>
 void run_tests() {
   (..., [:Tests:]::run_test());
 }
+
+                               // ===============
+                               // barry_alias_bug
+                               // ===============
+
+namespace barry_alias_bug {
+template <std::meta::info R>
+struct Reflection {
+    static constexpr auto value = R;
+};
+
+template <class... R>
+struct Sequence { };
+
+template <size_t I, typename Seq>
+using get_element_t = [: template_arguments_of(^^Seq)[I] :];
+
+template <class T>
+using get_base_classes_t = [: [] {
+    std::vector<std::meta::info> args;
+    for (std::meta::info b : bases_of(T::value,
+                                      std::meta::access_context::unchecked())) {
+        args.push_back(substitute(^^Reflection,
+                                  {std::meta::reflect_constant(b)}));
+    }
+    return substitute(^^Sequence, args);
+}() :];
+
+
+struct B { };
+struct D : B { };
+
+constexpr auto b = bases_of(^^D, std::meta::access_context::unchecked())[0];
+static_assert(std::same_as<
+    get_element_t<0, get_base_classes_t<Reflection<^^D>>>,
+    Reflection<b>>);
+}  // namespace barry_alias_bug
 
 int main() {
   run_tests<

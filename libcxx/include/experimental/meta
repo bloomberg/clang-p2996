@@ -1435,9 +1435,8 @@ consteval auto is_user_declared(info r) -> bool {
 template <typename T>
   requires (!is_reference_v<T> &&
             __metafunction(detail::__metafn_is_structural_type, ^^T))
-consteval auto reflect_constant(const T &r) -> info {
-  return __metafunction(detail::__metafn_reflect_result, ^^T,
-                        static_cast<T>(r));
+consteval auto reflect_constant(T r) -> info {
+  return __metafunction(detail::__metafn_reflect_result, ^^T, r);
 }
 
 // Returns a reflection of the object designated by the provided argument.
@@ -2302,8 +2301,9 @@ template <typename Ty>
              "'reflect_function' in P2996R4")]]
 consteval auto reflect_result(Ty r) -> info {
   constexpr auto DTy = detail::__underlying_entity_of(^^Ty);
-  constexpr auto RTy = is_class_v<[:DTy:]> || is_reference_v<[:DTy:]> ?
-                       DTy : ^^remove_cv_t<[:DTy:]>;
+  constexpr auto RTy = is_class_v<typename [:DTy:]> ||
+                       is_reference_v<typename [:DTy:]> ?
+                       DTy : ^^remove_cv_t<typename [:DTy:]>;
 
   return __metafunction(detail::__metafn_reflect_result,
                         detail::__underlying_entity_of(RTy),

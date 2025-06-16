@@ -41,6 +41,7 @@
 #include "llvm/IR/ValueHandle.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Pass.h"
+#include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/Local.h"
@@ -958,6 +959,10 @@ constexpr Intrinsic::ID llvm::getReductionIntrinsicID(RecurKind RK) {
     return Intrinsic::vector_reduce_fmaximum;
   case RecurKind::FMinimum:
     return Intrinsic::vector_reduce_fminimum;
+  case RecurKind::FMaximumNum:
+    return Intrinsic::vector_reduce_fmax;
+  case RecurKind::FMinimumNum:
+    return Intrinsic::vector_reduce_fmin;
   }
 }
 
@@ -1053,6 +1058,10 @@ Intrinsic::ID llvm::getMinMaxReductionIntrinsicOp(RecurKind RK) {
     return Intrinsic::minimum;
   case RecurKind::FMaximum:
     return Intrinsic::maximum;
+  case RecurKind::FMinimumNum:
+    return Intrinsic::minimumnum;
+  case RecurKind::FMaximumNum:
+    return Intrinsic::maximumnum;
   }
 }
 
@@ -1101,7 +1110,8 @@ Value *llvm::createMinMaxOp(IRBuilderBase &Builder, RecurKind RK, Value *Left,
                             Value *Right) {
   Type *Ty = Left->getType();
   if (Ty->isIntOrIntVectorTy() ||
-      (RK == RecurKind::FMinimum || RK == RecurKind::FMaximum)) {
+      (RK == RecurKind::FMinimum || RK == RecurKind::FMaximum ||
+       RK == RecurKind::FMinimumNum || RK == RecurKind::FMaximumNum)) {
     // TODO: Add float minnum/maxnum support when FMF nnan is set.
     Intrinsic::ID Id = getMinMaxReductionIntrinsicOp(RK);
     return Builder.CreateIntrinsic(Ty, Id, {Left, Right}, nullptr,
@@ -1198,12 +1208,7 @@ Value *llvm::getShuffleReduction(IRBuilderBase &Builder, Value *Src,
 }
 
 Value *llvm::createAnyOfReduction(IRBuilderBase &Builder, Value *Src,
-                                  const RecurrenceDescriptor &Desc,
-                                  PHINode *OrigPhi) {
-  assert(
-      RecurrenceDescriptor::isAnyOfRecurrenceKind(Desc.getRecurrenceKind()) &&
-      "Unexpected reduction kind");
-  Value *InitVal = Desc.getRecurrenceStartValue();
+                                  Value *InitVal, PHINode *OrigPhi) {
   Value *NewVal = nullptr;
 
   // First use the original phi to determine the new value we're trying to
@@ -1233,12 +1238,7 @@ Value *llvm::createAnyOfReduction(IRBuilderBase &Builder, Value *Src,
 }
 
 Value *llvm::createFindLastIVReduction(IRBuilderBase &Builder, Value *Src,
-                                       const RecurrenceDescriptor &Desc) {
-  assert(RecurrenceDescriptor::isFindLastIVRecurrenceKind(
-             Desc.getRecurrenceKind()) &&
-         "Unexpected reduction kind");
-  Value *StartVal = Desc.getRecurrenceStartValue();
-  Value *Sentinel = Desc.getSentinelValue();
+                                       Value *Start, Value *Sentinel) {
   Value *MaxRdx = Src->getType()->isVectorTy()
                       ? Builder.CreateIntMaxReduce(Src, true)
                       : Src;
@@ -1246,7 +1246,7 @@ Value *llvm::createFindLastIVReduction(IRBuilderBase &Builder, Value *Src,
   // reduction is sentinel value.
   Value *Cmp =
       Builder.CreateCmp(CmpInst::ICMP_NE, MaxRdx, Sentinel, "rdx.select.cmp");
-  return Builder.CreateSelect(Cmp, MaxRdx, StartVal, "rdx.select");
+  return Builder.CreateSelect(Cmp, MaxRdx, Start, "rdx.select");
 }
 
 Value *llvm::getReductionIdentity(Intrinsic::ID RdxID, Type *Ty,
@@ -1320,6 +1320,8 @@ Value *llvm::createSimpleReduction(IRBuilderBase &Builder, Value *Src,
   case RecurKind::FMin:
   case RecurKind::FMinimum:
   case RecurKind::FMaximum:
+  case RecurKind::FMinimumNum:
+  case RecurKind::FMaximumNum:
     return Builder.CreateUnaryIntrinsic(getReductionIntrinsicID(RdxKind), Src);
   case RecurKind::FMulAdd:
   case RecurKind::FAdd:
@@ -1819,10 +1821,11 @@ void llvm::appendLoopsToWorklist(RangeT &&Loops,
   appendReversedLoopsToWorklist(reverse(Loops), Worklist);
 }
 
-template void llvm::appendLoopsToWorklist<ArrayRef<Loop *> &>(
+template LLVM_EXPORT_TEMPLATE void
+llvm::appendLoopsToWorklist<ArrayRef<Loop *> &>(
     ArrayRef<Loop *> &Loops, SmallPriorityWorklist<Loop *, 4> &Worklist);
 
-template void
+template LLVM_EXPORT_TEMPLATE void
 llvm::appendLoopsToWorklist<Loop &>(Loop &L,
                                     SmallPriorityWorklist<Loop *, 4> &Worklist);
 

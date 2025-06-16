@@ -128,7 +128,6 @@ void ODRHash::AddNestedNameSpecifier(const NestedNameSpecifier *NNS) {
     AddDecl(NNS->getAsNamespaceAlias());
     break;
   case NestedNameSpecifier::TypeSpec:
-  case NestedNameSpecifier::TypeSpecWithTemplate:
     AddType(NNS->getAsType());
     break;
   case NestedNameSpecifier::Global:
@@ -136,6 +135,16 @@ void ODRHash::AddNestedNameSpecifier(const NestedNameSpecifier *NNS) {
   case NestedNameSpecifier::Splice:  // TODO(P2996): This is wrong.
     break;
   }
+}
+
+void ODRHash::AddDependentTemplateName(const DependentTemplateStorage &Name) {
+  if (NestedNameSpecifier *NNS = Name.getQualifier())
+    AddNestedNameSpecifier(NNS);
+  if (IdentifierOrOverloadedOperator IO = Name.getName();
+      const IdentifierInfo *II = IO.getIdentifier())
+    AddIdentifierInfo(II);
+  else
+    ID.AddInteger(IO.getOperator());
 }
 
 void ODRHash::AddTemplateName(TemplateName Name) {
@@ -154,10 +163,13 @@ void ODRHash::AddTemplateName(TemplateName Name) {
     AddTemplateName(QTN->getUnderlyingTemplate());
     break;
   }
+  case TemplateName::DependentTemplate: {
+    AddDependentTemplateName(*Name.getAsDependentTemplateName());
+    break;
+  }
   // TODO: Support these cases.
   case TemplateName::OverloadedTemplate:
   case TemplateName::AssumedTemplate:
-  case TemplateName::DependentTemplate:
   case TemplateName::SubstTemplateTemplateParm:
   case TemplateName::SubstTemplateTemplateParmPack:
   case TemplateName::UsingTemplate:
@@ -1222,12 +1234,7 @@ public:
 
   void VisitDependentTemplateSpecializationType(
       const DependentTemplateSpecializationType *T) {
-    Hash.AddBoolean(T->hasIdentifier());
-    if (T->hasIdentifier())
-      AddIdentifierInfo(T->getIdentifier());
-    else
-      ID.AddPointer(T->getSplice());
-    AddNestedNameSpecifier(T->getQualifier());
+    Hash.AddDependentTemplateName(T->getDependentTemplateName());
     ID.AddInteger(T->template_arguments().size());
     for (const auto &TA : T->template_arguments()) {
       Hash.AddTemplateArgument(TA);

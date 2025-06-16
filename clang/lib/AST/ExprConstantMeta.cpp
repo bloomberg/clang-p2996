@@ -1295,9 +1295,6 @@ static APValue getNthTemplateArgument(ASTContext &C,
       APValue IV(templArgument.getAsIntegral());
       return IV.Lift(templArgument.getIntegralType());
     }
-    case TemplateArgument::Splice:
-      llvm_unreachable("TemplateArgument::Splice should have been transformed "
-                       "by now");
     case TemplateArgument::Pack:
       llvm_unreachable("Packs should be expanded before calling this");
 
@@ -1375,6 +1372,18 @@ static bool ensureDeclared(ASTContext &C, QualType QT, SourceLocation SpecLoc) {
 static bool isReflectableDecl(MetaActions &Meta, ASTContext &C, Decl *D) {
   assert(D && "null declaration");
 
+  if (D != D->getCanonicalDecl()) {
+    Decl *First = nullptr;
+    for (Decl *I = D->getMostRecentDecl(); I; I = I->getPreviousDecl())
+      if (I->getLexicalDeclContext() == D->getLexicalDeclContext())
+        First = I;
+    if (D != First)
+      return false;
+  }
+
+  if (D->isLocalExternDecl())
+    return false;
+
   if (isa<NamespaceAliasDecl>(D))
     return true;
 
@@ -1393,7 +1402,6 @@ static bool isReflectableDecl(MetaActions &Meta, ASTContext &C, Decl *D) {
   if (auto *FD = dyn_cast<FunctionDecl>(D)) {
     for (auto *R = FD->getMostRecentDecl(); R; R = R->getPreviousDecl()) {
       if (!R->getDeclaredReturnType()->isUndeducedType() &&
-          R->getDeclContext() == R->getLexicalDeclContext() &&
           Meta.HasSatisfiedConstraints(R))
         return true;
     }
@@ -1424,26 +1432,35 @@ static Decl *findIterableMember(MetaActions &Meta, ASTContext &C, Decl *D,
   }
 
   do {
-    DeclContext *DC = D->getDeclContext();
+    DeclContext *DC = D->getDeclContext();  // note: SemanticDC
 
-    // Get the next declaration in the DeclContext.
-    //
-    // Explicit specializations of templates are created with the DeclContext of
-    // the template from which they're instantiated, but they end up in the
-    // DeclContext within which they're declared. We therefore skip over any
-    // declarations whose DeclContext is different from the previous Decl;
-    // otherwise, we may inadvertently break the chain of redeclarations in
-    // difficult to predit ways.
-    do {
-      D = D->getNextDeclInContext();
-    } while (D && D->getDeclContext() != DC);
+    if (D->getLexicalDeclContext() == DC) {
+      // Get the next declaration in the DeclContext.
+      //
+      // Explicit specializations of templates are created with the DeclContext
+      // of the template from which they're instantiated, but they end up in the
+      // DeclContext within which they're declared. We therefore skip over any
+      // declarations whose DeclContext is different from the previous Decl;
+      // otherwise, we may inadvertently break the chain of redeclarations in
+      // difficult to predit ways.
+      do {
+        D = D->getNextDeclInContext();
+      } while (D && D->getDeclContext() != DC);
 
-    // In the case of namespaces, walk the redeclaration chain.
-    if (auto *NSDecl = dyn_cast<NamespaceDecl>(DC)) {
-      while (!D && NSDecl) {
-        NSDecl = NSDecl->getPreviousDecl();
-        D = NSDecl ? *NSDecl->decls_begin() : nullptr;
+      // In the case of namespaces, walk the redeclaration chain.
+      if (auto *NSDecl = dyn_cast<NamespaceDecl>(DC)) {
+        while (!D && NSDecl) {
+          NSDecl = NSDecl->getPreviousDecl();
+          D = NSDecl ? *NSDecl->decls_begin() : nullptr;
+        }
+
+        if (!D) {
+          auto *Canonical = cast<NamespaceDecl>(DC->getPrimaryContext());
+          D = Canonical->getLastMultDCSemaDecl();
+        }
       }
+    } else {
+      D = D->getPrevMultDCDeclInSemaContext();
     }
 
     // We need to recursively descend into LinkageSpecDecls to iterate over the
@@ -1580,6 +1597,8 @@ static APValue MaybeUnproxy(ASTContext &C, APValue RV, bool Dealias = true) {
     return RV;
 
   NamedDecl *ND = RV.getReflectedEntityProxy()->getTargetDecl();
+  ND = cast<NamedDecl>(ND->getCanonicalDecl());
+
   if (auto *T = dyn_cast<TypeDecl>(ND)) {
     QualType QT = C.getTypeDeclType(T);
     if (Dealias)
@@ -3100,7 +3119,7 @@ static TemplateArgument TArgFromReflection(ASTContext &C, MetaActions &Meta,
         DeclRefExpr::Create(C, NestedNameSpecifierLoc(), SourceLocation(), Decl,
                             false, Loc, QT, VK_LValue, Decl, nullptr);
 
-    return TemplateArgument(Synthesized);
+    return TemplateArgument(Synthesized, true);
   }
   case ReflectionKind::Template:
     return TemplateArgument(RV.getReflectedTemplate());
@@ -3389,8 +3408,7 @@ bool extract(APValue &Result, ASTContext &C, MetaActions &Meta,
                 Decl->getDeclContext())) {
           TypeSourceInfo *TSI = C.CreateTypeSourceInfo(
                   QualType(ParentClsDecl->getTypeForDecl(), 0), 0);
-          NNSLocBuilder.Extend(C, Range.getBegin(), TSI->getTypeLoc(),
-                               Range.getBegin());
+          NNSLocBuilder.Extend(C, TSI->getTypeLoc(), Range.getBegin());
         }
         Synthesized = DeclRefExpr::Create(C, NNSLocBuilder.getTemporary(),
                                           SourceLocation(), Decl, false,
@@ -3414,8 +3432,7 @@ bool extract(APValue &Result, ASTContext &C, MetaActions &Meta,
                 Decl->getDeclContext())) {
           TypeSourceInfo *TSI = C.CreateTypeSourceInfo(
                   QualType(ParentClsDecl->getTypeForDecl(), 0), 0);
-          NNSLocBuilder.Extend(C, Range.getBegin(), TSI->getTypeLoc(),
-                               Range.getBegin());
+          NNSLocBuilder.Extend(C, TSI->getTypeLoc(), Range.getBegin());
         }
 
         APValue::LValuePathEntry Path[1] = {APValue::LValuePathEntry::ArrayIndex(0)};
@@ -3451,9 +3468,23 @@ bool extract(APValue &Result, ASTContext &C, MetaActions &Meta,
         return Diagnoser(Range.getBegin(), diag::metafn_cannot_extract) << 2
             << DescriptionOf(RV) << Range;
 
-      QualType MemPtrTy = C.getMemberPointerType(
-              Decl->getType(), nullptr,
-              cast<CXXRecordDecl>(Decl->getDeclContext()));
+      DeclContext *ObjDC = Decl->getDeclContext();
+      while (ObjDC &&
+             [](DeclContext *DC) {
+               if (auto *RD = dyn_cast<CXXRecordDecl>(DC))
+                 return RD->isAnonymousStructOrUnion();
+               else return DC->isTransparentContext();
+             }(ObjDC))
+      if (isa<TranslationUnitDecl>(ObjDC))
+        // Can happen if Target was a member of a static anonymous union at
+        // namespace scope.
+        return Diagnoser(Range.getBegin(), diag::metafn_cannot_extract) << 2
+            << "a field that is not a member of a class";
+      else
+        ObjDC = ObjDC->getParent();
+
+      QualType MemPtrTy = C.getMemberPointerType(Decl->getType(), nullptr,
+                                                 cast<CXXRecordDecl>(ObjDC));
       if (MemPtrTy.getCanonicalType().getTypePtr() !=
           ResultTy.getCanonicalType().getTypePtr())
         return Diagnoser(Range.getBegin(),

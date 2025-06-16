@@ -19,6 +19,7 @@
 #include "clang/Basic/TemplateKinds.h"
 #include "clang/Sema/DeclSpec.h"
 #include "clang/Sema/Ownership.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include <cassert>
 #include <cstdlib>
@@ -36,8 +37,6 @@ namespace clang {
       NonType,
       /// A template template argument, stored as a template name.
       Template,
-      /// A splice specifier argument, stored as an expression.
-      Splice,
     };
 
     /// Build an empty template argument.
@@ -91,11 +90,6 @@ namespace clang {
       return ParsedTemplateTy::getFromOpaquePtr(Arg);
     }
 
-    SpliceSpecifier *getAsSpliceSpecifier() const {
-      assert(Kind == Splice && "Not a splice specifier argument");
-      return static_cast<SpliceSpecifier *>(Arg);
-    }
-
     /// Retrieve the location of the template argument.
     SourceLocation getLocation() const { return Loc; }
 
@@ -110,7 +104,7 @@ namespace clang {
     /// Retrieve the location of the ellipsis that makes a template
     /// template argument into a pack expansion.
     SourceLocation getEllipsisLoc() const {
-      assert((Kind == Template || Kind == Splice) &&
+      assert((Kind == Template) &&
              "Only template template arguments can have an ellipsis");
       return EllipsisLoc;
     }
@@ -120,12 +114,6 @@ namespace clang {
     ///
     /// \param EllipsisLoc The location of the ellipsis.
     ParsedTemplateArgument getTemplatePackExpansion(
-                                              SourceLocation EllipsisLoc) const;
-
-    /// Retrieve a pack expansion of the given splice template argument.
-    ///
-    /// \param EllipsisLoc The location of the ellipsis.
-    ParsedTemplateArgument getSplicePackExpansion(
                                               SourceLocation EllipsisLoc) const;
 
   private:
@@ -202,9 +190,7 @@ namespace clang {
     bool ArgsInvalid;
 
     /// Retrieves a pointer to the template arguments
-    ParsedTemplateArgument *getTemplateArgs() {
-      return getTrailingObjects<ParsedTemplateArgument>();
-    }
+    ParsedTemplateArgument *getTemplateArgs() { return getTrailingObjects(); }
 
     /// Creates a new TemplateIdAnnotation with NumArgs arguments and
     /// appends it to List.
@@ -262,8 +248,7 @@ namespace clang {
           Kind(TemplateKind), LAngleLoc(LAngleLoc), RAngleLoc(RAngleLoc),
           NumArgs(TemplateArgs.size()), ArgsInvalid(ArgsInvalid) {
 
-      std::uninitialized_copy(TemplateArgs.begin(), TemplateArgs.end(),
-                              getTemplateArgs());
+      llvm::uninitialized_copy(TemplateArgs, getTemplateArgs());
     }
     ~TemplateIdAnnotation() = default;
   };

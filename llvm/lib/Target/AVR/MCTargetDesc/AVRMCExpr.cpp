@@ -69,8 +69,7 @@ bool AVRMCExpr::evaluateAsConstant(int64_t &Result) const {
 bool AVRMCExpr::evaluateAsRelocatableImpl(MCValue &Result,
                                           const MCAssembler *Asm) const {
   MCValue Value;
-  bool isRelocatable = SubExpr->evaluateAsRelocatable(Value, Asm);
-
+  bool isRelocatable = getSubExpr()->evaluateAsRelocatable(Value, Asm);
   if (!isRelocatable)
     return false;
 
@@ -80,17 +79,16 @@ bool AVRMCExpr::evaluateAsRelocatableImpl(MCValue &Result,
     if (!Asm || !Asm->hasLayout())
       return false;
 
-    MCContext &Context = Asm->getContext();
-    const MCSymbolRefExpr *Sym = Value.getSymA();
-    MCSymbolRefExpr::VariantKind Modifier = Sym->getKind();
-    if (Modifier != MCSymbolRefExpr::VK_None)
+    auto Spec = AVRMCExpr::VK_None;
+    if (Value.getSpecifier() != MCSymbolRefExpr::VK_None)
       return false;
-    if (specifier == VK_PM) {
-      Modifier = MCSymbolRefExpr::VariantKind(AVRMCExpr::VK_PM);
-    }
+    assert(!Value.getSubSym());
+    if (specifier == VK_PM)
+      Spec = AVRMCExpr::VK_PM;
 
-    Sym = MCSymbolRefExpr::create(&Sym->getSymbol(), Modifier, Context);
-    Result = MCValue::get(Sym, Value.getSymB(), Value.getConstant());
+    // TODO: don't attach specifier to MCSymbolRefExpr.
+    Result =
+        MCValue::get(Value.getAddSym(), nullptr, Value.getConstant(), Spec);
   }
 
   return true;
@@ -186,10 +184,6 @@ AVR::Fixups AVRMCExpr::getFixupKind() const {
   }
 
   return Kind;
-}
-
-void AVRMCExpr::visitUsedExpr(MCStreamer &Streamer) const {
-  Streamer.visitUsedExpr(*getSubExpr());
 }
 
 const char *AVRMCExpr::getName() const {

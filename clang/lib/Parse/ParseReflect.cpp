@@ -113,7 +113,7 @@ ExprResult Parser::ParseCXXReflectExpression(SourceLocation OpLoc) {
   }
 
   // Anything else must be a type-id (e.g., 'const int', 'Cls(*)(int)'.
-  if (isCXXTypeId(TypeIdAsReflectionOperand)) {
+  if (isCXXTypeId(TentativeCXXTypeIdContext::AsReflectionOperand)) {
     TypeResult TR = ParseTypeName(nullptr, DeclaratorContext::ReflectOperator);
     if (TR.isInvalid())
       return ExprError();
@@ -307,26 +307,4 @@ DeclResult Parser::ParseCXXSpliceAsNamespace() {
   ConsumeAnnotationToken();
 
   return Actions.ActOnCXXSpliceExpectingNamespace(Splice);
-}
-
-ParsedTemplateArgument Parser::ParseSpliceTemplateArgument() {
-  assert(Tok.is(tok::annot_splice) && "expected annot_splice");
-
-  SpliceResult SR = getSpliceAnnotation(Tok);
-  if (SR.isInvalid())
-    return ParsedTemplateArgument();
-  SpliceSpecifier *Splice = SR.get();
-
-  assert(!Splice->isSpecialization() &&
-         "splice-template-argument cannot be specialized");
-  ConsumeAnnotationToken();
-
-  ParsedTemplateArgument Result = Actions.ActOnSpliceTemplateArgument(Splice);
-
-  SourceLocation EllipsisLoc;
-  if (TryConsumeToken(tok::ellipsis, EllipsisLoc) && EllipsisLoc.isValid() &&
-      !Result.isInvalid()) {
-    Result = Actions.ActOnPackExpansion(Result, EllipsisLoc);
-  }
-  return Result;
 }

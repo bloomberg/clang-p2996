@@ -435,6 +435,46 @@ static_assert(members_of(^^NS,
 
 }  // namespace deduced_return_type
 
+                          // ========================
+                          // out_of_line_declarations
+                          // ========================
+
+namespace out_of_line_declarations {
+constexpr auto ctx = std::meta::access_context::current();
+
+namespace NS1 {
+struct A;
+
+}  // namespace NS1
+
+struct NS1::A {
+static void f(class C *);
+static auto g();
+};
+void NS1::A::f(NS1::C *) {}
+void gq(NS1::C *) {}
+
+static_assert(
+    *std::ranges::find(
+        [](const auto &r) -> const auto & { return r; }(
+            members_of(^^NS1, ctx)),
+        ^^NS1::C) ==
+    ^^NS1::C);
+
+namespace NS2 {
+namespace Inner {
+struct S {
+  friend void f();
+};
+} // namespace Inner
+void Inner::f() {}
+
+} // namespace NS2
+
+static_assert(1 == members_of(^^NS2, ctx).size());
+static_assert(2 == members_of(^^NS2::Inner, ctx).size());
+}  // namespace out_of_line_declarations
+
 int main() {
   class_members::usage_example();
 }
