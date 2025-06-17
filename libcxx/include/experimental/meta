@@ -2140,7 +2140,7 @@ consteval auto annotations_of(info r, info ty) -> vector<info> {
 }
 
 template<typename T>
-consteval optional<T> annotation_of_type(info r) {
+consteval optional<T> annotation_of_type(info r) requires equality_comparable<T> {
   auto v = annotations_of(r, ^^T);
   optional<T> result{};
   for (info a: v) {
