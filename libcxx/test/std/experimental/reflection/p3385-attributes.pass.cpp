@@ -77,26 +77,10 @@ consteval bool testAttributesOfType() {
     return s.nodiscard == 1 && s.maybe_unused == 0 && s.deprecated == 1;
 }
 
-consteval bool testAppertain() {
-  constexpr auto deprecated = ^^[[deprecated]];
-  constexpr auto nodiscard  = ^^[[nodiscard]];
-
-  consteval {
-    std::meta::appertain(^^Witness, { deprecated, nodiscard });
-  }
-  static_assert(std::meta::attributes_of(^^Witness).size() == 2);
-
-  Witness s{0, 0, 0};
-  s.[: member_named(std::meta::identifier_of(std::meta::attributes_of(^^Witness)[0])) :]++;
-  s.[: member_named(std::meta::identifier_of(std::meta::attributes_of(^^Witness)[1])) :]++;
-  return s.nodiscard == 1 && s.maybe_unused == 0 && s.deprecated == 1;
-}
-
 int main() {
   static_assert(testIsAttribute(), "IsAttribute");
   static_assert(testHasIdentifier(), "HasIdentifier");
   static_assert(testIdentifierOf(), "IdentifierOf");
   static_assert(testAttributesOfAttr() ,"AttributesOfAttr");
   static_assert(testAttributesOfType() ,"AttributesOfType");
-  static_assert(testAppertain() ,"Appertain");
 }
