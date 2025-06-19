@@ -738,22 +738,6 @@ public:
     return NewDecl;
   }
 
-  void Appertain(Decl *TargetDecl, ParsedAttr * attr,
-                 SourceLocation DefinitionLoc) override
-  {
-    size_t nbAttr = TargetDecl->hasAttrs() ? TargetDecl->getAttrs().size() : 0;
-
-    ParsedAttributesView view;
-    view.addAtEnd(attr);
-    S.ProcessDeclAttributeList(nullptr /*scope */, TargetDecl, view);
-
-    size_t nbAttrPost = TargetDecl->hasAttrs() ? TargetDecl->getAttrs().size() : 0;
-    if (++nbAttr != nbAttrPost) {
-      S.Diag(DefinitionLoc, diag::p3385_sema_appertain_failed)
-        << attr->getAttrName();
-    }
-  }
-
   CXX26AnnotationAttr *Annotate(Decl *TargetDecl, const APValue &Value,
                                 Decl *ContainingDecl,
                                 SourceLocation DefinitionLoc) override {

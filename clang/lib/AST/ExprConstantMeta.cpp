@@ -1886,60 +1886,6 @@ bool get_ith_attribute_of(APValue &Result, ASTContext &C,
   return false;
 }
 
-bool appertain(APValue &Result, ASTContext &C,
-               MetaActions &Meta, EvalFn Evaluator,
-               DiagFn Diagnoser, bool AllowInjection,
-               QualType ResultTy, SourceRange Range,
-               ArrayRef<Expr *> Args, Decl *ContainingDecl) {
-
-  assert(ResultTy == C.MetaInfoTy);
-
-  assert(Args[0]->getType()->isReflectionType());
-  assert(Args[1]->getType()->isReflectionType());
-
-  APValue Appertainee;
-  if (!Evaluator(Appertainee, Args[0], true))
-    return true;
-
-  APValue Value;
-  if (!Evaluator(Value, Args[1], true))
-    return true;
-
-  if (!AllowInjection)
-    return Diagnoser(Range.getBegin(),
-                      diag::metafn_injected_decl_non_plainly_consteval);
-
-
-  if (!Value.isReflectedAttribute()) {
-    Diagnoser(Range.getBegin(), diag::metafn_p3385_appertain)
-      << DescriptionOf(Value) << Range;
-    return true;
-  }
-
-  ArgsVector ArgExprs;
-  switch (Appertainee.getReflectionKind()) {
-    case ReflectionKind::Type: {
-      Decl *D = findTypeDecl(Appertainee.getReflectedType());
-      ParsedAttr* recoveredAttr = Value.getReflectedAttribute();
-      Meta.Appertain(D->getMostRecentDecl(), recoveredAttr, Range.getBegin());
-
-      return SetAndSucceed(Result, makeReflection(D));
-    }
-    case ReflectionKind::Declaration: {
-      Decl *D = Appertainee.getReflectedDecl();
-      ParsedAttr* recoveredAttr = Value.getReflectedAttribute();
-      Meta.Appertain(D->getMostRecentDecl(), recoveredAttr, Range.getBegin());
-
-      return SetAndSucceed(Result, makeReflection(D));
-    }
-    default:
-      Diagnoser(Range.getBegin(), diag::metafn_p3385_appertain)
-        << DescriptionOf(Appertainee) << Range;
-      return false;
-  }
-  llvm_unreachable("unknown reflection kind");
-}
-
 bool get_begin_enumerator_decl_of(APValue &Result, ASTContext &C,
                                   MetaActions &Meta, EvalFn Evaluator,
                                   DiagFn Diagnoser, bool AllowInjection,

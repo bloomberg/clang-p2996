@@ -147,9 +147,6 @@ public:
                                         Decl *ContainingDecl,
                                         SourceLocation DefinitionLoc) = 0;
 
-  virtual void Appertain(Decl *TargetDecl, ParsedAttr * attr,
-                         SourceLocation DefinitionLoc) = 0;
-
                         // ============================
                         // Annotation Synthesis Support
                         // ============================

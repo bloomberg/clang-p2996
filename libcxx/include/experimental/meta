@@ -360,8 +360,6 @@ consteval auto annotate(info) -> info;
 // Attributes reflection (P3385)
 consteval auto is_attribute(info) -> bool;
 consteval auto attributes_of(info r) -> vector<info>;
-template <reflection_range R = initializer_list<info>>
-  consteval auto appertain(info, R&&) -> info;
 
 // modeling access control (P3547)
 struct access_context {
@@ -549,7 +547,6 @@ enum : unsigned {
   // P3385 attributes reflection
   __metafn_get_ith_attribute_of,
   __metafn_is_attribute,
-  __metafn_appertain,
 
   // P3493 accessibility metafunctions
   __metafn_access_context,
@@ -2211,16 +2208,6 @@ consteval auto attributes_of(info r) -> vector<info> {
   using range = __range_of_infos::range<iterator>;
   auto rng = range{r};
   return vector<info>{rng.begin(), rng.end()};
-}
-
-// Appertain each attributes in v to r
-template <reflection_range R = initializer_list<info>>
-consteval auto appertain(info r, R&& v) -> info {
-  info last = r;
-  for (auto vi: v) {
-    last = __metafunction(detail::__metafn_appertain, r, vi);
-  }
-  return last;
 }
 
 #endif
