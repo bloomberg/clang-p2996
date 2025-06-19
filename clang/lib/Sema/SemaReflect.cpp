@@ -885,9 +885,12 @@ ExprResult Sema::ActOnCXXReflectExpr(SourceLocation OpLoc,
   if (Found.isAmbiguous()) {
     return ExprError();
   } else if (Found.isOverloadedResult() && Found.end() - Found.begin() > 1) {
-    Diag(Id.StartLocation, diag::err_reflect_overload_set)
-        << Id.getSourceRange();
-    return ExprError();
+    Expr *Result = UnresolvedLookupExpr::Create(
+          Context, nullptr, SS.getWithLocInContext(Context),
+          SourceLocation(), NameInfo, false, TArgs, Found.begin(),
+          Found.end(), false, false);
+
+    return BuildCXXReflectExpr(OpLoc, Result);
   }
 
   NamedDecl *ND = Found.getRepresentativeDecl();

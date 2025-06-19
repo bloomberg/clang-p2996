@@ -4792,6 +4792,9 @@ void Parser::ParseCXX11AttributeSpecifierInternal(ParsedAttributes &Attrs,
   checkCompoundToken(OpenLoc, tok::l_square, CompoundToken::AttrBegin);
   ConsumeBracket();
 
+  bool AllowAnnotations = getLangOpts().AnnotationAttributes &&
+                         Tok.is(tok::equal);
+
   SourceLocation CommonScopeLoc;
   IdentifierInfo *CommonScopeName = nullptr;
   if (Tok.is(tok::kw_using)) {
@@ -4830,15 +4833,23 @@ void Parser::ParseCXX11AttributeSpecifierInternal(ParsedAttributes &Attrs,
     SourceLocation ScopeLoc, AttrLoc;
     IdentifierInfo *ScopeName = nullptr, *AttrName = nullptr;
 
-    if (Tok.is(tok::equal) && getLangOpts().AnnotationAttributes) {
-      // This is a C++2c annotation.
-      if (CommonScopeName) {
-        Diag(Tok.getLocation(), diag::err_annotation_with_using);
-        SkipUntil(tok::r_square, tok::colon, tok::r_splice, StopBeforeMatch);
+    if (AllowAnnotations) {
+      if (Tok.is(tok::equal)) {
+        // This is a C++2c annotation.
+        if (CommonScopeName) {
+          Diag(Tok.getLocation(), diag::err_annotation_with_using);
+          SkipUntil(tok::r_square, tok::colon, tok::r_splice, StopBeforeMatch);
+        } else {
+          ParseAnnotationSpecifier(Attrs, EndLoc);
+        }
+        continue;
       } else {
-        ParseAnnotationSpecifier(Attrs, EndLoc);
+        Diag(Tok.getLocation(), diag::err_mixed_attributes_and_annotations);
+        SkipUntil(tok::r_square, tok::colon, tok::r_splice, StopBeforeMatch);
       }
-      continue;
+    } else if (Tok.is(tok::equal)) {
+      Diag(Tok.getLocation(), diag::err_mixed_attributes_and_annotations);
+      SkipUntil(tok::r_square, tok::colon, tok::r_splice, StopBeforeMatch);
     }
 
     AttrName = TryParseCXX11AttributeIdentifier(

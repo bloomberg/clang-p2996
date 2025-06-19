@@ -366,7 +366,7 @@ struct access_context {
   access_context() = delete;
 
   consteval auto scope() const -> info;
-  consteval auto naming_class() const -> info;
+  consteval auto designating_class() const -> info;
 
   static consteval auto current() noexcept -> access_context;
   static consteval auto unprivileged() noexcept -> access_context;
@@ -999,12 +999,12 @@ consteval auto is_enumerator(info r) -> bool {
 }
 
 class access_context {
-  consteval access_context(info scope, info naming_class) noexcept
-      : d_scope{scope}, d_naming_class{naming_class} { }
+  consteval access_context(info scope, info designating_class) noexcept
+      : d_scope{scope}, d_designating_class{designating_class} { }
 
 public:
   const info d_scope;
-  const info d_naming_class;
+  const info d_designating_class;
 
   consteval access_context() = delete;
 
@@ -1012,7 +1012,7 @@ public:
   consteval access_context(access_context &&) noexcept = default;
 
   consteval info scope() const { return d_scope; }
-  consteval info naming_class() const { return d_naming_class; }
+  consteval info designating_class() const { return d_designating_class; }
 
   [[clang::instantiation_dependent]]
   static consteval access_context current() noexcept {
@@ -1027,11 +1027,11 @@ public:
     return access_context{info{}, info{}};
   }
 
-  consteval access_context via(info new_naming_class) const {
-    if (!is_class_type(new_naming_class))
-      throw "naming class must be a reflection of a class type";
+  consteval access_context via(info new_designating_class) const {
+    if (!is_class_type(new_designating_class))
+      throw "designating class must be a reflection of a class type";
 
-    return access_context{d_scope, new_naming_class};
+    return access_context{d_scope, new_designating_class};
   }
 };
 
@@ -1042,7 +1042,7 @@ consteval auto is_accessible(info r, access_context ctx) -> bool {
     return true;
 
   return __metafunction(detail::__metafn_is_accessible,
-                        r, ctx.scope(), ctx.naming_class());
+                        r, ctx.scope(), ctx.designating_class());
 }
 
 consteval auto members_of(info r, access_context ctx) -> vector<info> {

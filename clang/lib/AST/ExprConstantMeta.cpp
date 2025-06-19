@@ -5607,13 +5607,12 @@ bool alignment_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   }
   case ReflectionKind::Declaration: {
     const ValueDecl *VD = cast<ValueDecl>(RV.getReflectedDecl());
-    size_t Align = C.getTypeAlignInChars(VD->getType()).getQuantity();
 
     if (const FieldDecl *FD = dyn_cast<const FieldDecl>(VD)) {
       if (FD->isBitField())
         return true;
     }
-    Align = C.getDeclAlign(VD, true).getQuantity();
+    size_t Align = C.getDeclAlign(VD, false).getQuantity();
 
     return SetAndSucceed(Result,
                          APValue(C.MakeIntValue(Align, C.getSizeType())));

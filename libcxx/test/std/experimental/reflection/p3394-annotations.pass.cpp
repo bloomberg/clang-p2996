@@ -43,11 +43,11 @@ static_assert(annotations_of(^^NS).size() == 0);
                                 // =============
 
 namespace non_dependent {
-[[maybe_unused, =1, =1, =2, =1.0f]] void fn();
-struct [[maybe_unused, =3, =3, =4, =2.0f]] S;
-template <typename> struct [[maybe_unused, =5, =5, =6, =3.0f]] TCls {};
-template <typename> [[maybe_unused, =5, =5, =6, =3.0f]] void TFn();
-namespace [[maybe_unused, =7, =7, =8, =4.0f]] NS {}
+[[=1, =1, =2, =1.0f]] void fn();
+struct [[=3, =3, =4, =2.0f]] S;
+template <typename> struct [[=5, =5, =6, =3.0f]] TCls {};
+template <typename> [[=5, =5, =6, =3.0f]] void TFn();
+namespace [[=7, =7, =8, =4.0f]] NS {}
 
 static_assert((annotations_of(^^fn) |
                   std::views::transform(std::meta::constant_of) |
@@ -153,7 +153,7 @@ template <std::meta::info R>
 struct TCls {};
 
 template <std::meta::info R> requires (is_function(R))
-struct [[=int(annotations_of(R).size()), maybe_unused]] TCls<R> {};
+struct [[=int(annotations_of(R).size())]] TCls<R> {};
 
 static_assert(annotations_of(^^TCls<^^::>).size() == 0);
 static_assert(annotation_of_type<int>(^^TCls<^^fn>) == 3);

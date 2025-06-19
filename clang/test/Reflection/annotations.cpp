@@ -20,14 +20,14 @@ namespace basic_parsing {
 
 consteval int fn() { return 1; }
 
-[[maybe_unused, =42, =basic_parsing::fn(), maybe_unused]]
+[[=42, =basic_parsing::fn()]]
 void annFn();
 
-struct [[maybe_unused, =42, =basic_parsing::fn(), maybe_unused]] S;
+struct [[=42, =basic_parsing::fn()]] S;
 
 template <typename>
-  struct [[maybe_unused, =42, =basic_parsing::fn(), maybe_unused]] TCls;
+  struct [[=42, =basic_parsing::fn()]] TCls;
 
-namespace [[maybe_unused, =42, =basic_parsing::fn(), maybe_unused]] NS {};
+namespace [[=42, =basic_parsing::fn()]] NS {};
 
 }  // namespace basic_parsing

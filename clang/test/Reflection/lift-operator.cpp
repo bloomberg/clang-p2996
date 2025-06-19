@@ -199,6 +199,18 @@ void fn(int p) {
 }
 }  // namespace requires_expressions
 
+                             // ===================
+                             // overload_resolution
+                             // ===================
+
+namespace overload_resolution {
+template <typename T> void fn() requires (^^T != ^^int);
+template <typename T> void fn() requires (^^T == ^^int);
+template <typename T> void fn() requires (sizeof(T) == sizeof(int));
+
+[[maybe_unused]] constexpr auto a = ^^fn<char>;  // OK
+}  // namespace overload_resolution
+
                    // =======================================
                    // bb_clang_p2996_issue_35_regression_test
                    // =======================================
