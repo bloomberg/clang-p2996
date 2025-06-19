@@ -697,12 +697,6 @@ static bool is_attribute(APValue &Result, ASTContext &C,
                          QualType ResultTy, SourceRange Range,
                          ArrayRef<Expr *> Args, Decl *ContainingDecl);
 
-static bool appertain(APValue &Result, ASTContext &C,
-                         MetaActions &Meta, EvalFn Evaluator,
-                         DiagFn Diagnoser, bool AllowInjection,
-                         QualType ResultTy, SourceRange Range,
-                         ArrayRef<Expr *> Args, Decl *ContainingDecl);
-
                           // =========================
                           // Accessibility API (P3493)
                           // =========================
@@ -865,7 +859,6 @@ static constexpr Metafunction Metafunctions[] = {
   // P3385 attributes reflection
   { Metafunction::MFRK_metaInfo, 3, 3, get_ith_attribute_of },
   { Metafunction::MFRK_bool, 1, 1, is_attribute },
-  { Metafunction::MFRK_metaInfo, 2, 2, appertain },
 
   // P3493 accessibility extensions
   { Metafunction::MFRK_metaInfo, 0, 0, current_access_context },
