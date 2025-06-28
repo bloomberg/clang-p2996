@@ -22,6 +22,7 @@
 #include <meta>
 
 #include <print>
+#include <ranges>
 
 constexpr auto ctx = std::meta::access_context::unchecked();
 

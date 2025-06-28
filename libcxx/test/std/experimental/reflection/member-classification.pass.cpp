@@ -17,7 +17,7 @@
 // [reflection]
 
 #include <meta>
-
+#include <ranges>
 
 constexpr auto ctx = std::meta::access_context::unchecked();
 
@@ -406,7 +406,7 @@ struct S {
   void noexcept_true_method() noexcept(true);
   void noexcept_false_method() noexcept(false);
   void not_noexcept_method();
-  
+
   // virtual methods
   // w/o defining it complains about vtable
   virtual void noexcept_virtual_method() noexcept {}

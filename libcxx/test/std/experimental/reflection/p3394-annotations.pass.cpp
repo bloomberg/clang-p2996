@@ -17,7 +17,7 @@
 // [reflection]
 
 #include <meta>
-
+#include <ranges>
 
                                  // ==========
                                  // empty_case

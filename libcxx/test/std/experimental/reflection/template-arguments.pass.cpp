@@ -16,7 +16,7 @@
 // [reflection]
 
 #include <meta>
-
+#include <ranges>
 
 constexpr auto ctx = std::meta::access_context::unchecked();
 

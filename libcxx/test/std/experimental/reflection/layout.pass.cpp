@@ -16,6 +16,7 @@
 // [reflection]
 
 #include <meta>
+#include <ranges>
 
 
 using int_alias = int;

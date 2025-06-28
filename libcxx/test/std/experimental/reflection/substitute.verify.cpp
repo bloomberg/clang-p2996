@@ -18,6 +18,7 @@
 #include <meta>
 
 #include <queue>
+#include <ranges>
 #include <tuple>
 #include <type_traits>
 #include <utility>

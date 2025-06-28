@@ -20,6 +20,7 @@
 #include <meta>
 
 #include <print>
+#include <ranges>
 #include <tuple>
 
 

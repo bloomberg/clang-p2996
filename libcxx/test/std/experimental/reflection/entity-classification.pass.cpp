@@ -17,7 +17,7 @@
 
 #include <meta>
 #include <tuple>
-
+#include <ranges>
 
 constexpr auto ctx = std::meta::access_context::current();
 
@@ -586,7 +586,7 @@ static_assert(is_structured_binding(^^z2));
 static_assert(!is_variable(^^x2));
 static_assert(!is_variable(^^y2));
 static_assert(!is_variable(^^z2));
-// "wrapped" type of each element is 
+// "wrapped" type of each element is
 //     std::tuple_element<I, std::tuple<int,int,int>>::type
 // where I is index of tuple field
 

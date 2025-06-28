@@ -19,7 +19,7 @@
 #include <meta>
 
 #include <array>
-
+#include <ranges>
 
 constexpr auto ctx = std::meta::access_context::unchecked();
 
@@ -177,7 +177,7 @@ struct Cls {
   template <typename T> consteval Cls(T) : value(sizeof(T)) {}
 };
 
-constexpr auto ctor = 
+constexpr auto ctor =
   (members_of(^^Cls, ctx) |
       std::views::filter(std::meta::is_constructor) |
       std::views::filter(std::meta::is_user_provided)).front();

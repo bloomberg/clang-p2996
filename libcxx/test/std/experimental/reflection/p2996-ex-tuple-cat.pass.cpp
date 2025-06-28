@@ -20,6 +20,7 @@
 
 #include <meta>
 
+#include <functional>
 #include <print>
 #include <utility>
 #include <vector>

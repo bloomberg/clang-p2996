@@ -398,8 +398,13 @@ template <reflection_range R1 = initializer_list<info>,
 #include <bit>
 #include <initializer_list>
 #include <optional>
-#include <ranges>
+
+#include <__ranges/access.h>
+#include <__ranges/concepts.h>
+#include <__ranges/size.h>
+
 #include <source_location>
+#include <span>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -596,7 +601,7 @@ public:
   }
 
   // pre-incr ++itr;
-  consteval iterator operator++() {
+  consteval iterator& operator++() {
     m_currInfoItr = m_next(m_currInfoItr, m_reflectedEntity, m_nextIndex++);
     return *this;
   }
@@ -637,6 +642,11 @@ public:
   consteval iterator end() const
   {
     return m_last;
+  }
+
+  consteval vector<info> to_vec() const
+  {
+    return vector<info>(m_first, m_last);
   }
 };
 
@@ -926,7 +936,7 @@ consteval auto can_substitute(info templ, R &&args) -> bool {
     sub = __metafunction(detail::__metafn_substitute, templ,
                          ranges::data(args), ranges::size(args), false);
   } else {
-    vector vargs = args | ranges::to<vector>();
+    vector vargs(from_range, args);
     sub = __metafunction(detail::__metafn_substitute, templ,
                          vargs.data(), vargs.size(), false);
   }
@@ -941,7 +951,7 @@ consteval auto substitute(info templ, R &&args) -> info {
     return __metafunction(detail::__metafn_substitute, templ,
                           ranges::data(args), ranges::size(args), true);
   } else {
-    vector vargs = args | ranges::to<vector>();
+    vector vargs(from_range, args);
     return __metafunction(detail::__metafn_substitute, templ, vargs.data(),
                           vargs.size(), true);
   }
@@ -1015,19 +1025,20 @@ consteval auto is_accessible(info r, access_context ctx) -> bool {
                         r, ctx.scope(), ctx.designating_class());
 }
 
+template <class P>
+consteval auto __filtered(vector<info> v, P pred) -> vector<info> {
+  erase_if(v, [=](info i) { return !pred(i); });
+  return v;
+}
+
 consteval auto members_of(info r, access_context ctx) -> vector<info> {
   using iterator =
       __range_of_infos::iterator<__range_of_infos::front_member_of_fn,
                                  __range_of_infos::next_member_of_fn,
                                  __range_of_infos::map_decl_to_entity_fn>;
   using range = __range_of_infos::range<iterator>;
-  auto rng = range{r};
 
-  vector<info> v {rng.begin(), rng.end()};
-  return vector<info>{
-      from_range,
-      v | views::filter([=](info r) { return is_accessible(r, ctx); })
-  };
+  return __filtered(range(r).to_vec(), [=](info r) { return is_accessible(r, ctx); });
 }
 
 // Returns whether the reflected entity is a namespace.
@@ -1044,13 +1055,8 @@ consteval auto bases_of(info r, access_context ctx) -> vector<info> {
                                 __range_of_infos::next_base_of_fn,
                                 __range_of_infos::map_identity_fn>;
   using range = __range_of_infos::range<iterator>;
-  auto rng = range{r};
 
-  vector<info> v {rng.begin(), rng.end()};
-  return vector<info>{
-      from_range,
-      v | views::filter([=](info r) { return is_accessible(r, ctx); })
-  };
+  return __filtered(range(r).to_vec(), [=](info r) { return is_accessible(r, ctx); });
 }
 
 // Returns whether the reflected entity is a variable.
@@ -1063,9 +1069,7 @@ consteval auto static_data_members_of(info r,
   if (is_namespace(r))
     throw "Namespaces cannot have static data members";
 
-  return members_of(r, ctx) |
-         views::filter(is_variable) |
-         ranges::to<vector>();
+  return __filtered(members_of(r, ctx), is_variable);
 }
 
 consteval auto nonstatic_data_members_of(info r,
@@ -1073,9 +1077,7 @@ consteval auto nonstatic_data_members_of(info r,
   if (is_namespace(r))
     throw "Namespaces cannot have non-static data members";
 
-  return members_of(r, ctx) |
-         views::filter(is_nonstatic_data_member) |
-         ranges::to<vector>();
+  return __filtered(members_of(r, ctx), is_nonstatic_data_member);
 }
 
 // Returns true if the reflected entity is an enumerable type.
@@ -2021,9 +2023,9 @@ consteval auto annotations_of(info r, info ty) -> vector<info> {
   if (!is_type(ty))
     throw "Expected a reflection of a type";
 
-  return annotations_of(r) | views::filter([=](info annot) {
-    return type_of(annot) == ty;
-  }) | ranges::to<vector>();
+  return __filtered(annotations_of(r), [=](info annot) {
+    return remove_const(type_of(annot)) == remove_const(ty);
+  });
 }
 
 template<typename T>
@@ -2089,7 +2091,7 @@ consteval auto reflect_invoke(info target, R &&args) -> info {
                           static_cast<info *>(nullptr), 0,
                           ranges::data(args), ranges::size(args));
   } else {
-    vector vargs = args | ranges::to<vector>();
+    vector vargs(from_range, args);
     return __metafunction(detail::__metafn_reflect_invoke, target,
                           static_cast<info *>(nullptr), 0,
                           vargs.data(), vargs.size());
@@ -2105,19 +2107,19 @@ consteval auto reflect_invoke(info target, R1 &&targs, R2 &&args) -> info {
                             ranges::data(targs), ranges::size(targs),
                             ranges::data(args), ranges::size(args));
     } else {
-      vector vargs = args | ranges::to<vector>();
+      vector vargs(from_range, args);
       return __metafunction(detail::__metafn_reflect_invoke, target,
                             ranges::data(targs), ranges::size(targs),
                             vargs.data(), vargs.size());
     }
   } else {
-    vector vtargs = targs | ranges::to<vector>();
+    vector vtargs(from_range, targs);
     if constexpr (ranges::contiguous_range<R2>) {
       return __metafunction(detail::__metafn_reflect_invoke, target,
                             vtargs.data(), vtargs.size(),
                             ranges::data(args), ranges::size(args));
     } else {
-      vector vargs = args | ranges::to<vector>();
+      vector vargs(from_range, args);
       return __metafunction(detail::__metafn_reflect_invoke, target,
                             vtargs.data(), vtargs.size(),
                             vargs.data(), vargs.size());
@@ -2226,7 +2228,7 @@ consteval auto define_aggregate(info class_type, R &&members) -> info {
     return __metafunction(detail::__metafn_define_aggregate, class_type,
                           ranges::size(members), ranges::data(members));
   } else {
-    vector vmembers = members | ranges::to<vector>();
+    vector vmembers(from_range, members);
     return __metafunction(detail::__metafn_define_aggregate, class_type,
                           vmembers.size(), vmembers.data());
   }
@@ -2342,6 +2344,14 @@ consteval auto reflect_constant_string(std::string_view In) -> info {
   return substitute(^^__define_static::FixedArray, Args);
 }
 
+consteval auto reflect_constant_string(std::u8string_view In) -> info {
+  vector Args = {^^char8_t};
+  for (char8_t C : In)
+    Args.push_back(reflect_constant(C));
+  Args.push_back(reflect_constant(char8_t{}));
+  return substitute(^^__define_static::FixedArray, Args);
+}
+
 _LIBCPP_END_NAMESPACE_REFLECTION_V2
 
 _LIBCPP_BEGIN_NAMESPACE_STD
@@ -2358,15 +2368,13 @@ consteval auto define_static_array(R &&elems)
 
 // Returns a static string having the provided contents.
 consteval auto define_static_string(string_view in) -> const char * {
-  const char nullterm[1] = {0};
-  vector<span<const char>> v = {in, nullterm};
-  return define_static_array(views::join(v)).data();
+  meta::info array = meta::reflect_constant_string(in);
+  return extract<const char*>(array);
 }
 
 consteval auto define_static_string(u8string_view in) -> const char8_t * {
-  const char8_t nullterm[1] = {0};
-  vector<span<const char8_t>> v = {in, nullterm};
-  return define_static_array(views::join(v)).data();
+  meta::info array = meta::reflect_constant_string(in);
+  return extract<const char8_t*>(array);
 }
 
 _LIBCPP_END_NAMESPACE_STD
