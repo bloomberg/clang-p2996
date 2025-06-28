@@ -1419,106 +1419,6 @@ consteval auto reflect_function(T &r) -> info {
   return __metafunction(detail::__metafn_reflect_result, type_of(^^r), r);
 }
 
-// Representation of a data member which may be passed to 'data_member_spec'.
-struct data_member_options {
-  struct name_type {
-    variant<u8string, string> impl;
-
-    template <typename T> requires constructible_from<u8string, T>
-    consteval name_type(T &&in) : impl(in_place_type<u8string>, in) {}
-
-    template <typename T> requires constructible_from<string, T>
-    consteval name_type(T &&in) : impl(in_place_type<string>, in) {}
-
-    private:
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunused-private-field"
-      info unused = ^^::;
-#pragma clang diagnostic pop
-  };
-
-  optional<name_type> name = nullopt;
-  optional<int> alignment = nullopt;
-  optional<int> width = nullopt;
-  bool no_unique_address = false;
-};
-
-// Returns the alignment of the reflected entity.
-consteval auto alignment_of(info r) -> size_t {
-  return __metafunction(detail::__metafn_alignment_of, r);
-}
-
-// Returns a reflection representing a description of a data member, which may
-// be used with 'define_aggregate' to define a record type.
-consteval auto data_member_spec(info member_type,
-                                data_member_options options = {}) -> info {
-  if (!is_type(member_type))
-    throw "'member_type' must represent a type";
-
-  auto name = options.name.value_or(u8"").impl;
-  int alignment = options.alignment.value_or(0);
-  int width = options.width.value_or(0);
-  bool no_unique_address = options.no_unique_address;
-
-  auto validate = [&](auto name_string) {
-    if (width) {
-      if (alignment)
-        throw "Cannot specify both width and alignment for data member";
-      if (no_unique_address)
-        throw "Cannot specify both width and no_unique_address for data member";
-      if (width < 0)
-        throw "Cannot specify a negative width for data member";
-      if (!extract<bool>(substitute(^^is_integral_v, {member_type})) &&
-          !extract<bool>(substitute(^^is_enum_v, {member_type})))
-        throw "Bit field must have integral or enumeral type";
-    } else {
-      if (options.width.has_value() && !name_string.empty())
-        throw "Bit-fields of zero width must be unnamed";
-    }
-
-    if (alignment) {
-      if (alignment < int(alignment_of(member_type)))
-        throw "Cannot specify an alignment less than that of the member type";
-      if (alignment <= 0 || ((alignment - 1) & alignment))
-        throw "Alignment specifier must be a non-negative power of 2";
-    }
-  };
-
-  if (holds_alternative<u8string>(name)) {
-    const u8string &s = get<u8string>(name);
-    validate(s);
-    return __metafunction(detail::__metafn_data_member_spec,
-                          member_type,
-                          !s.empty(), s.size(), ^^const char8_t, s.data(),
-                          options.alignment.has_value(), alignment,
-                          options.width.has_value(), width,
-                          no_unique_address);
-  } else {
-    const string &s = get<string>(name);
-    validate(s);
-    return __metafunction(detail::__metafn_data_member_spec,
-                          member_type,
-                          !s.empty(), s.size(), ^^const char, s.data(),
-                          options.alignment.has_value(), alignment,
-                          options.width.has_value(), width,
-                          no_unique_address);
-  }
-}
-
-// Completes the definition of the record type reflected by 'class_type' with
-// the members described by the reflections in the provided range.
-template <reflection_range R = initializer_list<info>>
-consteval auto define_aggregate(info class_type, R &&members) -> info {
-  if constexpr (ranges::contiguous_range<R>) {
-    return __metafunction(detail::__metafn_define_aggregate, class_type,
-                          ranges::size(members), ranges::data(members));
-  } else {
-    vector vmembers = members | ranges::to<vector>();
-    return __metafunction(detail::__metafn_define_aggregate, class_type,
-                          vmembers.size(), vmembers.data());
-  }
-}
-
 struct member_offset {
   ptrdiff_t bytes;
   ptrdiff_t bits;
@@ -2217,6 +2117,113 @@ consteval auto reflect_invoke(info target, R1 &&targs, R2 &&args) -> info {
                             vtargs.data(), vtargs.size(),
                             vargs.data(), vargs.size());
     }
+  }
+}
+
+
+// Representation of a data member which may be passed to 'data_member_spec'.
+struct data_member_options {
+  struct name_type {
+    bool is_u8;
+    u8string u8;
+    string s;
+
+    template <typename T> requires constructible_from<u8string, T>
+    consteval name_type(T &&in) : is_u8(true), u8((T&&)in) {}
+
+    template <typename T> requires constructible_from<string, T>
+    consteval name_type(T &&in) : is_u8(false), s((T&&)in) {}
+
+    private:
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-private-field"
+      info unused = ^^::;
+#pragma clang diagnostic pop
+  };
+
+  optional<name_type> name = nullopt;
+  optional<int> alignment = nullopt;
+  optional<int> width = nullopt;
+  bool no_unique_address = false;
+};
+
+// Returns the alignment of the reflected entity.
+consteval auto alignment_of(info r) -> size_t {
+  return __metafunction(detail::__metafn_alignment_of, r);
+}
+
+// Returns a reflection representing a description of a data member, which may
+// be used with 'define_aggregate' to define a record type.
+consteval auto data_member_spec(info member_type,
+                                data_member_options options = {}) -> info {
+  if (!is_type(member_type))
+    throw "'member_type' must represent a type";
+
+  bool has_name = options.name.has_value();
+  int alignment = options.alignment.value_or(0);
+  int width = options.width.value_or(0);
+  bool no_unique_address = options.no_unique_address;
+
+  if (width) {
+    if (alignment)
+      throw "Cannot specify both width and alignment for data member";
+    if (no_unique_address)
+      throw "Cannot specify both width and no_unique_address for data member";
+    if (width < 0)
+      throw "Cannot specify a negative width for data member";
+    if (!is_integral_type(member_type) && !is_enum_type(member_type))
+      throw "Bit field must have integral or enumeration type";
+  } else {
+    if (options.width.has_value() && has_name)
+      throw "Bit-fields of zero width must be unnamed";
+  }
+
+  if (alignment) {
+    if (alignment < int(alignment_of(member_type)))
+      throw "Cannot specify an alignment less than that of the member type";
+    if (alignment <= 0 || ((alignment - 1) & alignment))
+      throw "Alignment specifier must be a non-negative power of 2";
+  }
+
+  if (has_name) {
+    if (options.name->is_u8) {
+      const u8string &s = options.name->u8;
+      return __metafunction(detail::__metafn_data_member_spec,
+                            member_type,
+                            !s.empty(), s.size(), ^^const char8_t, s.data(),
+                            options.alignment.has_value(), alignment,
+                            options.width.has_value(), width,
+                            no_unique_address);
+    } else {
+      const string &s = options.name->s;
+      return __metafunction(detail::__metafn_data_member_spec,
+                            member_type,
+                            !s.empty(), s.size(), ^^const char, s.data(),
+                            options.alignment.has_value(), alignment,
+                            options.width.has_value(), width,
+                            no_unique_address);
+    }
+  } else {
+    return __metafunction(detail::__metafn_data_member_spec,
+      member_type,
+      false, 0, ^^const char, "",
+      options.alignment.has_value(), alignment,
+      options.width.has_value(), width,
+      no_unique_address);
+  }
+}
+
+// Completes the definition of the record type reflected by 'class_type' with
+// the members described by the reflections in the provided range.
+template <reflection_range R = initializer_list<info>>
+consteval auto define_aggregate(info class_type, R &&members) -> info {
+  if constexpr (ranges::contiguous_range<R>) {
+    return __metafunction(detail::__metafn_define_aggregate, class_type,
+                          ranges::size(members), ranges::data(members));
+  } else {
+    vector vmembers = members | ranges::to<vector>();
+    return __metafunction(detail::__metafn_define_aggregate, class_type,
+                          vmembers.size(), vmembers.data());
   }
 }
 
