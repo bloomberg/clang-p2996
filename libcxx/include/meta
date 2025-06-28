@@ -395,7 +395,6 @@ template <reflection_range R1 = initializer_list<info>,
  */
 
 #include <__config>
-#include <algorithm>
 #include <bit>
 #include <initializer_list>
 #include <optional>
@@ -2053,17 +2052,23 @@ consteval auto annotate(info entity, info val) -> info {
 
 #endif  // __has_feature(annotation_attributes)
 
+consteval auto __any_inaccessible(vector<info> const& r, access_context ctx) -> bool {
+  for (info i : r) {
+    if (!is_accessible(i, ctx)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 consteval auto has_inaccessible_nonstatic_data_members(
         info r,
         access_context ctx) -> bool {
-  return !ranges::all_of(
-        nonstatic_data_members_of(r, access_context::unchecked()),
-        [=](info m) { return is_accessible(m, ctx); });
+  return __any_inaccessible(nonstatic_data_members_of(r, access_context::unchecked()), ctx);
 }
 
 consteval auto has_inaccessible_bases(info r, access_context ctx) -> bool {
-  return !ranges::all_of(bases_of(r, access_context::unchecked()),
-                         [=](info b) { return is_accessible(b, ctx); });
+  return __any_inaccessible(bases_of(r, access_context::unchecked()), ctx);
 }
 
              // ===================================================
