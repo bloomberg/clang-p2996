@@ -561,12 +561,19 @@ static void profileReflection(llvm::FoldingSetNodeID &ID, APValue V) {
     return;
   case ReflectionKind::Attribute: {
     ParsedAttr* attr = V.getReflectedAttribute();
+    if (attr->hasScope()) {
+      // Note here we do not enforce that only gnu, clang, etc.
+      // be valid reflectable namespace... we assume it was done
+      // before...
+      ID.AddString(attr->getScopeName()->getName());
+    }
     ID.AddString(attr->getAttrName()->getName());
-    if(attr->getNumArgs() > 0)
-    {
-        auto *Arg0 = attr->getArgAsExpr(0);
+    for (size_t i = 0; i != attr->getNumArgs(); ++i) {
+        Expr *Arg0 = attr->getArgAsExpr(i);
         StringLiteral *Literal =
           dyn_cast<StringLiteral>(Arg0->IgnoreParenCasts());
+        // P3385 TODO support other args type too when computing
+        // the nodeID
         if(Literal) {
           StringRef String = Literal->getString();
           ID.AddInteger(String.size());

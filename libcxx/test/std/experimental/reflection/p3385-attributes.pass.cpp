@@ -71,10 +71,17 @@ consteval bool testAttributesOfAttr() {
 consteval bool testAttributesOfType() {
   static_assert(std::meta::attributes_of(^^Foo).size() == 2);
   Witness s{0, 0, 0};
-    s.[: member_named(std::meta::identifier_of(std::meta::attributes_of(^^Foo)[0])) :]++;
-    s.[: member_named(std::meta::identifier_of(std::meta::attributes_of(^^Foo)[1])) :]++;
+  s.[: member_named(std::meta::identifier_of(std::meta::attributes_of(^^Foo)[0])) :]++;
+  s.[: member_named(std::meta::identifier_of(std::meta::attributes_of(^^Foo)[1])) :]++;
 
-    return s.nodiscard == 1 && s.maybe_unused == 0 && s.deprecated == 1;
+  return s.nodiscard == 1 && s.maybe_unused == 0 && s.deprecated == 1;
+}
+
+consteval bool testImplementationDefinedVariant() {
+  constexpr auto r = ^^[[clang::warn_unused_result("I'm the real nodiscard")]];
+  constexpr auto s = ^^[[nodiscard("I'm the real nodiscard")]];
+  return std::meta::identifier_of(std::meta::attributes_of(r)[0]) == "warn_unused_result"
+    && r != s;
 }
 
 int main() {
@@ -83,4 +90,5 @@ int main() {
   static_assert(testIdentifierOf(), "IdentifierOf");
   static_assert(testAttributesOfAttr() ,"AttributesOfAttr");
   static_assert(testAttributesOfType() ,"AttributesOfType");
+  static_assert(testImplementationDefinedVariant() ,"ImplementationDefinedVariant");
 }

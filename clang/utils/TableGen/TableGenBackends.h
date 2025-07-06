@@ -87,6 +87,8 @@ void EmitClangAttrNodeTraverse(const llvm::RecordKeeper &Records,
                                llvm::raw_ostream &OS);
 void EmitClangAttrDocTable(const llvm::RecordKeeper &Records,
                            llvm::raw_ostream &OS);
+void EmitClangAttrReflection(const llvm::RecordKeeper &Records,
+                             llvm::raw_ostream &OS);
 
 void EmitClangBuiltins(const llvm::RecordKeeper &Records,
                        llvm::raw_ostream &OS);

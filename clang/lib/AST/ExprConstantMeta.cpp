@@ -21,6 +21,7 @@
 #include "clang/AST/DeclTemplate.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/Metafunction.h"
+#include "clang/AST/PrettyPrinter.h"
 #include "clang/AST/RecordLayout.h"
 #include "clang/AST/Reflection.h"
 #include "clang/AST/Type.h"
@@ -1715,11 +1716,20 @@ bool DiagnoseReflectionKind(DiagFn Diagnoser, SourceRange Range,
 
 llvm::SmallVector<const Attr*, 8> static collectUniqueCxx11Attrs(const Decl *D) {
   llvm::SmallVector<const Attr*, 8> Result;
-  llvm::SmallSet<attr::Kind, 8> SeenKinds;
+  // We ll persist a representation of the attribute != kind otherwise
+  // we would count [[clang::warn_unused_result]] and [[nodiscard]] as
+  // the same attribute which we do not want...
+  llvm::SmallSet<std::string, 8> SeenKinds;
 
   for (const Decl *RD : D->redecls()) {
     for (const Attr *A : RD->getAttrs()) {
-      if (A->isCXX11Attribute() && SeenKinds.insert(A->getKind()).second) {
+      if (!A->isCXX11Attribute()) {
+        continue;
+      }
+      std::string S;
+      llvm::raw_string_ostream OS(S);
+      A->printPretty(OS, D->getASTContext().getPrintingPolicy());
+      if (SeenKinds.insert(S).second) {
         Result.push_back(A);
       }
     }
@@ -1728,28 +1738,10 @@ llvm::SmallVector<const Attr*, 8> static collectUniqueCxx11Attrs(const Decl *D) 
   return Result;
 }
 
-// Pull back the string argument from a semantic attribute
-// FIXME Should really be codegened... and does not belong here
-static StringRef stringArgumentFromAttr(const Attr *A) {
-  // Note that we dont really check whether it's cxx11 style here
-  if (auto *D = dyn_cast<DeprecatedAttr>(A))
-    return D->getMessage();              // [[deprecated("…")]]
-  if (auto *W = dyn_cast<WarnUnusedResultAttr>(A))
-    return W->getMessage();              // [[nodiscard("…")]]
-  if (auto *Al = dyn_cast<AliasAttr>(A))
-    return Al->getAliasee();             // __attribute__((alias("…")))
-  if (auto *Sec = dyn_cast<SectionAttr>(A))
-    return Sec->getName();               // __attribute__((section("…")))
-  if (auto *AS = dyn_cast<AsmLabelAttr>(A))
-    return AS->getLabel();               // [[clang::asm("…")]]
-  return {};
-}
-
 struct AttributeScratchpad {
   AttributeFactory factory;
   ParsedAttributes attributes;
-  ArgsVector argExprs;
-  AttributeScratchpad() : factory(), attributes(factory), argExprs() {}
+  AttributeScratchpad() : factory(), attributes(factory) {}
 };
 
 // -----------------------------------------------------------------------------
@@ -1778,45 +1770,36 @@ bool get_ith_attribute_of(APValue &Result, ASTContext &C,
     return true;
   size_t idx = Idx.getInt().getExtValue();
 
+  // FIXME this is debatable whether those shouldnt be kept in ASTContext...
   static AttributeScratchpad scratchpad;
 
-  // Fetch the ith attribute, build and return a ParsedAttr out of it
-  auto fetchIthAttrFromDecl = [&](Decl* decl, ParsedAttr* &result) -> bool {
+  auto buildIthParsedAttrFromDecl = [&](Decl* decl, ParsedAttr* &result) -> bool {
     auto cxx11Attrs = collectUniqueCxx11Attrs(decl);
     if (idx + 1 > cxx11Attrs.size()) {
       result = nullptr;
       return false;
     }
 
-    // Attr -> ParsedAttr
     const Attr * const val = cxx11Attrs[idx];
     assert(val);
 
-    bool hasFoundStringArg = false;
-    if (StringRef stringArg = stringArgumentFromAttr(val); !stringArg.empty()) {
-      const bool isUtf8 = false; // ah ?... why ?
-      scratchpad.argExprs.push_back(makeStrLiteral(stringArg, C, isUtf8));
-      hasFoundStringArg = true;
-    }
-
-    AttributeCommonInfo::AttrArgsInfo AttrArgsInfo
-      = AttributeCommonInfo::getCXX11AttrArgsInfo(val->getAttrName());
-    if (AttrArgsInfo == AttributeCommonInfo::AttrArgsInfo::Required && !hasFoundStringArg) {
-      Diagnoser(Range.getBegin(), diag::metafn_p3385_non_string_mandatory_argument)
-        << val->getAttrName();
-      return true;
-    }
-    IdentifierInfo &attrName = C.Idents.get(val->getAttrName()->getName());
-    result = scratchpad.attributes.addNew(
-      &attrName, // const_cast<IdentifierInfo*>(val->getAttrName()),
-      val->getRange(),
-      nullptr,
-      val->getLoc(),
-      hasFoundStringArg ? scratchpad.argExprs.data() : nullptr,
-      hasFoundStringArg,
-      val->getForm() // Better be cxx11 by now...
-    );
-    return false;
+    auto onSyntacticArgs = [&](
+      IdentifierInfo * attrName,
+      SmallVector<llvm::PointerUnion<Expr *, IdentifierLoc *>, 2> argExprs,
+      AttributeCommonInfo::Form /* Do we need this fed back to us at all ?...*/
+    ) {
+      result = scratchpad.attributes.addNew(
+        attrName,
+        val->getRange(),
+        nullptr,
+        val->getLoc(),
+        argExprs.data(),
+        argExprs.size(),
+        val->getForm()
+      );
+      return false;
+    };
+    return extractSyntacticArguments(val, C, onSyntacticArgs, val->getLocation());
   };
 
   switch (RV.getReflectionKind()) {
@@ -1840,7 +1823,7 @@ bool get_ith_attribute_of(APValue &Result, ASTContext &C,
           << DescriptionOf(RV);
       }
 
-      if (ParsedAttr* fetchedAttribute{}; !fetchIthAttrFromDecl(D, fetchedAttribute)) {
+      if (ParsedAttr* fetchedAttribute{}; !buildIthParsedAttrFromDecl(D, fetchedAttribute)) {
         if (fetchedAttribute) {
           return SetAndSucceed(Result, makeReflection(fetchedAttribute));
         }
@@ -1855,7 +1838,7 @@ bool get_ith_attribute_of(APValue &Result, ASTContext &C,
           Diagnoser, Range, "attribute, type, declaration", DescriptionOf(RV));
       }
 
-      if (ParsedAttr* fetchedAttribute{}; !fetchIthAttrFromDecl(D, fetchedAttribute)) {
+      if (ParsedAttr* fetchedAttribute{}; !buildIthParsedAttrFromDecl(D, fetchedAttribute)) {
         if (fetchedAttribute) {
           return SetAndSucceed(Result, makeReflection(fetchedAttribute));
         }

@@ -8,3 +8,9 @@ clang_tablegen(AttrSubMatchRulesParserStringSwitches.inc
   -I ${CMAKE_CURRENT_SOURCE_DIR}/../../
   SOURCE ../Basic/Attr.td
   TARGET ClangAttrSubMatchRulesParserStringSwitches)
+
+
+clang_tablegen(AttrReflection.inc  -gen-clang-attr-reflection
+  -I ${CMAKE_CURRENT_SOURCE_DIR}/../../
+  SOURCE ../Basic/Attr.td
+  TARGET ClangAttrReflection)

@@ -40,7 +40,7 @@ class FunctionDecl;
 class OMPTraitInfo;
 class ParsedAttr;
 class OpenACCClause;
-
+    
 /// Attr - This represents one attribute.
 class Attr : public AttributeCommonInfo {
 private:
@@ -71,6 +71,16 @@ protected:
   }
 
 public:
+
+  /// TODO this alias is kinda all over the place, not great
+  /// This callback will be called for a semantic attribute with
+  using OnSyntacticArgument
+    = std::function<bool( // Should return false if the operation failed, true if successful
+        IdentifierInfo *, // attribute name
+        SmallVector<llvm::PointerUnion<Expr *, IdentifierLoc *>, 2>, // arguments
+        AttributeCommonInfo::Form // attribute form
+      )>;
+
   // Forward so that the regular new and delete do not hide global ones.
   void *operator new(size_t Bytes, ASTContext &C,
                      size_t Alignment = 8) noexcept {
@@ -380,6 +390,40 @@ static_assert(sizeof(ParamIdx) == sizeof(ParamIdx::SerialType),
               "ParamIdx does not fit its serialization type");
 
 #include "clang/AST/Attrs.inc" // IWYU pragma: export
+
+/// Returns whether an attribute has a reflectable variant
+/// For example AT_WarnUnusedResult admit a reflectable variant
+static bool isAttributeWithReflectableVariant(AttributeCommonInfo::Kind kind){
+#define CLANG_ATTR_IS_REFLECTABLE_LIST
+  switch (kind) {
+    default: return false;
+#include "clang/Parse/AttrReflection.inc"
+  }
+#undef CLANG_ATTR_IS_REFLECTABLE_LIST
+}
+
+/// Extract the syntactic arguments for this attribute, with the specified context and location
+/// to be used when creating expression out of arguments found in semantic attributes.
+/// The callback 'CB' will be invoked with arguments found, if the attribute is reflectable
+///
+/// Return false if the attribute is not reflectatble, otherwise return the result of calling
+///  'onSyntax'
+inline bool extractSyntacticArguments(const Attr* semanticAttr,
+                                      ASTContext &C,
+                                      Attr::OnSyntacticArgument onSyntax,
+                                      SourceLocation srcLocation)
+{
+  AttributeCommonInfo info = *semanticAttr;
+  if (!isAttributeWithReflectableVariant(info.getParsedKind())) {
+    return false;
+  }
+#define CLANG_ATTR_ON_SYNTACTIC_ARGS_LIST
+  switch (info.getParsedKind()) {
+    default: return false;
+#include "clang/Parse/AttrReflection.inc"
+  }
+#undef CLANG_ATTR_ON_SYNTACTIC_ARGS_LIST
+}
 
 inline const StreamingDiagnostic &operator<<(const StreamingDiagnostic &DB,
                                              const Attr *At) {
