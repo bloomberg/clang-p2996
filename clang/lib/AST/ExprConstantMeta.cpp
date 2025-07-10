@@ -33,6 +33,8 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <iostream>
+
 namespace clang {
 
 using EvalFn = Metafunction::EvaluateFn;
@@ -1740,8 +1742,8 @@ llvm::SmallVector<const Attr*, 8> static collectUniqueCxx11Attrs(const Decl *D) 
 
 struct AttributeScratchpad {
   AttributeFactory factory;
-  ParsedAttributes attributes;
-  AttributeScratchpad() : factory(), attributes(factory) {}
+  AttributePool pool;
+  AttributeScratchpad() : factory(), pool(factory) {}
 };
 
 // -----------------------------------------------------------------------------
@@ -1772,7 +1774,6 @@ bool get_ith_attribute_of(APValue &Result, ASTContext &C,
 
   // FIXME this is debatable whether those shouldnt be kept in ASTContext...
   static AttributeScratchpad scratchpad;
-
   auto buildIthParsedAttrFromDecl = [&](Decl* decl, ParsedAttr* &result) -> bool {
     auto cxx11Attrs = collectUniqueCxx11Attrs(decl);
     if (idx + 1 > cxx11Attrs.size()) {
@@ -1780,7 +1781,7 @@ bool get_ith_attribute_of(APValue &Result, ASTContext &C,
       return false;
     }
 
-    const Attr * const val = cxx11Attrs[idx];
+    const Attr * val = cxx11Attrs[idx];
     assert(val);
 
     auto onSyntacticArgs = [&](
@@ -1788,10 +1789,10 @@ bool get_ith_attribute_of(APValue &Result, ASTContext &C,
       SmallVector<llvm::PointerUnion<Expr *, IdentifierLoc *>, 2> argExprs,
       AttributeCommonInfo::Form /* Do we need this fed back to us at all ?...*/
     ) {
-      result = scratchpad.attributes.addNew(
+      result = scratchpad.pool.create(
         attrName,
         val->getRange(),
-        nullptr,
+        val->hasScope() ? const_cast<IdentifierInfo*>(val->getScopeName()) : nullptr,
         val->getLoc(),
         argExprs.data(),
         argExprs.size(),
@@ -1811,13 +1812,12 @@ bool get_ith_attribute_of(APValue &Result, ASTContext &C,
       if (attr->getForm().getSyntax() == AttributeCommonInfo::Syntax::AS_CXX11) {
         return SetAndSucceed(Result, makeReflection(attr));
       }
-      // Non standard [[ ]] style
       return Diagnoser(Range.getBegin(), diag::metafn_p3385_non_standard_attribute)
         << attr->getAttrName();
     }
     case ReflectionKind::Type: {
       QualType qType = RV.getReflectedType();
-      Decl *D = findTypeDecl(qType)->getMostRecentDecl();
+      Decl *D = findTypeDecl(qType);
       if (!D) {
         return Diagnoser(Range.getBegin(), diag::metafn_p3385_no_declaration_for_type)
           << DescriptionOf(RV);

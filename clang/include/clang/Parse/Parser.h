@@ -8369,8 +8369,6 @@ private:
 
   bool ParseSpliceSpecifier(bool TryParseSpecialization = false);
 
-  bool ParseAttributeReflection(ParsedAttr* &attribute);
-
   ExprResult ParseCXXSpliceAsExpr(SourceLocation TemplateKWLoc,
                                   bool AllowMemberReference);
   TypeResult ParseCXXSpliceAsType(SourceLocation TypenameKWLoc,

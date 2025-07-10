@@ -2552,6 +2552,7 @@ static bool isIntArgument(const Record *Arg) {
   return !Arg->getDirectSuperClasses().empty() &&
     StringSwitch<bool>(Arg->getDirectSuperClasses().back().first->getName())
       .Case("IntArgument", true)
+      .Case("DefaultIntArgument", true)
       .Default(false);
 }
 
@@ -2621,10 +2622,10 @@ static bool isReflectableAttr(const Record* R) {
 // P3385 Codegen an accessor for arguments as expr
 static void writeExtractSyntacticArgumentFunction(const Record &R,
                          raw_ostream &OS) {
-  OS << "  bool " << R.getName() << "Attr::extractSyntacticArguments(ASTContext& C, OnSyntacticArgument onSyntax, SourceLocation srcLocation) const {\n";
-  OS << "    SmallVector<llvm::PointerUnion<Expr *, IdentifierLoc *>, 2> args;\n";
-  OS << "    const AttributeCommonInfo* info = this;\n";
-  OS << "    IdentifierInfo &attrName = C.Idents.get(info->getAttrName()->getName());\n\n";
+  OS << "bool " << R.getName() << "Attr::extractSyntacticArguments(ASTContext& C, OnSyntacticArgument onSyntax, SourceLocation srcLocation) const {\n";
+  OS << "  SmallVector<llvm::PointerUnion<Expr *, IdentifierLoc *>, 2> args;\n";
+  OS << "  const AttributeCommonInfo* info = this;\n";
+  OS << "  IdentifierInfo &attrName = C.Idents.get(info->getAttrName()->getName());\n\n";
 
   auto makeShortNameForArgType = [] (const Record* Arg) {
     const bool isExternal = Arg->getValueAsBit("IsExternalType");
@@ -2658,9 +2659,10 @@ static void writeExtractSyntacticArgumentFunction(const Record &R,
         enumTypeName[0] = std::toupper(enumTypeName[0]);
         Accessor = "Convert" + enumTypeName + "ToStr(" + Accessor +")";
       }
-      OS << "    args.push_back(StringLiteral::Create(C, " << Accessor << ", StringLiteralKind::Unevaluated, false, C.CharTy, srcLocation));\n";
+      // OS << "  args.push_back(makeStrLiteral(" << Accessor << ", C, false));";
+      OS << "  args.push_back(StringLiteral::Create(C, " << Accessor << ", StringLiteralKind::Unevaluated, false, C.CharTy, srcLocation));\n";
     } else {
-      OS << "    // FIXME: Unhandled argument type...'" << Arg->getName() << "'\n";
+      OS << "  // FIXME: Unhandled argument type...'" << Arg->getName() << "'\n";
     }
   };
 
@@ -2668,8 +2670,8 @@ static void writeExtractSyntacticArgumentFunction(const Record &R,
     emitExprFromArg(OS, arg);
   }
   OS << "\n";
-  OS << "    return onSyntax(&attrName, args, info->getForm());\n";
-  OS << "  }\n";
+  OS << "  return onSyntax(&attrName, args, info->getForm());\n";
+  OS << "}\n";
 }
 
 static void emitClangAttrVariadicIdentifierArgList(const RecordKeeper &Records,
@@ -3347,7 +3349,6 @@ void clang::EmitClangAttrClass(const RecordKeeper &Records, raw_ostream &OS) {
 void clang::EmitClangAttrImpl(const RecordKeeper &Records, raw_ostream &OS) {
   emitSourceFileHeader("Attribute classes' member function definitions", OS,
                        Records);
-
   emitAttributes(Records, OS, false);
 
   // Instead of relying on virtual dispatch we just create a huge dispatch

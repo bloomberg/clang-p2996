@@ -232,34 +232,6 @@ bool Parser::ParseSpliceSpecifier(bool TryParseSpecialization) {
   return false;
 }
 
-bool Parser::ParseAttributeReflection(ParsedAttr* &attribute) {
-  assert(Tok.is(tok::annot_splice) && "expected a splice annotation");
-  attribute = nullptr;
-  SpliceResult SR = getSpliceAnnotation(Tok);
-  if (SR.isInvalid())
-    return true;
-
-  SpliceSpecifier *Splice = SR.get();
-  Expr::EvalResult ER;
-  ASTContext& context = Actions.getASTContext();
-
-  if (!Splice->getOperand()->EvaluateAsConstantExpr(ER, context)) {
-    Diag(Splice->getBeginLoc(), diag::err_splice_operand_not_constexpr);
-    return true;
-  }
-
-  if (!ER.Val.isReflection()) {
-    Diag(Splice->getBeginLoc(), diag::err_splice_operand_not_reflection);
-    return true;
-  }
-  ReflectionKind reflectionKind = ER.Val.getReflectionKind();
-  if (reflectionKind != ReflectionKind::Attribute) {
-    return true;
-  }
-  attribute = ER.Val.getReflectedAttribute();
-  return false;
-}
-
 ExprResult Parser::ParseCXXSpliceAsExpr(SourceLocation TemplateKWLoc,
                                         bool AllowMemberReference) {
   assert(Tok.is(tok::annot_splice) && "expected a splice annotation");
