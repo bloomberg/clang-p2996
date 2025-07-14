@@ -2514,13 +2514,13 @@ static void emitClangAttrArgContextList(const RecordKeeper &Records,
   OS << "#endif // CLANG_ATTR_ARG_CONTEXT_LIST\n\n";
 }
 
-static bool isIdentifierArgument(const Record *Arg) {
+static bool isIdentifierArgument(const Record *Arg, bool isStrict = false) {
   return !Arg->getDirectSuperClasses().empty() &&
          StringSwitch<bool>(
              Arg->getDirectSuperClasses().back().first->getName())
              .Case("IdentifierArgument", true)
-             .Case("EnumArgument", true)
-             .Case("VariadicEnumArgument", true)
+             .Case("EnumArgument", !isStrict)
+             .Case("VariadicEnumArgument", !isStrict)
              .Default(false);
 }
 
@@ -2645,13 +2645,9 @@ static void writeExtractSyntacticArgumentFunction(const Record &R,
       OS << "    args.push_back(IntegerLiteral::Create(C, llvm::APInt(32, " << Accessor << "), C.IntTy, srcLocation));\n";
     } else if (isBoolArgument(Arg)) {
       OS << "    args.push_back(CXXBoolLiteralExpr::Create(C, " << Accessor << ", C.BoolTy, srcLocation));\n";
-    // } else if (isIdentifierArgument(Arg)) {
-    //   OS << "    if (auto II = " << Accessor << ") {\n"
-    //     << "      args.push_back(DeclRefExpr::Create(\n"
-    //     << "          C, NestedNameSpecifierLoc(), srcLocation,\n"
-    //     << "          II, false, srcLocation,\n"
-    //     << "          C.DependentTy, ExprValueKind::VK_LValue));\n"
-    //     << "    }\n";
+    } else if (isIdentifierArgument(Arg, true)) {
+      OS << "    IdentifierLoc *IL" << ArgName << " = new (C) IdentifierLoc(srcLocation, " << Accessor << ");\n";
+      OS << "    args.push_back(IL" << ArgName << ");\n";
     } else if (isStringLiteralArgument(Arg)) {
       // String enums need to go through a convert
       if (isStringEnumArgument(Arg)) {
