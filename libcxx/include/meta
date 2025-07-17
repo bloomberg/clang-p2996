@@ -1504,7 +1504,7 @@ consteval auto is_function_type(info r) -> bool {
 }
 
 consteval auto is_reflection_type(info r) -> bool {
-  return r == ^^info;
+  return dealias(r) == dealias(^^info);
 }
 
 consteval auto is_reference_type(info r) -> bool {
