@@ -2341,8 +2341,16 @@ bool identifier_of(APValue &Result, ASTContext &C, MetaActions &Meta,
     break;
   }
   case ReflectionKind::Attribute: {
-    AttributeCommonInfo* attr = RV.getReflectedAttribute();
-    Name = attr->getAttrName()->getName();
+    AttributeCommonInfo *attr = RV.getReflectedAttribute();
+    if (attr->isClangScope()) {
+      Name = "clang::";
+    } else if (attr->isGNUScope()) {
+      Name = "gnu::";
+    } else if (attr->hasScope() &&
+               attr->getScopeName()->getName().compare("msvc") == 0) {
+      Name = "msvc::";
+    }
+    Name += attr->getAttrName()->getName();
     break;
   }
   case ReflectionKind::DataMemberSpec: {

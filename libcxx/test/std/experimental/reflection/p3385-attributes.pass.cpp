@@ -16,42 +16,60 @@
 // <experimental/reflection>
 //
 // [reflection]
-
 #include <experimental/meta>
 
 // Note that 'Foo' mix standard and vendor namespaced
-struct [[nodiscard("yep"), deprecated("dont use me")]]
-[[clang::warn_unused_result("Look I'm clang...")]] Foo {};
+struct [[nodiscard("std variant"), deprecated("dont use me")]]
+[[clang::warn_unused_result("clang variant")]] Foo {};
+
+// This is vendor specific, does not exist in the standard
+[[gnu::constructor(200)]] void gnuConstructor(void);
+
+// Some samples of vendor and standard attributes
+constexpr auto stdAttr = ^^[[nodiscard("std variant")]];
+constexpr auto clangAttr = ^^[[clang::warn_unused_result("clang variant")]];
+constexpr auto msvcAttr = ^^[[msvc::no_unique_address]];
+constexpr auto gnuAttr = ^^[[gnu::constructor(200)]];
+
 
 // Test fragments
 consteval bool testHasIdentifier() {
-  constexpr auto attr = ^^[[nodiscard("yop")]];
-  static_assert(std::meta::has_identifier(attr));
+  static_assert(std::meta::has_identifier(stdAttr));
+  static_assert(std::meta::has_identifier(clangAttr));
+  static_assert(std::meta::has_identifier(msvcAttr));
+  static_assert(std::meta::has_identifier(gnuAttr));
   return true;
 }
 
 consteval bool testIsAttribute() {
-  constexpr auto attr = ^^[[nodiscard]];
-  static_assert(std::meta::is_attribute(attr));
+  static_assert(std::meta::is_attribute(stdAttr));
+  static_assert(std::meta::is_attribute(clangAttr));
+  static_assert(std::meta::is_attribute(msvcAttr));
+  static_assert(std::meta::is_attribute(gnuAttr));
   return true;
 }
 
 consteval bool testIdentifierOf() {
-  static_assert(std::meta::identifier_of(^^[[deprecated]]) == "deprecated");
+  static_assert(std::meta::identifier_of(stdAttr) == "nodiscard");
+  static_assert(std::meta::identifier_of(clangAttr) == "clang::warn_unused_result");
+  static_assert(std::meta::identifier_of(msvcAttr) == "msvc::no_unique_address");
+  static_assert(std::meta::identifier_of(gnuAttr) == "gnu::constructor");
   return true;
 }
 
 consteval bool testAttributesOfAttr() {
-  static_assert(std::meta::attributes_of(^^[[nodiscard]]).size() == 1);
-  static_assert(std::meta::identifier_of(std::meta::attributes_of(^^[[nodiscard]])[0]) == "nodiscard");
+  static_assert(std::meta::attributes_of(stdAttr)[0] == stdAttr);
+  static_assert(std::meta::attributes_of(clangAttr)[0] == clangAttr);
+  static_assert(std::meta::attributes_of(msvcAttr)[0] == msvcAttr);
+  static_assert(std::meta::attributes_of(gnuAttr)[0] == gnuAttr);
   return true;
 }
 
 consteval bool testAttributesOfType() {
   constexpr auto h = [](std::meta::info i) {
-    return i == ^^[[nodiscard("yep")]]
+    return i == ^^[[nodiscard("std variant")]]
       || i == ^^[[deprecated("dont use me")]]
-      || i == ^^[[clang::warn_unused_result("Look I'm clang...")]];
+      || i == ^^[[clang::warn_unused_result("clang variant")]];
   };
 
   static_assert(std::meta::attributes_of(^^Foo).size() == 3);
@@ -68,30 +86,22 @@ consteval bool testAttributesOfType() {
   return true;
 }
 
-consteval bool testVendorVariant() {
-  // Same semantic attribute but different spelling
-  constexpr auto wur = ^^[[clang::warn_unused_result("I'm the real nodiscard")]];
-  constexpr auto nd = ^^[[nodiscard("I'm the real nodiscard")]];
-  static_assert(std::meta::identifier_of(std::meta::attributes_of(wur)[0]) == "warn_unused_result");
-  static_assert(wur != nd); // diff spelling and namespace
+consteval bool testComparison() {
+  // Vendor variant of identical semantic attribute
+  static_assert(stdAttr != clangAttr);
 
    // Same spelling but different vendor
-   constexpr auto nua = ^^[[no_unique_address]];
-   constexpr auto msvc_nua = ^^[[msvc::no_unique_address]];
-   static_assert(nua != msvc_nua); // same spelling, diff namespace
+   static_assert(^^[[no_unique_address]] != ^^[[msvc::no_unique_address]]); // same spelling, diff namespace
 
+   // Different arguments
+   static_assert(^^[[gnu::constructor(200)]] != ^^[[gnu::constructor(100)]]);
    return true;
 }
-
-// This is vendor specific, does not exist in the standard
-[[gnu::constructor(200)]] void gnuConstructor(void);
 
 consteval bool testVendorSpecific() {
   constexpr auto r = ^^gnuConstructor;
   static_assert(std::meta::attributes_of(r).size() == 1);
-  static_assert(std::meta::identifier_of(std::meta::attributes_of(r)[0]) == "constructor");
-  static_assert(^^[[gnu::constructor(200)]] != ^^[[gnu::constructor(100)]]); // args participate
-  static_assert(std::meta::attributes_of(r)[0] == ^^[[gnu::constructor(200)]]); // recover with arg
+  static_assert(std::meta::attributes_of(r)[0] == ^^[[gnu::constructor(200)]]);
   return true;
 }
 
@@ -101,6 +111,6 @@ int main() {
   static_assert(testIdentifierOf(), "IdentifierOf");
   static_assert(testAttributesOfAttr() ,"AttributesOfAttr");
   static_assert(testAttributesOfType() ,"AttributesOfType");
-  static_assert(testVendorVariant() ,"VendorVariant");
+  static_assert(testComparison() ,"Comparison");
   static_assert(testVendorSpecific() ,"VendorSpecific");
 }
