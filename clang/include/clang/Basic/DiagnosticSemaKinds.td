@@ -3256,6 +3256,8 @@ def err_cannot_expand_over_type : Error<
 // P3385
 def p3385_sema_trace_execution_checkpoint : Warning<
   "(p3385-Sema) trace_execution_checkpoint %0">;
+def p3385_warn_unsupported_attribute : Warning<
+  "reflecting over '%0' attribute is not supported">;
 
 // C++11 char16_t/char32_t
 def warn_cxx98_compat_unicode_type : Warning<

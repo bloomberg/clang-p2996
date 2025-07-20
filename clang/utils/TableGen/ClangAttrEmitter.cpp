@@ -2581,7 +2581,7 @@ static bool isVariadicStringLiteralArgument(const Record *Arg) {
   return ArgKind == "VariadicStringArgument";
 }
 
-// An attribute is reflectable (for now) if
+// An (family-of-variant) attribute is reflectable if
 // - it admits at least one CXX11 representation, and
 // - it has no arguments or all its arguments are of any of the types: string, bool, int
 // - it does not set 'EscapeReflection' to true
@@ -2598,10 +2598,11 @@ static bool isReflectableAttr(const Record* R) {
     return false;
   }
   bool hasStandardRepresentation = false;
-  for (const auto &Spelling : R->getValueAsListOfDefs("Spellings")) {
-    StringRef Variety = Spelling->getValueAsString("Variety");
-    StringRef Name = Spelling->getValueAsString("Name");
-    if (!Name.empty() && (Variety == "GCC" || Variety == "Clang" || Variety == "ClangGCC")) {
+  for (const auto &spelling : R->getValueAsListOfDefs("Spellings")) {
+    StringRef variety = spelling->getValueAsString("Variety");
+    // All those CXX11 are implied
+    if (!variety.empty() && (variety == "CXX11" || variety == "GCC" ||
+                             variety == "Clang" || variety == "ClangGCC")) {
       hasStandardRepresentation = true;
       break;
     }

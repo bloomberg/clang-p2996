@@ -1716,14 +1716,14 @@ bool DiagnoseReflectionKind(DiagFn Diagnoser, SourceRange Range,
 
 llvm::SmallVector<const Attr*, 8> static collectUniqueCxx11Attrs(const Decl *D) {
   llvm::SmallVector<const Attr*, 8> Result;
-  // We ll persist a representation of the attribute != kind otherwise
+  // We ll persist a representation of the attribute with the scope otherwise
   // we would count [[clang::warn_unused_result]] and [[nodiscard]] as
-  // the same attribute which we do not want...
+  // the same attribute
   llvm::SmallSet<std::string, 8> SeenKinds;
 
   for (const Decl *RD : D->redecls()) {
     for (const Attr *A : RD->getAttrs()) {
-      if (!A->isCXX11Attribute()) {
+      if (!isAttributeWithReflectableVariant(A->getParsedKind())) {
         continue;
       }
       std::string S;

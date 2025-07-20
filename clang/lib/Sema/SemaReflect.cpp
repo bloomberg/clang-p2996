@@ -18,6 +18,7 @@
 #include "clang/AST/DeclBase.h"
 #include "clang/AST/MetaActions.h"
 #include "clang/AST/Metafunction.h"
+#include "clang/AST/Reflection.h"
 #include "clang/Basic/DiagnosticSema.h"
 #include "clang/Sema/EnterExpressionEvaluationContext.h"
 #include "clang/Sema/Lookup.h"
@@ -1336,9 +1337,15 @@ ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
 
 ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
                                      ParsedAttr *A) {
+  bool isReflectable = isAttributeWithReflectableVariant(A->getParsedKind());
+  if (!isReflectable) {
+    Diag(A->getLoc(), diag::p3385_warn_unsupported_attribute)
+        << A->getAttrName()->getName();
+  }
   return CXXReflectExpr::Create(
       Context, OperatorLoc, A->getRange(),
-      APValue{ReflectionKind::Attribute, static_cast<void *>(A)});
+      APValue{isReflectable ? ReflectionKind::Attribute : ReflectionKind::Null,
+              static_cast<void *>(isReflectable ? A : nullptr)});
 }
 
 ExprResult Sema::BuildCXXMetafunctionExpr(
