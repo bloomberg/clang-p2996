@@ -1722,6 +1722,9 @@ llvm::SmallVector<const Attr*, 8> static collectUniqueCxx11Attrs(const Decl *D) 
   llvm::SmallSet<std::string, 8> SeenKinds;
 
   for (const Decl *RD : D->redecls()) {
+    if (!RD->hasAttrs()) {
+      continue;
+    }
     for (const Attr *A : RD->getAttrs()) {
       if (!isAttributeWithReflectableVariant(A->getParsedKind())) {
         continue;
