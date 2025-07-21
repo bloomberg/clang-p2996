@@ -6460,8 +6460,7 @@ bool string_literal_from(APValue &Result, ASTContext &C, MetaActions &Meta,
     const Expr *BaseE = Base.dyn_cast<const Expr*>();
 
     if (llvm::isa_and_nonnull<StringLiteral>(BaseE)) {
-      ArrayRef<APValue::LValuePathEntry> EmptyPath{};
-      return SetAndSucceed(Result, APValue(Base, CharUnits::Zero(), EmptyPath, false, false));
+      return SetAndSucceed(Result, APValue(Base, CharUnits::Zero(), APValue::NoLValuePath(), false));
     }
     return SetAndSucceed(Result, APValue((const ValueDecl*)nullptr, CharUnits::Zero(), APValue::NoLValuePath(), true));
 }
