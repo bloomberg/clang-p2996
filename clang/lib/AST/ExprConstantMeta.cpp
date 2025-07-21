@@ -711,6 +711,22 @@ static bool reflect_invoke(APValue &Result, ASTContext &C, MetaActions &Meta,
                            SourceRange Range, ArrayRef<Expr *> Args,
                            Decl *ContainingDecl);
 
+             // =================================
+             // P3491 string_literal manipulation
+             // =================================
+
+static bool is_string_literal(APValue &Result, ASTContext &C, MetaActions &Meta,
+                              EvalFn Evaluator, DiagFn Diagnoser,
+                              bool AllowInjection, QualType ResultTy,
+                              SourceRange Range, ArrayRef<Expr *> Args,
+                              Decl *ContainingDecl);
+
+static bool string_literal_from(APValue &Result, ASTContext &C, MetaActions &Meta,
+                                EvalFn Evaluator, DiagFn Diagnoser,
+                                bool AllowInjection, QualType ResultTy,
+                                SourceRange Range, ArrayRef<Expr *> Args,
+                                Decl *ContainingDecl);
+
 // -----------------------------------------------------------------------------
 // Metafunction table
 //
@@ -844,6 +860,10 @@ static constexpr Metafunction Metafunctions[] = {
   // Other bespoke functions (not proposed at this time)
   { Metafunction::MFRK_bool, 1, 1, is_access_specified },
   { Metafunction::MFRK_metaInfo, 5, 5, reflect_invoke },
+
+  // P3491 string literal manipulation
+  { Metafunction::MFRK_bool, 1, 1, is_string_literal },
+  { Metafunction::MFRK_charPtr, 1, 1, string_literal_from },
 };
 constexpr const unsigned NumMetafunctions = sizeof(Metafunctions) /
                                             sizeof(Metafunction);
@@ -6403,6 +6423,47 @@ bool reflect_invoke(APValue &Result, ASTContext &C, MetaActions &Meta,
                   const_cast<ValueDecl *>(LVBase.get<const ValueDecl *>())));
 
   return SetAndSucceed(Result, EvalResult.Val.Lift(CallExpr->getType()));
+}
+
+bool is_string_literal(APValue &Result, ASTContext &C, MetaActions &Meta,
+                       EvalFn Evaluator, DiagFn Diagnoser,
+                       bool AllowInjection, QualType ResultTy,
+                       SourceRange Range, ArrayRef<Expr *> Args,
+                       Decl *ContainingDecl)
+{
+    assert(Args[0]->getType()->isPointerType());
+    assert(ResultTy == C.BoolTy);
+
+    APValue RV;
+    if (!Evaluator(RV, Args[0], true))
+      return true;
+
+    APValue::LValueBase Base = RV.getLValueBase();
+    const Expr *BaseE = Base.dyn_cast<const Expr*>();
+    return SetAndSucceed(Result, makeBool(C, llvm::isa_and_nonnull<StringLiteral>(BaseE)));
+}
+
+bool string_literal_from(APValue &Result, ASTContext &C, MetaActions &Meta,
+                         EvalFn Evaluator, DiagFn Diagnoser,
+                         bool AllowInjection, QualType ResultTy,
+                         SourceRange Range, ArrayRef<Expr *> Args,
+                         Decl *ContainingDecl)
+{
+    assert(Args[0]->getType()->isPointerType());
+    assert(ResultTy->isPointerType());
+
+    APValue RV;
+    if (!Evaluator(RV, Args[0], true))
+      return true;
+
+    APValue::LValueBase Base = RV.getLValueBase();
+    const Expr *BaseE = Base.dyn_cast<const Expr*>();
+
+    if (llvm::isa_and_nonnull<StringLiteral>(BaseE)) {
+      ArrayRef<APValue::LValuePathEntry> EmptyPath{};
+      return SetAndSucceed(Result, APValue(Base, CharUnits::Zero(), EmptyPath, false, false));
+    }
+    return SetAndSucceed(Result, APValue((const ValueDecl*)nullptr, CharUnits::Zero(), APValue::NoLValuePath(), true));
 }
 
 }  // end namespace clang
