@@ -2025,6 +2025,11 @@ bool is_structural_type(APValue &Result, ASTContext &C, MetaActions &Meta,
 
   auto result = false;
   if (RV.isReflectedType()) {
+    // If this is a declared type with a reachable definition, ensure that the
+    // type is instantiated.
+    if (Decl *typeDecl = findTypeDecl(RV.getReflectedType()))
+      Meta.EnsureInstantiated(typeDecl, Range);
+
     const QualType QT = RV.getReflectedType();
     const Type* T = QT.getTypePtr();
 
