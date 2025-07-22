@@ -30,6 +30,7 @@
 #include "clang/Basic/IdentifierTable.h"
 #include "clang/Lex/Lexer.h"
 #include "clang/Sema/ParsedAttr.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -835,7 +836,7 @@ static constexpr Metafunction Metafunctions[] = {
   { Metafunction::MFRK_bool, 1, 1, is_user_provided },
   { Metafunction::MFRK_bool, 1, 1, is_user_declared },
   { Metafunction::MFRK_metaInfo, 2, 2, reflect_result },
-  { Metafunction::MFRK_metaInfo, 10, 10, data_member_spec },
+  { Metafunction::MFRK_metaInfo, 12, 12, data_member_spec },
   { Metafunction::MFRK_metaInfo, 3, 3, define_aggregate },
   { Metafunction::MFRK_spliceFromArg, 2, 2, offset_of },
   { Metafunction::MFRK_sizeT, 1, 1, size_of },
@@ -5271,10 +5272,30 @@ bool data_member_spec(APValue &Result, ASTContext &C, MetaActions &Meta,
   if (!Evaluator(Scratch, Args[ArgIdx++], true))
     return true;
   bool NoUniqueAddress = Scratch.getInt().getBoolValue();
-  ArgIdx++;
+
+  // Next is `N` and then { attr_i, ..., attr_N }
+  if (!Evaluator(Scratch, Args[ArgIdx++], true))
+    return true;
+  llvm::SmallVector<ParsedAttr *, 2> Attributes;
+  if (int64_t N = Scratch.getInt().getExtValue(); N > 0) {
+    for (int64_t i = 0; i < N; ++i) {
+      llvm::APInt Idx(C.getTypeSize(C.getSizeType()), i, false);
+      Expr *indexExpr = IntegerLiteral::Create(C, Idx, C.getSizeType(),
+                                               Args[ArgIdx]->getExprLoc());
+      Expr *arraySubExpr =
+          new (C) ArraySubscriptExpr(Args[ArgIdx], indexExpr, C.getUnsignedWCharType(), VK_LValue,
+                                     OK_Ordinary, Range.getBegin());
+      if (!Evaluator(Scratch, arraySubExpr, true))
+        return true;
+      if (!Scratch.isReflectedAttribute()) {
+        return DiagnoseReflectionKind(Diagnoser, Range, "a reflection of an attribute", DescriptionOf(Scratch));
+      }
+      Attributes.push_back(Scratch.getReflectedAttribute());
+    }
+  }
 
   TagDataMemberSpec *TDMS = new (C) TagDataMemberSpec {
-    MemberTy, Name, Alignment, BitWidth, NoUniqueAddress
+    MemberTy, Name, Alignment, BitWidth, NoUniqueAddress, Attributes
   };
   return SetAndSucceed(Result, makeReflection(TDMS));
 }

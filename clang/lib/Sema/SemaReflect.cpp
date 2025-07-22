@@ -674,6 +674,10 @@ public:
                                              ParsedAttr::Form::CXX11()));
       }
 
+      for (ParsedAttr *PA : MemberSpec->Attributes) {
+        MemberAttrs.addAtEnd(PA);
+      }
+
       // Create declarator for the member.
       Declarator MemberDeclarator(DS, MemberAttrs, DeclaratorContext::Member);
 

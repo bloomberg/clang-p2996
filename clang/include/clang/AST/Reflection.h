@@ -27,6 +27,7 @@ class APValue;
 class ASTContext;
 class CXXBaseSpecifier;
 class NamespaceDecl;
+class ParsedAttr;
 class ValueDecl;
 
 struct TagDataMemberSpec;
@@ -108,7 +109,7 @@ enum class ReflectionKind {
   /// \brief A reflection of an annotation (P2996 ext).
   Annotation,
 
-  /// \brief A reflection of a standard attribute (P3385).
+  /// \brief A reflection of an attribute (P3385).
   Attribute,
 };
 
@@ -122,6 +123,7 @@ struct TagDataMemberSpec {
   std::optional<size_t> Alignment;
   std::optional<size_t> BitWidth;
   bool NoUniqueAddress;
+  llvm::SmallVector<ParsedAttr *, 2> Attributes;
 
   bool operator==(TagDataMemberSpec const& Rhs) const;
   bool operator!=(TagDataMemberSpec const& Rhs) const;

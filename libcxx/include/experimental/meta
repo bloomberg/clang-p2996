@@ -1469,7 +1469,8 @@ struct data_member_options {
   optional<name_type> name = nullopt;
   optional<int> alignment = nullopt;
   optional<int> width = nullopt;
-  bool no_unique_address = false;
+  [[deprecated("Use .attributes = { ^^[[no_unique_address]] }")]] bool no_unique_address = false;
+  initializer_list<meta::info> attributes = {};
 };
 
 // Returns the alignment of the reflected entity.
@@ -1488,6 +1489,8 @@ consteval auto data_member_spec(info member_type,
   int alignment = options.alignment.value_or(0);
   int width = options.width.value_or(0);
   bool no_unique_address = options.no_unique_address;
+
+  initializer_list<meta::info> attributes = options.attributes;
 
   auto validate = [&](auto name_string) {
     if (width) {
@@ -1521,7 +1524,7 @@ consteval auto data_member_spec(info member_type,
                           !s.empty(), s.size(), ^^const char8_t, s.data(),
                           options.alignment.has_value(), alignment,
                           options.width.has_value(), width,
-                          no_unique_address);
+                          no_unique_address, ranges::size(attributes), ranges::data(attributes));
   } else {
     const string &s = get<string>(name);
     validate(s);
@@ -1530,7 +1533,7 @@ consteval auto data_member_spec(info member_type,
                           !s.empty(), s.size(), ^^const char, s.data(),
                           options.alignment.has_value(), alignment,
                           options.width.has_value(), width,
-                          no_unique_address);
+                          no_unique_address, ranges::size(attributes), ranges::data(attributes));
   }
 }
 
