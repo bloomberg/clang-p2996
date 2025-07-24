@@ -2378,7 +2378,9 @@ consteval auto is_string_literal(const char* p) -> bool {
 // If p points into a string literal, a pointer to the first character of it
 // Otherwise, nullptr
 consteval auto string_literal_from(const char* p) -> const char* {
-  return __metafunction(meta::detail::__metafn_string_literal_from, p);
+  // Clearly, I implemented this wrong
+  char const* r = __metafunction(meta::detail::__metafn_string_literal_from, p);
+  return r ? p - (p - r) : nullptr;
 }
 
 // Returns a static string having the provided contents.

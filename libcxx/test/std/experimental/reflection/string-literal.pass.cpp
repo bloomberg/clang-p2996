@@ -2,6 +2,9 @@
 // ADDITIONAL_COMPILE_FLAGS: -freflection
 
 #include <meta>
+#include <string_view>
+
+using namespace std::literals;
 
 constexpr char msg[] = "hello";
 constexpr char const* p = "hello";
@@ -16,8 +19,10 @@ static_assert(!std::is_string_literal(msg));
 static_assert(!std::is_string_literal(msg + 1));
 
 static_assert(std::string_literal_from(p) == p);
+static_assert(std::string_literal_from(p) == "hello"sv);
 static_assert(std::string_literal_from(p + 1) == p);
 static_assert(std::string_literal_from(q) == p);
+static_assert(std::string_literal_from(q) == "hello"sv);
 static_assert(std::string_literal_from(q + 1) == p);
 static_assert(std::string_literal_from(msg) == nullptr);
 
