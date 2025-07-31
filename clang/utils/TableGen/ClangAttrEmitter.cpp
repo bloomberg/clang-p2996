@@ -2541,6 +2541,14 @@ static bool isVariadicExprArgument(const Record *Arg) {
              .Default(false);
 }
 
+static bool isExprArgument(const Record *Arg) {
+  return !Arg->getDirectSuperClasses().empty() &&
+         StringSwitch<bool>(
+             Arg->getDirectSuperClasses().back().first->getName())
+             .Case("ExprArgument", true)
+             .Default(false);
+}
+
 static bool isBoolArgument(const Record *Arg) {
   return !Arg->getDirectSuperClasses().empty() &&
     StringSwitch<bool>(Arg->getDirectSuperClasses().back().first->getName())
@@ -2614,7 +2622,8 @@ static bool isReflectableAttr(const Record* R) {
   auto isSupportedArgType = [](const Record* arg) {
     return isStringLiteralArgument(arg)
       || isBoolArgument(arg)
-      || isIntArgument(arg);
+      || isIntArgument(arg)
+      || isExprArgument(arg);
   };
   std::vector<const Record *> ArgRecords = R->getValueAsListOfDefs("Args");
   return ArgRecords.empty() || std::all_of(ArgRecords.begin(), ArgRecords.end(), isSupportedArgType);
@@ -2654,10 +2663,18 @@ static void writeExtractSyntacticArgumentFunction(const Record &R,
       if (isStringEnumArgument(Arg)) {
         std::string enumTypeName(makeShortNameForArgType(Arg));
         enumTypeName[0] = std::toupper(enumTypeName[0]);
-        Accessor = "Convert" + enumTypeName + "ToStr(" + Accessor +")";
+        Accessor = "StringRef(Convert" + enumTypeName + "ToStr(" + Accessor +"))";
       }
-      // OS << "  args.push_back(makeStrLiteral(" << Accessor << ", C, false));";
-      OS << "  args.push_back(StringLiteral::Create(C, " << Accessor << ", StringLiteralKind::Unevaluated, false, C.CharTy, srcLocation));\n";
+      OS << "  if (!" << Accessor << ".empty()) {"
+         << "    args.push_back(StringLiteral::Create(C,\n"
+         << "                                         " << Accessor << ",\n"
+         << "                                         StringLiteralKind::Unevaluated,\n"
+         << "                                         false,\n"
+         << "                                         C.getConstantArrayType(C.CharTy, llvm::APInt(32, " + Accessor + ".size() + 1), nullptr, ArraySizeModifier::Normal, 0),\n"
+         << "                                         srcLocation));\n"
+         << "  }\n";
+    } else if (isExprArgument(Arg)) {
+      OS << "  args.push_back(" << Accessor << ");\n";
     } else {
       OS << "  // FIXME: Unhandled argument type...'" << Arg->getName() << "'\n";
     }

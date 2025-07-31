@@ -562,36 +562,7 @@ static void profileReflection(llvm::FoldingSetNodeID &ID, APValue V) {
     return;
   case ReflectionKind::Attribute: {
     ParsedAttr* attr = V.getReflectedAttribute();
-    // Note here we do not enforce that only gnu, clang, etc.
-    // be valid reflectable namespace... we assume it was done
-    // before when forming a reflection
-    if (attr->hasScope()) {
-      ID.AddInteger(attr->getScopeName()->getName().size());
-      ID.AddString(attr->getScopeName()->getName());
-    }
-    ID.AddInteger(attr->getAttrName()->getName().size());
-    ID.AddString(attr->getAttrName()->getName());
-    for (size_t i = 0; i != attr->getNumArgs(); ++i) {
-        Expr *Arg0 = attr->getArgAsExpr(i);
-        StringLiteral *strLiteral =
-          dyn_cast<StringLiteral>(Arg0->IgnoreParenCasts());
-        IntegerLiteral *intLiteral = dyn_cast<IntegerLiteral>(Arg0->IgnoreParenCasts());
-        CXXBoolLiteralExpr *boolLiteral = dyn_cast<CXXBoolLiteralExpr>(Arg0->IgnoreParenCasts());
-        // FIXME we should we offload this to somewhere else... (tablegen?)
-        if(strLiteral) {
-          StringRef stringArgValue = strLiteral->getString();
-          if (!stringArgValue.empty()) {
-            ID.AddInteger(stringArgValue.size());
-            ID.AddString(stringArgValue.data());
-          }
-        } else if (intLiteral) {
-          auto intArgValue = intLiteral->getValue();
-          ID.AddInteger(intArgValue.getLimitedValue());
-        } else if (boolLiteral) {
-          ID.AddBoolean(boolLiteral->getValue());
-        }
-    }
-
+    attr->profile(ID);
     return;
   }
   case ReflectionKind::DataMemberSpec: {

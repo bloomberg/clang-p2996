@@ -1720,7 +1720,7 @@ llvm::SmallVector<const Attr*, 8> static collectUniqueCxx11Attrs(const Decl *D) 
   // We ll persist a representation of the attribute with the scope otherwise
   // we would count [[clang::warn_unused_result]] and [[nodiscard]] as
   // the same attribute
-  llvm::SmallSet<std::string, 8> SeenKinds;
+  llvm::SmallSet<std::string, 8> SeenKinds; // FIXME why not use ParsedAttr->profile()
 
   for (const Decl *RD : D->redecls()) {
     if (!RD->hasAttrs()) {
