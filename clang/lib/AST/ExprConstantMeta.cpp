@@ -6438,6 +6438,8 @@ bool reflection_hash(APValue &Result, ASTContext &C, MetaActions &Meta,
   // TODO(Matt): find difference between isReflectionType() and C.MetaInfoTy
   //assert(ResultTy == C.MetaInfoTy);
 
+  llvm::FoldingSetNodeID ID;
+
   std::size_t val = 0;
   switch (R.getReflectionKind()) {
   case ReflectionKind::Null:
@@ -6452,8 +6454,22 @@ bool reflection_hash(APValue &Result, ASTContext &C, MetaActions &Meta,
     val = 4; break;
   case ReflectionKind::Template:
     val = 5; break;
-  case ReflectionKind::Namespace:
-    val = 6; break;
+  case ReflectionKind::Namespace: {
+    val = 6;
+    Decl* D = R.getReflectedNamespace();
+    if (isa<TranslationUnitDecl>(D)) { // global namespace
+        ID.AddInteger(0);
+    }
+    else if (isa<NamespaceAliasDecl>(D)) {
+        ID.AddInteger(1);
+    }
+    else if (isa<NamespaceDecl>(D)) {
+        ID.AddInteger(2);
+    }
+    else {
+        llvm_unreachable("unhandled namespace kind");
+    }
+  } break;
   case ReflectionKind::BaseSpecifier:
     val = 7; break;
   case ReflectionKind::DataMemberSpec:
@@ -6463,9 +6479,10 @@ bool reflection_hash(APValue &Result, ASTContext &C, MetaActions &Meta,
   default:
     llvm_unreachable("unknown reflection kind");
   }
+  ID.AddInteger(val);
   return SetAndSucceed(
     Result,
-    APValue(C.MakeIntValue(val, C.getSizeType())));
+    APValue(C.MakeIntValue(ID.computeStableHash(), C.getSizeType())));
 }
 
 }  // end namespace clang
