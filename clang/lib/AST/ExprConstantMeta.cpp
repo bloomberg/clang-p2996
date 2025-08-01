@@ -6458,13 +6458,17 @@ bool reflection_hash(APValue &Result, ASTContext &C, MetaActions &Meta,
     val = 6;
     Decl* D = R.getReflectedNamespace();
     if (isa<TranslationUnitDecl>(D)) { // global namespace
-        ID.AddInteger(0);
-    }
-    else if (isa<NamespaceAliasDecl>(D)) {
-        ID.AddInteger(1);
+        ID.AddInteger(0); // nothing else to do
     }
     else if (isa<NamespaceDecl>(D)) {
-        ID.AddInteger(2);
+        NamespaceDecl* ND = dyn_cast<NamespaceDecl>(D);
+        SourceLocation loc = ND->getBeginLoc();
+        ID.AddInteger(loc.getHashValue());
+    }
+    else if (isa<NamespaceAliasDecl>(D)) {
+        NamespaceAliasDecl* ND = dyn_cast<NamespaceAliasDecl>(D);
+        SourceLocation loc = ND->getAliasLoc();
+        ID.AddInteger(loc.getHashValue());
     }
     else {
         llvm_unreachable("unhandled namespace kind");
