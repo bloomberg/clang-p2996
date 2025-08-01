@@ -6429,11 +6429,43 @@ bool reflection_hash(APValue &Result, ASTContext &C, MetaActions &Meta,
     return true;
   }
 
-  llvm::FoldingSetNodeID ID;
-  R.getReflectedType().Profile(ID);
+  //llvm::FoldingSetNodeID ID;
+  //R.getReflectedType().Profile(ID);
+  //return SetAndSucceed(
+  //  Result,
+  //  APValue(C.MakeIntValue(ID.computeStableHash(), C.getSizeType())));
+
+  // TODO(Matt): find difference between isReflectionType() and C.MetaInfoTy
+  //assert(ResultTy == C.MetaInfoTy);
+
+  std::size_t val = 0;
+  switch (R.getReflectionKind()) {
+  case ReflectionKind::Null:
+    val = 0; break;
+  case ReflectionKind::Type:
+    val = 1; break;
+  case ReflectionKind::Declaration:
+    val = 2; break;
+  case ReflectionKind::Object:
+    val = 3; break;
+  case ReflectionKind::Value:
+    val = 4; break;
+  case ReflectionKind::Template:
+    val = 5; break;
+  case ReflectionKind::Namespace:
+    val = 6; break;
+  case ReflectionKind::BaseSpecifier:
+    val = 7; break;
+  case ReflectionKind::DataMemberSpec:
+    val = 8; break;
+  case ReflectionKind::Annotation:
+    val = 9; break;
+  default:
+    llvm_unreachable("unknown reflection kind");
+  }
   return SetAndSucceed(
     Result,
-    APValue(C.MakeIntValue(ID.ComputeHash(), C.getSizeType())));
+    APValue(C.MakeIntValue(val, C.getSizeType())));
 }
 
 }  // end namespace clang
