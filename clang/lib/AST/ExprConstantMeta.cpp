@@ -6442,19 +6442,25 @@ bool reflection_hash(APValue &Result, ASTContext &C, MetaActions &Meta,
 
   std::size_t seed = 0; // to distinguish hashes of different kinds
   switch (R.getReflectionKind()) {
-  case ReflectionKind::Null:
-    seed = 0; break;
-  case ReflectionKind::Type:
-    seed = 1; break;
-  case ReflectionKind::Declaration:
-    seed = 2; break;
-  case ReflectionKind::Object:
-    seed = 3; break;
-  case ReflectionKind::Value:
-    seed = 4; break;
-  case ReflectionKind::Template:
-    seed = 5; break;
-  case ReflectionKind::Namespace: {
+  case ReflectionKind::Null: {                                      // DONE
+    seed = 0;
+  } break;
+  case ReflectionKind::Type: {                                      // TODO
+    seed = 1;
+  } break;
+  case ReflectionKind::Declaration: {                               // TODO
+    seed = 2; 
+  } break;
+  case ReflectionKind::Object: {                                    // TODO
+    seed = 3;
+  } break;
+  case ReflectionKind::Value: {                                     // TODO
+    seed = 4;
+  break; }
+  case ReflectionKind::Template: {                                  // TODO
+    seed = 5;
+  } break;
+  case ReflectionKind::Namespace: {                                 // DONE
     seed = 6;
     Decl* D = R.getReflectedNamespace();
     if (isa<TranslationUnitDecl>(D)) { // global namespace
@@ -6474,12 +6480,15 @@ bool reflection_hash(APValue &Result, ASTContext &C, MetaActions &Meta,
         llvm_unreachable("unhandled namespace kind");
     }
   } break;
-  case ReflectionKind::BaseSpecifier:
-    seed = 7; break;
-  case ReflectionKind::DataMemberSpec:
-    seed = 8; break;
-  case ReflectionKind::Annotation:
-    seed = 9; break;
+  case ReflectionKind::BaseSpecifier: {                             // TODO
+    seed = 7; 
+  } break;
+  case ReflectionKind::DataMemberSpec: {                            // TODO
+    seed = 8;
+  } break;
+  case ReflectionKind::Annotation: {                                // TODO
+    seed = 9; 
+  } break;
   default:
     llvm_unreachable("unknown reflection kind");
   }
