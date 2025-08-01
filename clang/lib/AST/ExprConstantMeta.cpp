@@ -6440,22 +6440,22 @@ bool reflection_hash(APValue &Result, ASTContext &C, MetaActions &Meta,
 
   llvm::FoldingSetNodeID ID;
 
-  std::size_t val = 0;
+  std::size_t seed = 0; // to distinguish hashes of different kinds
   switch (R.getReflectionKind()) {
   case ReflectionKind::Null:
-    val = 0; break;
+    seed = 0; break;
   case ReflectionKind::Type:
-    val = 1; break;
+    seed = 1; break;
   case ReflectionKind::Declaration:
-    val = 2; break;
+    seed = 2; break;
   case ReflectionKind::Object:
-    val = 3; break;
+    seed = 3; break;
   case ReflectionKind::Value:
-    val = 4; break;
+    seed = 4; break;
   case ReflectionKind::Template:
-    val = 5; break;
+    seed = 5; break;
   case ReflectionKind::Namespace: {
-    val = 6;
+    seed = 6;
     Decl* D = R.getReflectedNamespace();
     if (isa<TranslationUnitDecl>(D)) { // global namespace
         ID.AddInteger(0); // nothing else to do
@@ -6475,15 +6475,15 @@ bool reflection_hash(APValue &Result, ASTContext &C, MetaActions &Meta,
     }
   } break;
   case ReflectionKind::BaseSpecifier:
-    val = 7; break;
+    seed = 7; break;
   case ReflectionKind::DataMemberSpec:
-    val = 8; break;
+    seed = 8; break;
   case ReflectionKind::Annotation:
-    val = 9; break;
+    seed = 9; break;
   default:
     llvm_unreachable("unknown reflection kind");
   }
-  ID.AddInteger(val);
+  ID.AddInteger(seed);
   return SetAndSucceed(
     Result,
     APValue(C.MakeIntValue(ID.computeStableHash(), C.getSizeType())));
