@@ -1849,6 +1849,8 @@ bool get_ith_attribute_of(APValue &Result, ASTContext &C,
       return true;
     }
     case ReflectionKind::Null:
+      return Diagnoser(Range.getBegin(), diag::metafn_p3385_attributes_of_null)
+        << Range;
     case ReflectionKind::Template:
     case ReflectionKind::Object:
     case ReflectionKind::Value:
