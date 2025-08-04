@@ -711,9 +711,9 @@ static bool reflect_invoke(APValue &Result, ASTContext &C, MetaActions &Meta,
                            SourceRange Range, ArrayRef<Expr *> Args,
                            Decl *ContainingDecl);
 
-               // ================================================
-               // std::hash<std::meta::info> specialization helper
-               // ================================================
+          // ==========================================================
+          // std::consteval_hash<std::meta::info> specialization helper
+          // ==========================================================
 
 static bool reflection_hash(APValue &Result, ASTContext &C, MetaActions &Meta,
                             EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
@@ -854,7 +854,7 @@ static constexpr Metafunction Metafunctions[] = {
   { Metafunction::MFRK_bool, 1, 1, is_access_specified },
   { Metafunction::MFRK_metaInfo, 5, 5, reflect_invoke },
 
-  // std::hash<std::meta::info> specialization helper
+  // std::consteval_hash<std::meta::info> specialization helper
   { Metafunction::MFRK_sizeT, 1, 1, reflection_hash },
 };
 constexpr const unsigned NumMetafunctions = sizeof(Metafunctions) /
@@ -6451,12 +6451,36 @@ bool reflection_hash(APValue &Result, ASTContext &C, MetaActions &Meta,
   } break;
   case ReflectionKind::Declaration: {                               // TODO
     seed = 2; 
+    ValueDecl *D = RV.getReflectedDecl();
+
+    switch (D->getDeclName().getNameKind()) {
+    case DeclarationName::CXXConstructorName: {} break;
+    case DeclarationName::CXXDestructorName: {} break;
+    case DeclarationName::CXXConversionFunctionName: {} break;
+    case DeclarationName::CXXOperatorName: {} break;
+    case DeclarationName::CXXLiteralOperatorName: {} break;
+    default:
+        if (auto *FD = dyn_cast<FieldDecl>(D)) {
+          if (FD->isUnnamedBitField()) {} 
+          else if (FD->isBitField()) {}
+          else { // non-static data member
+          }
+        }
+        else if (isa<ParmVarDecl>(D)) {} 
+        else if (isa<VarDecl>(D)) {} 
+        else if (isa<BindingDecl>(D)) {} 
+        else if (isa<FunctionDecl>(D)) {}
+        else if (isa<EnumConstantDecl>(D)) {} 
+    }
+    llvm_unreachable("unhandled declaration kind");
   } break;
   case ReflectionKind::Object: {                                    // TODO
     seed = 3;
   } break;
   case ReflectionKind::Value: {                                     // TODO
     seed = 4;
+    APValue val = R.getReflectedValue();
+    val.Profile(ID);
   break; }
   case ReflectionKind::Template: {                                  // TODO
     seed = 5;

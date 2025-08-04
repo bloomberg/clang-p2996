@@ -1843,10 +1843,10 @@ public:
 
 private:
     static int s_idCounter;
-    int d_id;
+    int TypeUniqueId = ++s_idCounter;
 
 public:
-    auto getTypeUniqueId() const -> int { return d_id; }
+    auto getTypeUniqueId() const -> int { return TypeUniqueId; }
 
 private:
   /// Bitfields required by the Type class.
@@ -2327,7 +2327,6 @@ protected:
        bool ConstevalOnly)
       : ExtQualsTypeCommonBase(this,
                                canon.isNull() ? QualType(this_(), 0) : canon) {
-    d_id = ++s_idCounter;
     static_assert(sizeof(*this) <=
                       alignof(decltype(*this)) + sizeof(ExtQualsTypeCommonBase),
                   "changing bitfields changed sizeof(Type)!");
