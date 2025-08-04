@@ -6417,6 +6417,12 @@ bool reflect_invoke(APValue &Result, ASTContext &C, MetaActions &Meta,
   return SetAndSucceed(Result, EvalResult.Val.Lift(CallExpr->getType()));
 }
 
+static void appendQualType(llvm::FoldingSetNodeID &ID, const QualType &Ty)
+{
+    ID.AddInteger(Ty->getTypeUniqueId());
+    ID.AddInteger(Ty.getQualifiers().getAsOpaqueValue());
+}
+
 bool reflection_hash(APValue &Result, ASTContext &C, MetaActions &Meta,
                     EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
                     QualType ResultTy, SourceRange Range, ArrayRef<Expr *> Args,
@@ -6446,9 +6452,7 @@ bool reflection_hash(APValue &Result, ASTContext &C, MetaActions &Meta,
     seed = 0;
   } break;
   case ReflectionKind::Type: {                                      // DONE 
-      QualType QT = R.getReflectedType();
-      ID.AddInteger(QT->getTypeUniqueId());
-      ID.AddInteger(QT.getQualifiers().getAsOpaqueValue());
+      appendQualType(ID, R.getReflectedType());
       seed = 1;
   } break;
   case ReflectionKind::Declaration: {                               // TODO
