@@ -6485,9 +6485,6 @@ bool reflection_hash(APValue &Result, ASTContext &C, MetaActions &Meta,
     seed = 7; 
   } break;
   case ReflectionKind::DataMemberSpec: {                            // DONE
-  return SetAndSucceed(
-    Result,
-    APValue(C.MakeIntValue(1337, C.getSizeType())));
     seed = 8;
     TagDataMemberSpec *TDMS = R.getReflectedDataMemberSpec();
     appendQualType(ID, TDMS->Ty);
