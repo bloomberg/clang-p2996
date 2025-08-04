@@ -6445,8 +6445,11 @@ bool reflection_hash(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::Null: {                                      // DONE
     seed = 0;
   } break;
-  case ReflectionKind::Type: {                                      // TODO
-    seed = 1;
+  case ReflectionKind::Type: {                                      // DONE 
+      QualType QT = R.getReflectedType();
+      ID.AddInteger(QT->getTypeUniqueId());
+      ID.AddInteger(QT.getQualifiers().getAsOpaqueValue());
+      seed = 1;
   } break;
   case ReflectionKind::Declaration: {                               // TODO
     seed = 2; 
@@ -6485,6 +6488,19 @@ bool reflection_hash(APValue &Result, ASTContext &C, MetaActions &Meta,
   } break;
   case ReflectionKind::DataMemberSpec: {                            // TODO
     seed = 8;
+    //TagDataMemberSpec *TDMS = RV.getReflectedDataMemberSpec();
+    // TODO: Add the QualType to the hash
+    // TDMS->Ty
+    //if (TDMS->Name) {
+    //    ID.AddString(TDMS->Name.value());
+    //}
+    //if (TDMS->Alignment) {
+    //    ID.AddInteger(TDMS->Alignment.value());
+    //}
+    //if (TDMS->BitWidth) {
+    //    ID.AddInteger(TDMS->BitWidth.value());
+    //}
+    //ID.AddInteger(TDMS->NoUniqueAddress);
   } break;
   case ReflectionKind::Annotation: {                                // TODO
     seed = 9; 
