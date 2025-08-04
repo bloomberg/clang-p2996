@@ -6435,12 +6435,6 @@ bool reflection_hash(APValue &Result, ASTContext &C, MetaActions &Meta,
     return true;
   }
 
-  //llvm::FoldingSetNodeID ID;
-  //R.getReflectedType().Profile(ID);
-  //return SetAndSucceed(
-  //  Result,
-  //  APValue(C.MakeIntValue(ID.computeStableHash(), C.getSizeType())));
-
   // TODO(Matt): find difference between isReflectionType() and C.MetaInfoTy
   //assert(ResultTy == C.MetaInfoTy);
 
@@ -6490,21 +6484,23 @@ bool reflection_hash(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier: {                             // TODO
     seed = 7; 
   } break;
-  case ReflectionKind::DataMemberSpec: {                            // TODO
+  case ReflectionKind::DataMemberSpec: {                            // DONE
+  return SetAndSucceed(
+    Result,
+    APValue(C.MakeIntValue(1337, C.getSizeType())));
     seed = 8;
-    //TagDataMemberSpec *TDMS = RV.getReflectedDataMemberSpec();
-    // TODO: Add the QualType to the hash
-    // TDMS->Ty
-    //if (TDMS->Name) {
-    //    ID.AddString(TDMS->Name.value());
-    //}
-    //if (TDMS->Alignment) {
-    //    ID.AddInteger(TDMS->Alignment.value());
-    //}
-    //if (TDMS->BitWidth) {
-    //    ID.AddInteger(TDMS->BitWidth.value());
-    //}
-    //ID.AddInteger(TDMS->NoUniqueAddress);
+    TagDataMemberSpec *TDMS = R.getReflectedDataMemberSpec();
+    appendQualType(ID, TDMS->Ty);
+    if (TDMS->Name) {
+        ID.AddString(TDMS->Name.value());
+    }
+    if (TDMS->Alignment) {
+        ID.AddInteger(TDMS->Alignment.value());
+    }
+    if (TDMS->BitWidth) {
+        ID.AddInteger(TDMS->BitWidth.value());
+    }
+    ID.AddInteger(TDMS->NoUniqueAddress);
   } break;
   case ReflectionKind::Annotation: {                                // TODO
     seed = 9; 
