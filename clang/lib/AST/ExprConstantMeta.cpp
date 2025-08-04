@@ -692,7 +692,26 @@ static bool get_ith_attribute_of(APValue &Result, ASTContext &C,
                                  DiagFn Diagnoser, bool AllowInjection,
                                  QualType ResultTy, SourceRange Range,
                                  ArrayRef<Expr *> Args, Decl *ContainingDecl);
-
+static bool is_unscoped_attribute(APValue &Result, ASTContext &C,
+                                  MetaActions &Meta, EvalFn Evaluator,
+                                  DiagFn Diagnoser, bool AllowInjection,
+                                  QualType ResultTy, SourceRange Range,
+                                  ArrayRef<Expr *> Args, Decl *ContainingDecl);
+static bool is_clang_attribute(APValue &Result, ASTContext &C,
+                               MetaActions &Meta, EvalFn Evaluator,
+                               DiagFn Diagnoser, bool AllowInjection,
+                               QualType ResultTy, SourceRange Range,
+                               ArrayRef<Expr *> Args, Decl *ContainingDecl);
+static bool is_gcc_attribute(APValue &Result, ASTContext &C,
+                             MetaActions &Meta, EvalFn Evaluator,
+                             DiagFn Diagnoser, bool AllowInjection,
+                             QualType ResultTy, SourceRange Range,
+                             ArrayRef<Expr *> Args, Decl *ContainingDecl);
+static bool is_msvc_attribute(APValue &Result, ASTContext &C,
+                              MetaActions &Meta, EvalFn Evaluator,
+                              DiagFn Diagnoser, bool AllowInjection,
+                              QualType ResultTy, SourceRange Range,
+                              ArrayRef<Expr *> Args, Decl *ContainingDecl);
 static bool is_attribute(APValue &Result, ASTContext &C,
                          MetaActions &Meta, EvalFn Evaluator,
                          DiagFn Diagnoser, bool AllowInjection,
@@ -752,6 +771,10 @@ static constexpr Metafunction Metafunctions[] = {
   { Metafunction::MFRK_metaInfo, 2, 2, get_next_member_decl_of },
   { Metafunction::MFRK_bool, 1, 1, is_structural_type },
   { Metafunction::MFRK_metaInfo, 1, 1, map_decl_to_entity },
+  { Metafunction::MFRK_bool, 1, 1, is_unscoped_attribute },
+  { Metafunction::MFRK_bool, 1, 1, is_clang_attribute },
+  { Metafunction::MFRK_bool, 1, 1, is_msvc_attribute },
+  { Metafunction::MFRK_bool, 1, 1, is_gcc_attribute },
 
   // exposed metafunctions
   { Metafunction::MFRK_spliceFromArg, 4, 4, identifier_of },
@@ -1751,6 +1774,82 @@ struct AttributeScratchpad {
 // -----------------------------------------------------------------------------
 // Metafunction implementations
 // -----------------------------------------------------------------------------
+
+bool is_unscoped_attribute(APValue &Result, ASTContext &C,
+                         MetaActions &Meta, EvalFn Evaluator,
+                         DiagFn Diagnoser, bool AllowInjection,
+                         QualType ResultTy, SourceRange Range,
+                         ArrayRef<Expr *> Args, Decl *ContainingDecl) {
+  assert(Args[0]->getType()->isReflectionType());
+  assert(ResultTy == C.BoolTy);
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
+    return true;
+  if (RV.getReflectionKind() != ReflectionKind::Attribute) {
+    return SetAndSucceed(Result, makeBool(C, false));
+  }
+  ParsedAttr *attr = RV.getReflectedAttribute();
+  const bool isClang = attr->getForm().getSyntax() == AttributeCommonInfo::Syntax::AS_CXX11
+    && !attr->hasScope();
+  return SetAndSucceed(Result, makeBool(C, isClang));
+}
+
+bool is_clang_attribute(APValue &Result, ASTContext &C,
+                      MetaActions &Meta, EvalFn Evaluator,
+                      DiagFn Diagnoser, bool AllowInjection,
+                      QualType ResultTy, SourceRange Range,
+                      ArrayRef<Expr *> Args, Decl *ContainingDecl) {
+  assert(Args[0]->getType()->isReflectionType());
+  assert(ResultTy == C.BoolTy);
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
+    return true;
+  if (RV.getReflectionKind() != ReflectionKind::Attribute) {
+    return SetAndSucceed(Result, makeBool(C, false));
+  }
+  ParsedAttr *attr = RV.getReflectedAttribute();
+  const bool isClang = attr->getForm().getSyntax() == AttributeCommonInfo::Syntax::AS_CXX11
+    && attr->isClangScope();
+  return SetAndSucceed(Result, makeBool(C, isClang));
+}
+
+bool is_gcc_attribute(APValue &Result, ASTContext &C,
+                    MetaActions &Meta, EvalFn Evaluator,
+                    DiagFn Diagnoser, bool AllowInjection,
+                    QualType ResultTy, SourceRange Range,
+                    ArrayRef<Expr *> Args, Decl *ContainingDecl) {
+  assert(Args[0]->getType()->isReflectionType());
+  assert(ResultTy == C.BoolTy);
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
+    return true;
+  if (RV.getReflectionKind() != ReflectionKind::Attribute) {
+    return SetAndSucceed(Result, makeBool(C, false));
+  }
+  ParsedAttr *attr = RV.getReflectedAttribute();
+  const bool isGnu = attr->getForm().getSyntax() == AttributeCommonInfo::Syntax::AS_CXX11
+    && attr->isGNUScope();
+  return SetAndSucceed(Result, makeBool(C, isGnu));
+}
+
+bool is_msvc_attribute(APValue &Result, ASTContext &C,
+                    MetaActions &Meta, EvalFn Evaluator,
+                    DiagFn Diagnoser, bool AllowInjection,
+                    QualType ResultTy, SourceRange Range,
+                    ArrayRef<Expr *> Args, Decl *ContainingDecl) {
+  assert(Args[0]->getType()->isReflectionType());
+  assert(ResultTy == C.BoolTy);
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
+    return true;
+  if (RV.getReflectionKind() != ReflectionKind::Attribute) {
+    return SetAndSucceed(Result, makeBool(C, false));
+  }
+  ParsedAttr *attr = RV.getReflectedAttribute();
+  const bool isGnu = attr->getForm().getSyntax() == AttributeCommonInfo::Syntax::AS_CXX11
+    && attr->isMsvcScope();
+  return SetAndSucceed(Result, makeBool(C, isGnu));
+}
 
 bool get_ith_attribute_of(APValue &Result, ASTContext &C,
                           MetaActions &Meta, EvalFn Evaluator,

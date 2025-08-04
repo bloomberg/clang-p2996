@@ -26,6 +26,14 @@ inline namespace reflection_v2
 // std::meta::info
 using info = decltype(^^int);
 
+// attribute namespace
+enum class AttributeNamespace {
+  None,
+  Clang,
+  GCC,
+  MSVC,
+};
+
 // concept reflection_range
 template <typename R>
 concept reflection_range = see below;
@@ -426,6 +434,13 @@ concept reflection_range =
   same_as<ranges::range_value_t<R>, info> &&
   same_as<remove_cvref_t<ranges::range_reference_t<R>>, info>;
 
+enum class AttributeNamespace {
+  None,
+  Clang, // Exposition only
+  GCC,   // Exposition only
+  MSVC,  // Exposition only
+};
+
 namespace detail {
 enum : unsigned {
 
@@ -438,6 +453,10 @@ enum : unsigned {
   __metafn_get_next_member_decl_of,
   __metafn_is_structural_type,
   __metafn_map_decl_to_entity,
+  __metafn_is_unscoped_attribute,
+  __metafn_is_clang_attribute,
+  __metafn_is_msvc_attribute,
+  __metafn_is_gcc_attribute,
 
   // P2996 metafunctions
   __metafn_identifier_of,
@@ -770,6 +789,13 @@ struct front_annotation_of {
 };
 
 #if __has_feature(attribute_reflection)
+
+enum class AttributeNamespace {
+  None,
+  Clang, // Exposition only
+  GCC,   // Exposition only
+  MSVC,  // Exposition only
+};
 
 struct front_attribute_of {
   consteval info operator()(info reflectedEntity) const {
@@ -2202,6 +2228,26 @@ consteval auto is_attribute(info r) -> bool {
   return __metafunction(detail::__metafn_is_attribute, r);
 }
 
+// Returns whether the reflected entity is a clang scoped attribute.
+consteval auto is_unscoped_attribute(info r) -> bool {
+  return __metafunction(detail::__metafn_is_unscoped_attribute, r);
+}
+
+// Returns whether the reflected entity is a clang scoped attribute.
+consteval auto is_clang_attribute(info r) -> bool {
+  return __metafunction(detail::__metafn_is_clang_attribute, r);
+}
+
+// Returns whether the reflected entity is a gcc scoped attribute.
+consteval auto is_gcc_attribute(info r) -> bool {
+  return __metafunction(detail::__metafn_is_gcc_attribute, r);
+}
+
+// Returns whether the reflected entity is a msvc scoped attribute.
+consteval auto is_msvc_attribute(info r) -> bool {
+  return __metafunction(detail::__metafn_is_msvc_attribute, r);
+}
+
 // Return list of attribtes appertaining to r
 consteval auto attributes_of(info r) -> vector<info> {
   using iterator =
@@ -2211,6 +2257,41 @@ consteval auto attributes_of(info r) -> vector<info> {
   using range = __range_of_infos::range<iterator>;
   auto rng = range{r};
   return vector<info>{rng.begin(), rng.end()};
+}
+
+// Return list of attribtes appertaining to r, filtering on namespace and identifier
+consteval auto attributes_of(info r,
+                             std::string_view    name,
+                             AttributeNamespace ns = AttributeNamespace::None) -> vector<info> {
+  using namespace std::literals;
+
+  // For demo purpose, it's ok enough
+  // Alternative is to pass it up to the metafunction but we'd have to break our stateless iterator
+  // model.... For now, it s just not worth it (again, it's a demo).
+  auto getIdPart = [](std::string_view token) {
+    if (auto sep = token.find("::"sv); sep != std::string_view::npos && sep + 2 < token.size() ) {
+      return token.substr(sep + 2);
+    }
+    return std::string_view{};
+  };
+
+  return attributes_of(r) | views::filter([=](info attribute) {
+    switch (ns) {
+      case AttributeNamespace::None: {
+        return is_unscoped_attribute(attribute) && identifier_of(attribute) == name;
+      }
+      case AttributeNamespace::Clang: {
+        return is_clang_attribute(attribute) && getIdPart(identifier_of(attribute)) == name;
+      }
+      case AttributeNamespace::GCC: {
+        return is_gcc_attribute(attribute) && getIdPart(identifier_of(attribute)) == name;
+      }
+      case AttributeNamespace::MSVC: {
+        return is_msvc_attribute(attribute) && getIdPart(identifier_of(attribute)) == name;
+      }
+      default: return false;
+    }
+  }) | ranges::to<vector>();
 }
 
 #endif

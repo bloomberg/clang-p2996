@@ -211,6 +211,7 @@ public:
   bool isDeclspecAttribute() const { return SyntaxUsed == AS_Declspec; }
   bool isMicrosoftAttribute() const { return SyntaxUsed == AS_Microsoft; }
 
+  bool isMsvcScope() const;
   bool isGNUScope() const;
   bool isClangScope() const;
 
