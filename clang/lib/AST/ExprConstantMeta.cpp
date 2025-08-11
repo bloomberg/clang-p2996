@@ -6423,6 +6423,17 @@ static void appendQualType(llvm::FoldingSetNodeID &ID, const QualType &Ty)
     ID.AddInteger(Ty.getQualifiers().getAsOpaqueValue());
 }
 
+static void appendSourceLocation(llvm::FoldingSetNodeID &ID, const SourceLocation& Loc)
+{
+    ID.AddInteger(Loc.getHashValue());
+}
+
+static void appendSourceRange(llvm::FoldingSetNodeID &ID, const SourceRange& Range)
+{
+    appendSourceLocation(ID, Range.getBegin());
+    appendSourceLocation(ID, Range.getEnd());
+}
+
 bool reflection_hash(APValue &Result, ASTContext &C, MetaActions &Meta,
                     EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
                     QualType ResultTy, SourceRange Range, ArrayRef<Expr *> Args,
@@ -6435,81 +6446,35 @@ bool reflection_hash(APValue &Result, ASTContext &C, MetaActions &Meta,
     return true;
   }
 
-  // TODO(Matt): find difference between isReflectionType() and C.MetaInfoTy
-  //assert(ResultTy == C.MetaInfoTy);
-
   llvm::FoldingSetNodeID ID;
+  ID.AddInteger(static_cast<std::size_t>(R.getReflectionKind()));
 
-  std::size_t seed = 0; // to distinguish hashes of different kinds
   switch (R.getReflectionKind()) {
   case ReflectionKind::Null: {                                      // DONE
-    seed = 0;
+    ID.AddInteger(0);
   } break;
   case ReflectionKind::Type: {                                      // DONE 
-      appendQualType(ID, R.getReflectedType());
-      seed = 1;
+    appendQualType(ID, R.getReflectedType());
   } break;
-  case ReflectionKind::Declaration: {                               // TODO
-    seed = 2; 
-    ValueDecl *D = RV.getReflectedDecl();
-
-    switch (D->getDeclName().getNameKind()) {
-    case DeclarationName::CXXConstructorName: {} break;
-    case DeclarationName::CXXDestructorName: {} break;
-    case DeclarationName::CXXConversionFunctionName: {} break;
-    case DeclarationName::CXXOperatorName: {} break;
-    case DeclarationName::CXXLiteralOperatorName: {} break;
-    default:
-        if (auto *FD = dyn_cast<FieldDecl>(D)) {
-          if (FD->isUnnamedBitField()) {} 
-          else if (FD->isBitField()) {}
-          else { // non-static data member
-          }
-        }
-        else if (isa<ParmVarDecl>(D)) {} 
-        else if (isa<VarDecl>(D)) {} 
-        else if (isa<BindingDecl>(D)) {} 
-        else if (isa<FunctionDecl>(D)) {}
-        else if (isa<EnumConstantDecl>(D)) {} 
-    }
-    llvm_unreachable("unhandled declaration kind");
+  case ReflectionKind::Declaration: {                               // DONE 
+    appendSourceRange(ID, R.getReflectedDecl()->getSourceRange());
   } break;
   case ReflectionKind::Object: {                                    // TODO
-    seed = 3;
+    llvm_unreachable("TODO - Object not yet hashable");
   } break;
-  case ReflectionKind::Value: {                                     // TODO
-    seed = 4;
-    APValue val = R.getReflectedValue();
-    val.Profile(ID);
+  case ReflectionKind::Value: {                                     // DONE
+    R.getReflectedValue().Profile(ID);
   break; }
-  case ReflectionKind::Template: {                                  // TODO
-    seed = 5;
+  case ReflectionKind::Template: {                                  // DONE
+    appendSourceRange(ID, R.getReflectedTemplate().getAsTemplateDecl()->getSourceRange());
   } break;
   case ReflectionKind::Namespace: {                                 // DONE
-    seed = 6;
-    Decl* D = R.getReflectedNamespace();
-    if (isa<TranslationUnitDecl>(D)) { // global namespace
-        ID.AddInteger(0); // nothing else to do
-    }
-    else if (isa<NamespaceDecl>(D)) {
-        NamespaceDecl* ND = dyn_cast<NamespaceDecl>(D);
-        SourceLocation loc = ND->getBeginLoc();
-        ID.AddInteger(loc.getHashValue());
-    }
-    else if (isa<NamespaceAliasDecl>(D)) {
-        NamespaceAliasDecl* ND = dyn_cast<NamespaceAliasDecl>(D);
-        SourceLocation loc = ND->getAliasLoc();
-        ID.AddInteger(loc.getHashValue());
-    }
-    else {
-        llvm_unreachable("unhandled namespace kind");
-    }
+    appendSourceRange(ID, R.getReflectedNamespace()->getSourceRange());
   } break;
-  case ReflectionKind::BaseSpecifier: {                             // TODO
-    seed = 7; 
+  case ReflectionKind::BaseSpecifier: {                             // DONE 
+    appendSourceRange(ID, R.getReflectedBaseSpecifier()->getSourceRange());
   } break;
   case ReflectionKind::DataMemberSpec: {                            // DONE
-    seed = 8;
     TagDataMemberSpec *TDMS = R.getReflectedDataMemberSpec();
     appendQualType(ID, TDMS->Ty);
     if (TDMS->Name) {
@@ -6523,13 +6488,13 @@ bool reflection_hash(APValue &Result, ASTContext &C, MetaActions &Meta,
     }
     ID.AddInteger(TDMS->NoUniqueAddress);
   } break;
-  case ReflectionKind::Annotation: {                                // TODO
-    seed = 9; 
+  case ReflectionKind::Annotation: {                                // DONE 
+    appendSourceLocation(ID, R.getReflectedAnnotation()->getEqLoc());
   } break;
   default:
     llvm_unreachable("unknown reflection kind");
   }
-  ID.AddInteger(seed);
+
   return SetAndSucceed(
     Result,
     APValue(C.MakeIntValue(ID.computeStableHash(), C.getSizeType())));
