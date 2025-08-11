@@ -2564,15 +2564,6 @@ static bool isIntArgument(const Record *Arg) {
       .Default(false);
 }
 
-static bool isStringLiteralArgument(const Record *Arg) {
-  if (Arg->getDirectSuperClasses().empty())
-    return false;
-  StringRef ArgKind = Arg->getDirectSuperClasses().back().first->getName();
-  if (ArgKind == "EnumArgument")
-    return Arg->getValueAsBit("IsString");
-  return ArgKind == "StringArgument";
-}
-
 static bool isStringEnumArgument(const Record *Arg) {
   if (Arg->getDirectSuperClasses().empty())
     return false;
@@ -2580,13 +2571,23 @@ static bool isStringEnumArgument(const Record *Arg) {
   return ArgKind == "EnumArgument" && Arg->getValueAsBit("IsString");
 }
 
-static bool isVariadicStringLiteralArgument(const Record *Arg) {
+static bool isStringLiteralArgument(const Record *Arg) {
+  StringRef ArgKind = Arg->getDirectSuperClasses().back().first->getName();
+  return isStringEnumArgument(Arg) || ArgKind == "StringArgument";
+}
+
+static bool isVariadicStringLiteralEnumArgument(const Record *Arg) {
   if (Arg->getDirectSuperClasses().empty())
     return false;
   StringRef ArgKind = Arg->getDirectSuperClasses().back().first->getName();
   if (ArgKind == "VariadicEnumArgument")
     return Arg->getValueAsBit("IsString");
-  return ArgKind == "VariadicStringArgument";
+  return false;
+}
+
+static bool isVariadicStringLiteralArgument(const Record *Arg) {
+  StringRef ArgKind = Arg->getDirectSuperClasses().back().first->getName();
+  return isVariadicStringLiteralEnumArgument(Arg) || ArgKind == "VariadicStringArgument";
 }
 
 // An (family-of-variant) attribute is reflectable if
@@ -2621,6 +2622,7 @@ static bool isReflectableAttr(const Record* R) {
 
   auto isSupportedArgType = [](const Record* arg) {
     return isStringLiteralArgument(arg)
+      || isVariadicStringLiteralArgument(arg)
       || isBoolArgument(arg)
       || isIntArgument(arg)
       || isExprArgument(arg);
@@ -2647,6 +2649,8 @@ static void writeExtractSyntacticArgumentFunction(const Record &R,
   };
 
   auto emitExprFromArg = [&] (raw_ostream &OS, const Record *Arg) {
+    // I dont have an Arg here so cant directly call
+    // all the normalization methods...
     std::string ArgName(Arg->getValueAsString("Name"));
     ArgName[0] = std::toupper(ArgName[0]);
     std::string Accessor = std::string("get") + ArgName + "()";
@@ -2658,6 +2662,36 @@ static void writeExtractSyntacticArgumentFunction(const Record &R,
     } else if (isIdentifierArgument(Arg, true)) {
       OS << "    IdentifierLoc *IL" << ArgName << " = new (C) IdentifierLoc(srcLocation, " << Accessor << ");\n";
       OS << "    args.push_back(IL" << ArgName << ");\n";
+    } else if (isVariadicStringLiteralArgument(Arg)) {
+      // no 'get', no uppercase
+      std::string variadicAccessorName = ArgName;
+      variadicAccessorName[0] = std::tolower(variadicAccessorName[0]);
+      variadicAccessorName += "()";
+      if (!isVariadicStringLiteralEnumArgument(Arg)) {
+        // No need to convert enum to their string representation
+        OS << "    for (auto it : " << variadicAccessorName<< ") {"
+           << "      args.push_back(StringLiteral::Create(\n"
+           << "        C,\n"
+           << "        it,\n"
+           << "        StringLiteralKind::Unevaluated,\n"
+           << "        false,\n"
+           << "        C.getConstantArrayType(C.CharTy, llvm::APInt(32, it.size() + 1), nullptr, ArraySizeModifier::Normal, 0),\n"
+           << "        srcLocation));\n"
+           << "    }\n";
+      } else {
+        std::string enumTypeName(makeShortNameForArgType(Arg));
+        enumTypeName[0] = std::toupper(enumTypeName[0]);
+        std::string variadicConvertorName = "StringRef(Convert" + enumTypeName + "ToStr(it))";
+        OS << "    for (auto it : " << variadicAccessorName<< ") {"
+           << "      args.push_back(StringLiteral::Create(\n"
+           << "        C,\n"
+           << "        " << variadicConvertorName << ",\n"
+           << "        StringLiteralKind::Unevaluated,\n"
+           << "        false,\n"
+           << "        C.getConstantArrayType(C.CharTy, llvm::APInt(32, " << variadicConvertorName << ".size() + 1), nullptr, ArraySizeModifier::Normal, 0),\n"
+           << "        srcLocation));\n"
+           << "    }\n";
+      }
     } else if (isStringLiteralArgument(Arg)) {
       // String enums need to go through a convert
       if (isStringEnumArgument(Arg)) {

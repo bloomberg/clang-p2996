@@ -566,6 +566,7 @@ enum : unsigned {
   // P3385 attributes reflection
   __metafn_get_ith_attribute_of,
   __metafn_is_attribute,
+  __metafn_has_attribute,
 
   // P3493 accessibility metafunctions
   __metafn_access_context,
@@ -2226,6 +2227,12 @@ consteval auto annotate(info entity, info val) -> info {
 // Returns whether the reflected entity is an attribute.
 consteval auto is_attribute(info r) -> bool {
   return __metafunction(detail::__metafn_is_attribute, r);
+}
+
+// Return true if the given 'entity' has the given 'attribute' appertained
+// to it
+consteval auto has_attribute(info entity, info attribute) -> bool {
+  return __metafunction(detail::__metafn_has_attribute, entity, attribute);
 }
 
 // Returns whether the reflected entity is a clang scoped attribute.

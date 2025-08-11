@@ -18,20 +18,34 @@
 // [reflection]
 #include <experimental/meta>
 
-// Note that 'Foo' mix standard and vendor namespaced, supported and unsupported
-struct [[nodiscard("std variant"), deprecated("dont use me")]]
+// 'Foo' mix standard and vendor namespaced, supported and unsupported
+struct [[nodiscard("Standard nodiscard"), deprecated("Standard deprecated")]]
 [[clang::warn_unused_result("clang variant")]]
 [[clang::availability(macos,introduced=10.4,deprecated=10.6,obsoleted=10.7)]] Foo {};
 
-// This is vendor specific & does not exist in the standard
+// This is vendor specific, does not exist in the standard
 [[gnu::constructor(200)]] void gnuConstructor(void);
 
+// NS and function
+namespace [[deprecated("Standard deprecated")]] DeprecatedNamespace {}
+[[deprecated("Standard deprecated")]] bool DeprecatedFunction() {}
+
+// Test for variadic string
+class [[clang::suppress("one", "two", "three")]] Bar {};
+
+// Test for variadic enum
+struct [[clang::consumable(unconsumed)]] FooBar {
+    [[clang::callable_when(unconsumed)]] void f() {}
+};
+
 // Some samples of vendor and standard attributes
-constexpr auto stdAttr = ^^[[nodiscard("std variant")]];
+constexpr auto stdAttr = ^^[[nodiscard("Standard nodiscard")]];
 constexpr auto clangAttr = ^^[[clang::warn_unused_result("clang variant")]];
 constexpr auto msvcAttr = ^^[[msvc::no_unique_address]];
 constexpr auto gnuAttr = ^^[[gnu::constructor(200)]];
-
+constexpr auto variadicAttr = ^^[[clang::suppress("one", "two", "three")]];
+constexpr auto enumAttr = ^^[[clang::callable_when(unconsumed)]];
+constexpr auto stdDeprecated = ^^[[deprecated("Standard deprecated")]];
 
 // Test fragments
 consteval bool testHasIdentifier() {
@@ -58,6 +72,14 @@ consteval bool testIdentifierOf() {
   return true;
 }
 
+consteval bool testHasAttr() {
+  static_assert(std::meta::has_attribute(^^Foo, stdAttr));
+  static_assert(std::meta::has_attribute(^^Foo, stdDeprecated));
+  static_assert(std::meta::has_attribute(^^Foo, clangAttr));
+  static_assert(!std::meta::has_attribute(^^Foo, ^^[[clang::availability(macos,introduced=10.4,deprecated=10.6,obsoleted=10.7)]]));
+  return true;
+}
+
 consteval bool testAttributesOfAttr() {
   static_assert(std::meta::attributes_of(stdAttr)[0] == stdAttr);
   static_assert(std::meta::attributes_of(clangAttr)[0] == clangAttr);
@@ -66,24 +88,29 @@ consteval bool testAttributesOfAttr() {
   return true;
 }
 
-consteval bool testAttributesOfType() {
-  constexpr auto h = [](std::meta::info i) {
-    return i == ^^[[nodiscard("std variant")]]
-      || i == ^^[[deprecated("dont use me")]]
-      || i == ^^[[clang::warn_unused_result("clang variant")]];
-  };
+consteval bool testAttributesofNs() {
+  static_assert(std::meta::has_attribute(^^DeprecatedNamespace, stdDeprecated));
+  return true;
+}
 
+consteval bool testAttributesofFunction() {
+  static_assert(std::meta::has_attribute(^^DeprecatedFunction, stdDeprecated));
+  return true;
+}
+
+consteval bool testAttributesOfType() {
   // This should not return the unsupported 'availability'
   static_assert(std::meta::attributes_of(^^Foo).size() == 3);
   
-  constexpr auto att0 = std::meta::attributes_of(^^Foo)[0];
-  constexpr auto att1 = std::meta::attributes_of(^^Foo)[1];
-  constexpr auto att2 = std::meta::attributes_of(^^Foo)[2];
-  
-  static_assert(att0 != att1 && att1 != att2 && att0 != att2);
-  static_assert(h(att0));
-  static_assert(h(att1));
-  static_assert(h(att2));
+  static_assert(std::meta::has_attribute(^^Foo, stdAttr));
+  static_assert(std::meta::has_attribute(^^Foo, stdDeprecated));
+  static_assert(std::meta::has_attribute(^^Foo, clangAttr));
+
+  static_assert(std::meta::attributes_of(^^Foo, "warn_unused_result", std::meta::AttributeNamespace::Clang).size() == 1);
+  static_assert(std::meta::attributes_of(^^Foo, "warn_unused_result", std::meta::AttributeNamespace::Clang)[0] == clangAttr);
+
+  static_assert(std::meta::attributes_of(^^Foo, "nodiscard").size() == 1);
+  static_assert(std::meta::attributes_of(^^Foo, "nodiscard")[0] == stdAttr);
 
   return true;
 }
@@ -103,26 +130,66 @@ consteval bool testComparison() {
 consteval bool testVendorSpecific() {
   constexpr auto r = ^^gnuConstructor;
   static_assert(std::meta::attributes_of(r).size() == 1);
-  static_assert(std::meta::attributes_of(r)[0] == ^^[[gnu::constructor(200)]]);
+  static_assert(std::meta::attributes_of(r)[0] == gnuAttr);
   return true;
 }
 
-consteval bool testUnsupported() {
-  static_assert(!std::meta::is_attribute(^^[[assume(true)]]));
-  static_assert(!std::meta::is_attribute(^^[[clang::assume(true)]]));
+consteval bool testUnsupportedAttributes() {
   static_assert(!std::meta::is_attribute(^^[[my::stuff("anything")]]));
-  static_assert(^^[[assume(true)]] == std::meta::info());
+  return true;
+}
+
+consteval bool testVariadicStringArgument() {
+  static_assert(std::meta::attributes_of(^^Bar).size() == 1);
+  static_assert(std::meta::attributes_of(^^Bar, "suppress", std::meta::AttributeNamespace::Clang)[0] == variadicAttr);
+  static_assert(std::meta::attributes_of(^^Bar, "suppress", std::meta::AttributeNamespace::Clang)[0] != ^^[[clang::suppress("one", "too", "three")]]); // typo on 'two'
+  return true;
+}
+
+consteval bool testVariadicEnumArgument() {
+  constexpr auto r = ^^FooBar::f;
+  static_assert(std::meta::identifier_of(r) == "f");
+  static_assert(std::meta::attributes_of(r).size() == 1);
+  static_assert(std::meta::attributes_of(r)[0] == enumAttr);
+  return true;
+}
+
+struct TestDefineAggregate {
+  struct Impl;
+  consteval {
+    constexpr auto r = std::meta::data_member_spec(
+      ^^int,
+      std::meta::data_member_options{
+        .name= "idx",
+        .attributes = { ^^[[maybe_unused]], ^^[[no_unique_address]] }
+      }
+    );
+
+    std::meta::define_aggregate(
+      ^^Impl, {
+        r
+      }
+    );
+  }
+};
+static_assert(std::meta::is_complete_type(^^TestDefineAggregate::Impl));
+static_assert(std::meta::attributes_of(std::meta::nonstatic_data_members_of(
+                  ^^TestDefineAggregate::Impl, std::meta::access_context::current())[0]).size() == 2);
+
+consteval bool testAssumeAttribute() {
+  static_assert(std::meta::is_attribute(^^[[assume(true)]]));
+  static_assert(std::meta::is_attribute(^^[[clang::assume(true)]]));
+
+  static_assert(^^[[assume(true)]] == ^^[[assume(true)]]);
+  static_assert(^^[[assume(true)]] != ^^[[assume(false)]]);
+  int i = 0;
+  static_assert(^^[[assume(i > 0)]] != ^^[[assume(i == 0)]]);
+  static_assert(^^[[assume(i != 0)]] == ^^[[assume(i != 0)]]);
+
   return true;
 }
 
 int main() {
-  static_assert(testIsAttribute(), "IsAttribute");
-  static_assert(testHasIdentifier(), "HasIdentifier");
-  static_assert(testIdentifierOf(), "IdentifierOf");
-  static_assert(testAttributesOfAttr() ,"AttributesOfAttr");
-  static_assert(testAttributesOfType() ,"AttributesOfType");
-  static_assert(testComparison() ,"Comparison");
-  static_assert(testVendorSpecific() ,"VendorSpecific");
-  static_assert(testUnsupported() ,"Unsupported");
+  return 0;
 }
 

@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/AST/APValue.h"
+#include "clang/AST/ASTContext.h"
 #include "clang/AST/Attr.h"
 #include "clang/AST/Attrs.inc"
 #include "clang/AST/CXXInheritance.h"
@@ -718,6 +719,12 @@ static bool is_attribute(APValue &Result, ASTContext &C,
                          QualType ResultTy, SourceRange Range,
                          ArrayRef<Expr *> Args, Decl *ContainingDecl);
 
+static bool has_attribute(APValue &Result, ASTContext &C,
+                         MetaActions &Meta, EvalFn Evaluator,
+                         DiagFn Diagnoser, bool AllowInjection,
+                         QualType ResultTy, SourceRange Range,
+                         ArrayRef<Expr *> Args, Decl *ContainingDecl);
+
                           // =========================
                           // Accessibility API (P3493)
                           // =========================
@@ -884,6 +891,7 @@ static constexpr Metafunction Metafunctions[] = {
   // P3385 attributes reflection
   { Metafunction::MFRK_metaInfo, 3, 3, get_ith_attribute_of },
   { Metafunction::MFRK_bool, 1, 1, is_attribute },
+  { Metafunction::MFRK_bool, 2, 2, has_attribute },
 
   // P3493 accessibility extensions
   { Metafunction::MFRK_metaInfo, 0, 0, current_access_context },
@@ -1851,6 +1859,113 @@ bool is_msvc_attribute(APValue &Result, ASTContext &C,
   return SetAndSucceed(Result, makeBool(C, isGnu));
 }
 
+// Synthesize back a ParsedAttr from an Attr, the best I can...
+// Return a nullptr if the process met an error
+static const ParsedAttr* toSyntacticForm(const Attr* val, ASTContext * C) {
+  static AttributeScratchpad scratchpad;
+  ParsedAttr * recoveredAttr = nullptr;
+  auto onArgs = [&](
+      IdentifierInfo * attrName,
+      SmallVector<llvm::PointerUnion<Expr *, IdentifierLoc *>, 2> argExprs,
+      AttributeCommonInfo::Form /* Do we need this fed back to us at all ?...*/
+    ) {
+      recoveredAttr = scratchpad.pool.create(
+        attrName,
+        val->getRange(),
+        val->hasScope() ? const_cast<IdentifierInfo*>(val->getScopeName()) : nullptr,
+        val->getLoc(),
+        argExprs.data(),
+        argExprs.size(),
+        val->getForm()
+      );
+      return recoveredAttr != nullptr;
+    };
+    // FIXME why is this not just returning the vector of args...
+    // Did I worry about lifetime... ?
+    if (!extractSyntacticArguments(val, *C, onArgs, val->getLocation())) {
+      recoveredAttr = nullptr;
+    }
+    return recoveredAttr;
+}
+
+bool has_attribute(APValue &Result, ASTContext &C,
+                  MetaActions &Meta, EvalFn Evaluator,
+                  DiagFn Diagnoser, bool AllowInjection,
+                  QualType ResultTy, SourceRange Range,
+                  ArrayRef<Expr *> Args, Decl *ContainingDecl) {
+  assert(Args[0]->getType()->isReflectionType());
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
+    return true;
+
+  assert(ResultTy == C.BoolTy);
+  assert(Args[1]->getType()->isReflectionType());
+  if (!Evaluator(RV, Args[1], true))
+    return true;
+  if (RV.getReflectionKind() != ReflectionKind::Attribute) {
+    return SetAndSucceed(Result, makeBool(C, false));
+  }
+  const ParsedAttr* testAttr = RV.getReflectedAttribute();
+
+  auto findMatchingAttribute = [&](Decl* decl, const ParsedAttr* testAttr) -> bool {
+    llvm::FoldingSetNodeID providedAttrID;
+    testAttr->profile(providedAttrID);
+
+    auto cxx11Attrs = collectUniqueCxx11Attrs(decl);
+    if (cxx11Attrs.empty()) {
+      return false;
+    }
+    for (const auto * val : cxx11Attrs) {
+      assert(val);
+      const ParsedAttr * recoveredAttr = toSyntacticForm(val, &C);
+      llvm::FoldingSetNodeID recoveredAttrID;
+      recoveredAttr->profile(recoveredAttrID);
+      if (recoveredAttrID == providedAttrID) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  switch (RV.getReflectionKind()) {
+    default: return DiagnoseReflectionKind(Diagnoser, Range, "variable, attribute, function, namespace", DescriptionOf(RV));
+    case ReflectionKind::Attribute: { // Somewhat useless...
+      llvm::FoldingSetNodeID testAttrID;
+      testAttr->profile(testAttrID);
+      const ParsedAttr* reflectedAttr = RV.getReflectedAttribute();
+      llvm::FoldingSetNodeID reflectedAttrID;
+      reflectedAttr->profile(reflectedAttrID);
+
+      return SetAndSucceed(Result, makeBool(C, reflectedAttrID == testAttrID));
+    }
+    case ReflectionKind::Type: {
+      QualType qType = RV.getReflectedType();
+      Decl *D = findTypeDecl(qType)->getMostRecentDecl();
+      if (!D) {
+        return Diagnoser(Range.getBegin(), diag::metafn_p3385_no_declaration_for_type)
+          << DescriptionOf(RV);
+      }
+      return SetAndSucceed(Result, makeBool(C, findMatchingAttribute(D, testAttr)));
+    }
+    case ReflectionKind::Declaration: {
+      ValueDecl *D = RV.getReflectedDecl();
+      if (!D) {
+        return DiagnoseReflectionKind(
+          Diagnoser, Range, "attribute, type, declaration", DescriptionOf(RV));
+      }
+      return SetAndSucceed(Result, makeBool(C, findMatchingAttribute(D, testAttr)));
+    }
+    case ReflectionKind::Namespace: {
+      Decl* D = RV.getReflectedNamespace()->getMostRecentDecl();
+      if (!D) {
+        return DiagnoseReflectionKind(
+          Diagnoser, Range, "attribute, type, declaration", DescriptionOf(RV));
+      }
+      return SetAndSucceed(Result, makeBool(C, findMatchingAttribute(D, testAttr)));
+    }
+  }
+}
+
 bool get_ith_attribute_of(APValue &Result, ASTContext &C,
                           MetaActions &Meta, EvalFn Evaluator,
                           DiagFn Diagnoser, bool AllowInjection,
@@ -1873,38 +1988,20 @@ bool get_ith_attribute_of(APValue &Result, ASTContext &C,
     return true;
   size_t idx = Idx.getInt().getExtValue();
 
-  // FIXME this is debatable whether those shouldnt be kept in ASTContext...
-  static AttributeScratchpad scratchpad;
-  auto buildIthParsedAttrFromDecl = [&](Decl* decl, ParsedAttr* &result) -> bool {
+  auto buildIthParsedAttrFromDecl = [&](size_t i, Decl* decl, const ParsedAttr* &result) -> bool {
     auto cxx11Attrs = collectUniqueCxx11Attrs(decl);
-    if (idx + 1 > cxx11Attrs.size()) {
+    if (i + 1 > cxx11Attrs.size()) {
       result = nullptr;
-      return false;
+      return true;
     }
-
-    const Attr * val = cxx11Attrs[idx];
+    const Attr * val = cxx11Attrs[i];
     assert(val);
-
-    auto onSyntacticArgs = [&](
-      IdentifierInfo * attrName,
-      SmallVector<llvm::PointerUnion<Expr *, IdentifierLoc *>, 2> argExprs,
-      AttributeCommonInfo::Form /* Do we need this fed back to us at all ?...*/
-    ) {
-      result = scratchpad.pool.create(
-        attrName,
-        val->getRange(),
-        val->hasScope() ? const_cast<IdentifierInfo*>(val->getScopeName()) : nullptr,
-        val->getLoc(),
-        argExprs.data(),
-        argExprs.size(),
-        val->getForm()
-      );
-      return false;
-    };
-    return extractSyntacticArguments(val, C, onSyntacticArgs, val->getLocation());
+    result = toSyntacticForm(val, &C);
+    return result != nullptr;
   };
 
   switch (RV.getReflectionKind()) {
+    default: return DiagnoseReflectionKind(Diagnoser, Range, "variable, attribute, function, namespace", DescriptionOf(RV));
     case ReflectionKind::Attribute: {
       if (idx != 0) {
         return SetAndSucceed(Result, Sentinel);
@@ -1924,10 +2021,11 @@ bool get_ith_attribute_of(APValue &Result, ASTContext &C,
           << DescriptionOf(RV);
       }
 
-      if (ParsedAttr* fetchedAttribute{}; !buildIthParsedAttrFromDecl(D, fetchedAttribute)) {
+      if (const ParsedAttr* fetchedAttribute{}; buildIthParsedAttrFromDecl(idx, D, fetchedAttribute)) {
         if (fetchedAttribute) {
           return SetAndSucceed(Result, makeReflection(fetchedAttribute));
         }
+        // Reached the end
         return SetAndSucceed(Result, Sentinel);
       }
       return true;
@@ -1936,10 +2034,24 @@ bool get_ith_attribute_of(APValue &Result, ASTContext &C,
       ValueDecl *D = RV.getReflectedDecl();
       if (!D) {
         return DiagnoseReflectionKind(
-          Diagnoser, Range, "attribute, type, declaration", DescriptionOf(RV));
+          Diagnoser, Range, "attribute, type, variable, namespace", DescriptionOf(RV));
       }
 
-      if (ParsedAttr* fetchedAttribute{}; !buildIthParsedAttrFromDecl(D, fetchedAttribute)) {
+      if (const ParsedAttr* fetchedAttribute{}; buildIthParsedAttrFromDecl(idx, D, fetchedAttribute)) {
+        if (fetchedAttribute) {
+          return SetAndSucceed(Result, makeReflection(fetchedAttribute));
+        }
+        return SetAndSucceed(Result, Sentinel);
+      }
+      return true;
+    }
+    case ReflectionKind::Namespace: {
+      Decl* D = RV.getReflectedNamespace();
+      if (!D) {
+        return DiagnoseReflectionKind(
+          Diagnoser, Range, "attribute, type, variable, namespace", DescriptionOf(RV));
+      }
+      if (const ParsedAttr* fetchedAttribute{}; buildIthParsedAttrFromDecl(idx, D, fetchedAttribute)) {
         if (fetchedAttribute) {
           return SetAndSucceed(Result, makeReflection(fetchedAttribute));
         }
@@ -1948,18 +2060,7 @@ bool get_ith_attribute_of(APValue &Result, ASTContext &C,
       return true;
     }
     case ReflectionKind::Null:
-      return Diagnoser(Range.getBegin(), diag::metafn_p3385_attributes_of_null)
-        << Range;
-    case ReflectionKind::Template:
-    case ReflectionKind::Object:
-    case ReflectionKind::Value:
-    case ReflectionKind::Namespace:
-    case ReflectionKind::BaseSpecifier:
-    case ReflectionKind::DataMemberSpec:
-    case ReflectionKind::Annotation:
-    case ReflectionKind::EntityProxy:
-      return DiagnoseReflectionKind(Diagnoser, Range, "declaration or attribute",
-                                    DescriptionOf(RV));
+      return Diagnoser(Range.getBegin(), diag::metafn_p3385_attributes_of_null) << Range;
   }
   llvm_unreachable("unknown reflection kind");
   return false;
@@ -4341,7 +4442,7 @@ bool is_attribute(APValue &Result, ASTContext &C,
   assert(ResultTy == C.BoolTy);
   APValue RV;
   if (!Evaluator(RV, Args[0], true))
-  return true;
+    return true;
 
   return SetAndSucceed(Result, makeBool(C, RV.isReflectedAttribute()));
 }
