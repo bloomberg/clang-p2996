@@ -1676,6 +1676,7 @@ StringRef DescriptionOf(APValue RV, bool Granular = true) {
     return "an annotation";
   }
   }
+  return "unknown reflection";
 }
 
 bool DiagnoseReflectionKind(DiagFn Diagnoser, SourceRange Range,
@@ -6450,31 +6451,38 @@ bool reflection_hash(APValue &Result, ASTContext &C, MetaActions &Meta,
   ID.AddInteger(static_cast<std::size_t>(R.getReflectionKind()));
 
   switch (R.getReflectionKind()) {
-  case ReflectionKind::Null: {                                      // DONE
+  case ReflectionKind::Null: {
     ID.AddInteger(0);
   } break;
-  case ReflectionKind::Type: {                                      // DONE 
+  case ReflectionKind::Type: {
     appendQualType(ID, R.getReflectedType());
   } break;
-  case ReflectionKind::Declaration: {                               // DONE 
-    appendSourceRange(ID, R.getReflectedDecl()->getSourceRange());
-  } break;
-  case ReflectionKind::Object: {                                    // TODO
+  case ReflectionKind::Object: {
     llvm_unreachable("TODO - Object not yet hashable");
   } break;
-  case ReflectionKind::Value: {                                     // DONE
+  case ReflectionKind::Value: {
     R.getReflectedValue().Profile(ID);
-  break; }
-  case ReflectionKind::Template: {                                  // DONE
+    break; }
+  case ReflectionKind::Declaration: {
+      appendSourceRange(ID, R.getReflectedDecl()->getSourceRange());
+    } break;
+  case ReflectionKind::Template: {
     appendSourceRange(ID, R.getReflectedTemplate().getAsTemplateDecl()->getSourceRange());
   } break;
-  case ReflectionKind::Namespace: {                                 // DONE
+  case ReflectionKind::Namespace: {
     appendSourceRange(ID, R.getReflectedNamespace()->getSourceRange());
   } break;
-  case ReflectionKind::BaseSpecifier: {                             // DONE 
+  case ReflectionKind::EntityProxy: {
+    llvm_unreachable("TODO - EntityProxy not yet hashable");
+    appendSourceLocation(ID, R.getReflectedEntityProxy()->getLocation());
+  } break;
+  case ReflectionKind::Parameter: {
+    llvm_unreachable("TODO - Parameter not yet hashable");
+  } break;
+  case ReflectionKind::BaseSpecifier: {
     appendSourceRange(ID, R.getReflectedBaseSpecifier()->getSourceRange());
   } break;
-  case ReflectionKind::DataMemberSpec: {                            // DONE
+  case ReflectionKind::DataMemberSpec: {
     TagDataMemberSpec *TDMS = R.getReflectedDataMemberSpec();
     appendQualType(ID, TDMS->Ty);
     if (TDMS->Name) {
@@ -6488,7 +6496,7 @@ bool reflection_hash(APValue &Result, ASTContext &C, MetaActions &Meta,
     }
     ID.AddInteger(TDMS->NoUniqueAddress);
   } break;
-  case ReflectionKind::Annotation: {                                // DONE 
+  case ReflectionKind::Annotation: {
     appendSourceLocation(ID, R.getReflectedAnnotation()->getEqLoc());
   } break;
   default:
