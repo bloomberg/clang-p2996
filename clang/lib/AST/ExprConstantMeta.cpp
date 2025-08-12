@@ -6473,11 +6473,10 @@ bool reflection_hash(APValue &Result, ASTContext &C, MetaActions &Meta,
     appendSourceRange(ID, R.getReflectedNamespace()->getSourceRange());
   } break;
   case ReflectionKind::EntityProxy: {
-    llvm_unreachable("TODO - EntityProxy not yet hashable");
     appendSourceLocation(ID, R.getReflectedEntityProxy()->getLocation());
   } break;
   case ReflectionKind::Parameter: {
-    llvm_unreachable("TODO - Parameter not yet hashable");
+    appendSourceLocation(ID, R.getReflectedParameter()->getLocation());
   } break;
   case ReflectionKind::BaseSpecifier: {
     appendSourceRange(ID, R.getReflectedBaseSpecifier()->getSourceRange());
