@@ -1893,19 +1893,22 @@ bool has_attribute(APValue &Result, ASTContext &C,
                   DiagFn Diagnoser, bool AllowInjection,
                   QualType ResultTy, SourceRange Range,
                   ArrayRef<Expr *> Args, Decl *ContainingDecl) {
-  assert(Args[0]->getType()->isReflectionType());
   APValue RV;
-  if (!Evaluator(RV, Args[0], true))
-    return true;
 
   assert(ResultTy == C.BoolTy);
   assert(Args[1]->getType()->isReflectionType());
-  if (!Evaluator(RV, Args[1], true))
+  if (!Evaluator(RV, Args[1], true)) {
     return true;
+  }
   if (RV.getReflectionKind() != ReflectionKind::Attribute) {
     return SetAndSucceed(Result, makeBool(C, false));
   }
   const ParsedAttr* testAttr = RV.getReflectedAttribute();
+
+  assert(Args[0]->getType()->isReflectionType());
+  if (!Evaluator(RV, Args[0], true)) {
+    return true;
+  }
 
   auto findMatchingAttribute = [&](Decl* decl, const ParsedAttr* testAttr) -> bool {
     llvm::FoldingSetNodeID providedAttrID;

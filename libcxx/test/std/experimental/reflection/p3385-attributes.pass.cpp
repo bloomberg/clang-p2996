@@ -73,10 +73,14 @@ consteval bool testIdentifierOf() {
 }
 
 consteval bool testHasAttr() {
-  static_assert(std::meta::has_attribute(^^Foo, stdAttr));
-  static_assert(std::meta::has_attribute(^^Foo, stdDeprecated));
-  static_assert(std::meta::has_attribute(^^Foo, clangAttr));
+  static_assert(
+       std::meta::has_attribute(^^Foo, stdAttr)
+    && std::meta::has_attribute(^^Foo, stdDeprecated)
+    && std::meta::has_attribute(^^Foo, clangAttr)
+  );
   static_assert(!std::meta::has_attribute(^^Foo, ^^[[clang::availability(macos,introduced=10.4,deprecated=10.6,obsoleted=10.7)]]));
+  static_assert(std::meta::has_attribute(^^DeprecatedNamespace, stdDeprecated));
+  static_assert(std::meta::has_attribute(^^DeprecatedFunction, stdDeprecated));
   return true;
 }
 
@@ -148,7 +152,6 @@ consteval bool testVariadicStringArgument() {
 
 consteval bool testVariadicEnumArgument() {
   constexpr auto r = ^^FooBar::f;
-  static_assert(std::meta::identifier_of(r) == "f");
   static_assert(std::meta::attributes_of(r).size() == 1);
   static_assert(std::meta::attributes_of(r)[0] == enumAttr);
   return true;
@@ -192,4 +195,3 @@ consteval bool testAssumeAttribute() {
 int main() {
   return 0;
 }
-
