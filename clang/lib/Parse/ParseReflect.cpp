@@ -18,6 +18,7 @@
 #include "clang/Parse/Parser.h"
 #include "clang/Parse/RAIIObjectsForParser.h"
 #include "clang/Sema/EnterExpressionEvaluationContext.h"
+#include "clang/Sema/Ownership.h"
 #include "clang/Sema/ParsedAttr.h"
 using namespace clang;
 
@@ -85,23 +86,30 @@ ExprResult Parser::ParseCXXReflectExpression(SourceLocation OpLoc) {
   }
   TentativeAction.Revert();
 
-  // Check for a standard attribute
+  // Check for attribute
   {
     size_t last = Attrs.size();
     if (MaybeParseCXX11Attributes(Attrs)) {
       size_t newLast = Attrs.size();
 
-      // FIXME handle empty [[]] gracefully
+      // Reflect expression of empty attribute list is ill formed
       if (last == newLast) {
         Diag(OperandLoc, diag::p3385_trace_empty_attributes_list);
         return ExprError();
       }
+      // Reflect expression of multiple attributes is ill formed
       if (newLast - last > 1) {
         Diag(OperandLoc, diag::p3385_err_attributes_list) << (newLast - last);
         return ExprError();
       }
-
-      return Actions.ActOnCXXReflectExpr(OpLoc, &Attrs.back());
+      // Reflects expression of unsupported attribute is ill formed
+      auto * attribute = &Attrs.back();
+      bool isReflectable = isAttributeWithReflectableVariant(attribute->getParsedKind());
+      if (!isReflectable) {
+        Diag(OpLoc, diag::p3385_warn_unsupported_attribute) << attribute->getAttrName()->getName();
+        return ExprError();
+      }
+      return Actions.ActOnCXXReflectExpr(OpLoc, attribute);
     }
   }
 

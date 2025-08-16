@@ -1341,15 +1341,9 @@ ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
 
 ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
                                      ParsedAttr *A) {
-  bool isReflectable = isAttributeWithReflectableVariant(A->getParsedKind());
-  if (!isReflectable) {
-    Diag(A->getLoc(), diag::p3385_warn_unsupported_attribute)
-        << A->getAttrName()->getName();
-  }
   return CXXReflectExpr::Create(
       Context, OperatorLoc, A->getRange(),
-      APValue{isReflectable ? ReflectionKind::Attribute : ReflectionKind::Null,
-              static_cast<void *>(isReflectable ? A : nullptr)});
+      APValue{ReflectionKind::Attribute, static_cast<void *>(A)});
 }
 
 ExprResult Sema::BuildCXXMetafunctionExpr(

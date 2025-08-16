@@ -78,7 +78,6 @@ consteval bool testHasAttr() {
     && std::meta::has_attribute(^^Foo, stdDeprecated)
     && std::meta::has_attribute(^^Foo, clangAttr)
   );
-  static_assert(!std::meta::has_attribute(^^Foo, ^^[[clang::availability(macos,introduced=10.4,deprecated=10.6,obsoleted=10.7)]]));
   static_assert(std::meta::has_attribute(^^DeprecatedNamespace, stdDeprecated));
   static_assert(std::meta::has_attribute(^^DeprecatedFunction, stdDeprecated));
   return true;
@@ -139,7 +138,8 @@ consteval bool testVendorSpecific() {
 }
 
 consteval bool testUnsupportedAttributes() {
-  static_assert(!std::meta::is_attribute(^^[[my::stuff("anything")]]));
+  static_assert(!std::meta::is_attribute(^^[[my::stuff("anything")]])); // expected-error {{reflecting over the unsupported 'availability' attribute is ill-formed}}
+  static_assert(!std::meta::is_attribute(^^[[clang::availability(macos,introduced=10.4,deprecated=10.6,obsoleted=10.7)]])); // expected-error {{reflecting over the unsupported 'stuff' attribute is ill-formed}}
   return true;
 }
 
