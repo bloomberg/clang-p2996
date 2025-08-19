@@ -80,6 +80,24 @@ consteval bool testHasAttr() {
   );
   static_assert(std::meta::has_attribute(^^DeprecatedNamespace, stdDeprecated));
   static_assert(std::meta::has_attribute(^^DeprecatedFunction, stdDeprecated));
+  // Ignore the argument only
+  static_assert(std::meta::has_attribute(
+    ^^DeprecatedFunction,
+    ^^[[deprecated]],
+    std::meta::AttributeComparison::IgnoreArgument
+  ));
+  // Ignore the namespace only
+  static_assert(std::meta::has_attribute(
+    ^^DeprecatedFunction,
+    ^^[[gnu::deprecated("Standard deprecated")]],
+    std::meta::AttributeComparison::IgnoreNamespace
+  ));
+  // Ignore both the namespace and the argument
+  static_assert(std::meta::has_attribute(
+    ^^DeprecatedFunction,
+    ^^[[gnu::deprecated]],
+    std::meta::AttributeComparison::IgnoreNamespace | std::meta::AttributeComparison::IgnoreArgument
+  ));
   return true;
 }
 

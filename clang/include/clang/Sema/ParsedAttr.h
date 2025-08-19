@@ -373,8 +373,11 @@ public:
   /// getNumArgs - Return the number of actual arguments to this attribute.
   unsigned getNumArgs() const { return NumArgs; }
 
-  /// profile the current parsed attribute
-  void profile(llvm::FoldingSetNodeID& ID) const;
+  /// profile the current parsed attribute, the later arguments determines whether
+  //  those components of the attribute participate in the built up profile
+  void profile(llvm::FoldingSetNodeID& ID, 
+               bool isContributingNamespace = true,
+               bool isContributingArgument = true) const;
 
   /// getArg - Return the specified argument.
   ArgsUnion getArg(unsigned Arg) const {

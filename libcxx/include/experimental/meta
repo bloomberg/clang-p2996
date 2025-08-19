@@ -2229,10 +2229,26 @@ consteval auto is_attribute(info r) -> bool {
   return __metafunction(detail::__metafn_is_attribute, r);
 }
 
+
+enum class AttributeComparison : int64_t {
+  Default         = 1 << 0,
+  IgnoreNamespace = 1 << 1, // Namespace is ignored during the comparison
+  IgnoreArgument  = 1 << 2, // The argument is ignored during the comparison
+};
+
+constexpr AttributeComparison operator|(AttributeComparison a, AttributeComparison b) noexcept {
+  return static_cast<AttributeComparison>(
+    static_cast<int64_t>(a) | static_cast<int64_t>(b));
+}
+
 // Return true if the given 'entity' has the given 'attribute' appertained
-// to it
-consteval auto has_attribute(info entity, info attribute) -> bool {
-  return __metafunction(detail::__metafn_has_attribute, entity, attribute);
+// to it. The given 'policy' dictates what participates to the comparisons
+consteval auto has_attribute(
+  info entity,
+  info attribute,
+  AttributeComparison policy = AttributeComparison::Default
+) -> bool {
+  return __metafunction(detail::__metafn_has_attribute, entity, attribute, policy);
 }
 
 // Returns whether the reflected entity is a clang scoped attribute.

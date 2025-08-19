@@ -891,7 +891,7 @@ static constexpr Metafunction Metafunctions[] = {
   // P3385 attributes reflection
   { Metafunction::MFRK_metaInfo, 3, 3, get_ith_attribute_of },
   { Metafunction::MFRK_bool, 1, 1, is_attribute },
-  { Metafunction::MFRK_bool, 2, 2, has_attribute },
+  { Metafunction::MFRK_bool, 3, 3, has_attribute },
 
   // P3493 accessibility extensions
   { Metafunction::MFRK_metaInfo, 0, 0, current_access_context },
@@ -1888,6 +1888,12 @@ static const ParsedAttr* toSyntacticForm(const Attr* val, ASTContext * C) {
     return recoveredAttr;
 }
 
+enum class AttributeComparison : int64_t {
+  Default         = 1 << 0,
+  IgnoreNamespace = 1 << 1, // Namespace is ignored during the comparison
+  IgnoreArgument  = 1 << 2, // The argument is ignored during the comparison
+};
+
 bool has_attribute(APValue &Result, ASTContext &C,
                   MetaActions &Meta, EvalFn Evaluator,
                   DiagFn Diagnoser, bool AllowInjection,
@@ -1896,6 +1902,17 @@ bool has_attribute(APValue &Result, ASTContext &C,
   APValue RV;
 
   assert(ResultTy == C.BoolTy);
+
+  // Policy
+  assert(Args[2]->getType()->isIntegralOrEnumerationType());
+  if (!Evaluator(RV, Args[2], true)) {
+    return true;
+  }
+  const int64_t policy = RV.getInt().getExtValue();
+  const bool isContributingNamespace = (policy & static_cast<int64_t>(AttributeComparison::IgnoreNamespace)) == 0;
+  const bool isContributingArgument = (policy & static_cast<int64_t>(AttributeComparison::IgnoreArgument)) == 0;
+
+  // Attribute to look for
   assert(Args[1]->getType()->isReflectionType());
   if (!Evaluator(RV, Args[1], true)) {
     return true;
@@ -1905,6 +1922,7 @@ bool has_attribute(APValue &Result, ASTContext &C,
   }
   const ParsedAttr* testAttr = RV.getReflectedAttribute();
 
+  // Entity to inspect
   assert(Args[0]->getType()->isReflectionType());
   if (!Evaluator(RV, Args[0], true)) {
     return true;
@@ -1912,7 +1930,7 @@ bool has_attribute(APValue &Result, ASTContext &C,
 
   auto findMatchingAttribute = [&](Decl* decl, const ParsedAttr* testAttr) -> bool {
     llvm::FoldingSetNodeID providedAttrID;
-    testAttr->profile(providedAttrID);
+    testAttr->profile(providedAttrID, isContributingNamespace, isContributingArgument);
 
     auto cxx11Attrs = collectUniqueCxx11Attrs(decl);
     if (cxx11Attrs.empty()) {
@@ -1922,7 +1940,7 @@ bool has_attribute(APValue &Result, ASTContext &C,
       assert(val);
       const ParsedAttr * recoveredAttr = toSyntacticForm(val, &C);
       llvm::FoldingSetNodeID recoveredAttrID;
-      recoveredAttr->profile(recoveredAttrID);
+      recoveredAttr->profile(recoveredAttrID, isContributingNamespace, isContributingArgument);
       if (recoveredAttrID == providedAttrID) {
         return true;
       }

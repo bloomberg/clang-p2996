@@ -350,16 +350,18 @@ static void ProfileExpr(llvm::FoldingSetNodeID& ID, const Expr* E) {
   }
 }
 
-void ParsedAttr::profile(llvm::FoldingSetNodeID& ID) const
+void ParsedAttr::profile(llvm::FoldingSetNodeID& ID, 
+                         bool isContributingNamespace,
+                         bool isContributingArgument) const
 {
   // Add syntax form
   ID.AddInteger(getSyntax());
 
-  // Add the attribute kind and spelling index
-  ID.AddInteger(getAttributeSpellingListIndex());
+  // Add the attribute kind
+  ID.AddInteger(getKind());
 
   // Add the scope name if present
-  if (hasScope()) {
+  if (isContributingNamespace && hasScope()) {
     StringRef scopeName = getScopeName()->getName();
     ID.AddInteger(scopeName.size());
     ID.AddString(scopeName);
@@ -373,6 +375,9 @@ void ParsedAttr::profile(llvm::FoldingSetNodeID& ID) const
   ID.AddInteger(attrName.size());
   ID.AddString(attrName);
 
+  if (!isContributingArgument) {
+    return;
+  }
   // Add attribute arguments
   ID.AddInteger(getNumArgs());
   for (unsigned i = 0; i < getNumArgs(); ++i) {
