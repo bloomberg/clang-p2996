@@ -6435,6 +6435,73 @@ static void appendSourceRange(llvm::FoldingSetNodeID &ID, const SourceRange& Ran
     appendSourceLocation(ID, Range.getEnd());
 }
 
+static void appendAPValue(llvm::FoldingSetNodeID &ID, const APValue& APV)
+{
+    ID.AddInteger(APV.getKind());
+    switch (APV.getKind()) {
+        case APValue::None:
+        case APValue::Indeterminate: {
+          llvm_unreachable("Type of APValue not available at compile time");
+        } break;
+        case APValue::Int: {
+          auto I = APV.getInt();
+          I.Profile(ID);
+        } break;
+        case APValue::Float: {
+          auto F = APV.getFloat();
+          F.Profile(ID);
+        } break;
+        case APValue::FixedPoint: {
+          auto F = APV.getFixedPoint();
+          llvm_unreachable("TODO: Hashing APValue::FixedPoint not implemented");
+        } break;
+        case APValue::ComplexInt: {
+          APV.getComplexIntImag().Profile(ID);
+          APV.getComplexIntReal().Profile(ID);
+        } break;
+        case APValue::ComplexFloat: {
+          APV.getComplexFloatImag().Profile(ID);
+          APV.getComplexFloatReal().Profile(ID);
+        } break;
+        case APValue::LValue: {
+          llvm_unreachable("TODO: Hashing APValue::LValue not implemented");
+        } break;
+        case APValue::Vector: {
+          for (std::size_t i = 0; i != APV.getVectorLength(); ++i) {
+            appendAPValue(ID, APV.getVectorElt(i));
+          }
+        } break;
+        case APValue::Array: {
+          for (std::size_t i = 0; i != APV.getArraySize(); ++i) {
+            if (i < APV.getArrayInitializedElts()) {
+              appendAPValue(ID, APV.getArrayInitializedElt(i));
+            } else {
+              appendAPValue(ID, APV.getArrayFiller());
+            }
+          }
+        } break;
+        case APValue::Struct: {
+          llvm_unreachable("TODO: Hashing APValue::Struct not implemented");
+        } break;
+        case APValue::Union: {
+          llvm_unreachable("TODO: Hashing APValue::Union not implemented");
+        } break;
+        case APValue::MemberPointer: {
+          llvm_unreachable("TODO: Hashing APValue::MemberPointer not implemented");
+        } break;
+        case APValue::AddrLabelDiff: {
+          llvm_unreachable("TODO: Hashing APValue::AddrLabelDiff not implemented");
+        } break;
+        case APValue::Reflection: {
+          ID.AddInteger(1);
+          llvm_unreachable("TODO: Hashing APValue::Reflection not implemented");
+        } break;
+        default: {
+            llvm_unreachable("unknown ap value");
+        }
+    }
+}
+
 bool reflection_hash(APValue &Result, ASTContext &C, MetaActions &Meta,
                     EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
                     QualType ResultTy, SourceRange Range, ArrayRef<Expr *> Args,
@@ -6458,14 +6525,14 @@ bool reflection_hash(APValue &Result, ASTContext &C, MetaActions &Meta,
     appendQualType(ID, R.getReflectedType());
   } break;
   case ReflectionKind::Object: {
-    llvm_unreachable("TODO - Object not yet hashable");
+    appendAPValue(ID, R.getReflectedObject());
   } break;
   case ReflectionKind::Value: {
-    R.getReflectedValue().Profile(ID);
-    break; }
+    appendAPValue(ID, R.getReflectedValue());
+  } break;
   case ReflectionKind::Declaration: {
-      appendSourceRange(ID, R.getReflectedDecl()->getSourceRange());
-    } break;
+    appendSourceRange(ID, R.getReflectedDecl()->getSourceRange());
+  } break;
   case ReflectionKind::Template: {
     appendSourceRange(ID, R.getReflectedTemplate().getAsTemplateDecl()->getSourceRange());
   } break;
