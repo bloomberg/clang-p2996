@@ -6461,6 +6461,7 @@ static void appendAPValue(llvm::FoldingSetNodeID &ID, const APValue& APV)
           APV.getComplexFloatReal().Profile(ID);
         } break;
         case APValue::LValue: {
+          appendQualType(ID, APV.getLValueBase().getType());
           llvm_unreachable("TODO: Hashing APValue::LValue not implemented");
         } break;
         case APValue::Vector: {
@@ -6469,7 +6470,6 @@ static void appendAPValue(llvm::FoldingSetNodeID &ID, const APValue& APV)
           }
         } break;
         case APValue::Array: {
-          llvm_unreachable("TODO: Hashing APValue::Array not implemented");
           for (std::size_t i = 0; i != APV.getArraySize(); ++i) {
             if (i < APV.getArrayInitializedElts()) {
               appendAPValue(ID, APV.getArrayInitializedElt(i));
@@ -6491,7 +6491,6 @@ static void appendAPValue(llvm::FoldingSetNodeID &ID, const APValue& APV)
           llvm_unreachable("TODO: Hashing APValue::AddrLabelDiff not implemented");
         } break;
         case APValue::Reflection: {
-          ID.AddInteger(1);
           llvm_unreachable("TODO: Hashing APValue::Reflection not implemented");
         } break;
         default: {
