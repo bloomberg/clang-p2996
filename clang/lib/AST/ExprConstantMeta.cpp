@@ -6444,16 +6444,13 @@ static void appendAPValue(llvm::FoldingSetNodeID &ID, const APValue& APV)
           llvm_unreachable("Type of APValue not available at compile time");
         } break;
         case APValue::Int: {
-          auto I = APV.getInt();
-          I.Profile(ID);
+          APV.getInt().Profile(ID);
         } break;
         case APValue::Float: {
-          auto F = APV.getFloat();
-          F.Profile(ID);
+          APV.getFloat().Profile(ID);
         } break;
         case APValue::FixedPoint: {
-          auto F = APV.getFixedPoint();
-          llvm_unreachable("TODO: Hashing APValue::FixedPoint not implemented");
+          APV.getFixedPoint().getValue().Profile(ID);
         } break;
         case APValue::ComplexInt: {
           APV.getComplexIntImag().Profile(ID);
@@ -6472,6 +6469,7 @@ static void appendAPValue(llvm::FoldingSetNodeID &ID, const APValue& APV)
           }
         } break;
         case APValue::Array: {
+          llvm_unreachable("TODO: Hashing APValue::Array not implemented");
           for (std::size_t i = 0; i != APV.getArraySize(); ++i) {
             if (i < APV.getArrayInitializedElts()) {
               appendAPValue(ID, APV.getArrayInitializedElt(i));
