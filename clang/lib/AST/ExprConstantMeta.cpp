@@ -6460,8 +6460,7 @@ static void appendAPValue(llvm::FoldingSetNodeID &ID, const APValue& APV)
           APV.getComplexFloatImag().Profile(ID);
           APV.getComplexFloatReal().Profile(ID);
         } break;
-        case APValue::LValue: {
-          appendQualType(ID, APV.getLValueBase().getType());
+        case APValue::LValue: { // TODO: Fill this in
           llvm_unreachable("TODO: Hashing APValue::LValue not implemented");
         } break;
         case APValue::Vector: {
@@ -6478,13 +6477,22 @@ static void appendAPValue(llvm::FoldingSetNodeID &ID, const APValue& APV)
             }
           }
         } break;
+        // Should this be unique per type?
+        // Currently, given struct F { int x, y; }; and struct G { int x, y; };
+        // objects of these types with the same values for x and y hash to the same.
         case APValue::Struct: {
-          llvm_unreachable("TODO: Hashing APValue::Struct not implemented");
+          for (std::size_t i = 0; i != APV.getStructNumFields(); ++i) {
+            appendAPValue(ID, APV.getStructField(i));
+          }
+          for (std::size_t i = 0; i != APV.getStructNumBases(); ++i) {
+            appendAPValue(ID, APV.getStructBase(i));
+          }
         } break;
         case APValue::Union: {
           llvm_unreachable("TODO: Hashing APValue::Union not implemented");
         } break;
         case APValue::MemberPointer: {
+          auto* MPD = APV.getMemberPointerDecl();
           llvm_unreachable("TODO: Hashing APValue::MemberPointer not implemented");
         } break;
         case APValue::AddrLabelDiff: {
