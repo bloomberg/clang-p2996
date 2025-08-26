@@ -6435,6 +6435,7 @@ static void appendSourceRange(llvm::FoldingSetNodeID &ID, const SourceRange& Ran
     appendSourceLocation(ID, Range.getEnd());
 }
 
+static void appendReflection(ASTContext &C, llvm::FoldingSetNodeID &ID, const APValue& APV);
 static void appendAPValue(ASTContext &C, llvm::FoldingSetNodeID &ID, const APValue& APV)
 {
     ID.AddInteger(APV.getKind());
@@ -6468,6 +6469,8 @@ static void appendAPValue(ASTContext &C, llvm::FoldingSetNodeID &ID, const APVal
             appendAPValue(C, ID, APV.getVectorElt(i));
           }
         } break;
+
+        // Value is obtained by recursing and hashing the inner values.
         case APValue::Array: {
           for (std::size_t i = 0; i != APV.getArraySize(); ++i) {
             if (i < APV.getArrayInitializedElts()) {
@@ -6477,7 +6480,7 @@ static void appendAPValue(ASTContext &C, llvm::FoldingSetNodeID &ID, const APVal
             }
           }
         } break;
-        
+
         // Should this be unique per type?
         // Currently, given struct F { int x, y; }; and struct G { int x, y; };
         // objects of these types with the same values for x and y hash to the same.
@@ -6512,12 +6515,74 @@ static void appendAPValue(ASTContext &C, llvm::FoldingSetNodeID &ID, const APVal
           llvm_unreachable("TODO: Hashing APValue::AddrLabelDiff not implemented");
         } break;
         case APValue::Reflection: {
-          llvm_unreachable("TODO: Hashing APValue::Reflection not implemented");
+          auto V = APV;
+          while (V.getReflectionDepth() > 0) {
+            ID.AddInteger(V.getReflectionDepth());
+            V = V.Lower();
+          }
+          appendReflection(C, ID, V);
         } break;
         default: {
             llvm_unreachable("unknown ap value");
         }
     }
+}
+
+void appendReflection(ASTContext &C, llvm::FoldingSetNodeID &ID, const APValue& APV)
+{
+  ID.AddInteger(static_cast<std::size_t>(APV.getReflectionKind()));
+
+  switch (APV.getReflectionKind()) {
+  case ReflectionKind::Null: {
+    ID.AddInteger(0);
+  } break;
+  case ReflectionKind::Type: {
+    appendQualType(ID, APV.getReflectedType());
+  } break;
+  case ReflectionKind::Object: {
+    appendAPValue(C, ID, APV.getReflectedObject());
+  } break;
+  case ReflectionKind::Value: {
+    appendAPValue(C, ID, APV.getReflectedValue());
+  } break;
+  case ReflectionKind::Declaration: {
+    appendSourceRange(ID, APV.getReflectedDecl()->getSourceRange());
+  } break;
+  case ReflectionKind::Template: {
+    appendSourceRange(ID, APV.getReflectedTemplate().getAsTemplateDecl()->getSourceRange());
+  } break;
+  case ReflectionKind::Namespace: {
+    appendSourceRange(ID, APV.getReflectedNamespace()->getSourceRange());
+  } break;
+  case ReflectionKind::EntityProxy: {
+    appendSourceLocation(ID, APV.getReflectedEntityProxy()->getLocation());
+  } break;
+  case ReflectionKind::Parameter: {
+    appendSourceLocation(ID, APV.getReflectedParameter()->getLocation());
+  } break;
+  case ReflectionKind::BaseSpecifier: {
+    appendSourceRange(ID, APV.getReflectedBaseSpecifier()->getSourceRange());
+  } break;
+  case ReflectionKind::DataMemberSpec: {
+    TagDataMemberSpec *TDMS = APV.getReflectedDataMemberSpec();
+    appendQualType(ID, TDMS->Ty);
+    if (TDMS->Name) {
+        ID.AddString(TDMS->Name.value());
+    }
+    if (TDMS->Alignment) {
+        ID.AddInteger(TDMS->Alignment.value());
+    }
+    if (TDMS->BitWidth) {
+        ID.AddInteger(TDMS->BitWidth.value());
+    }
+    ID.AddInteger(TDMS->NoUniqueAddress);
+  } break;
+  case ReflectionKind::Annotation: {
+    appendSourceLocation(ID, APV.getReflectedAnnotation()->getEqLoc());
+  } break;
+  default:
+    llvm_unreachable("unknown reflection kind");
+  }
 }
 
 bool reflection_hash(APValue &Result, ASTContext &C, MetaActions &Meta,
@@ -6533,60 +6598,7 @@ bool reflection_hash(APValue &Result, ASTContext &C, MetaActions &Meta,
   }
 
   llvm::FoldingSetNodeID ID;
-  ID.AddInteger(static_cast<std::size_t>(R.getReflectionKind()));
-
-  switch (R.getReflectionKind()) {
-  case ReflectionKind::Null: {
-    ID.AddInteger(0);
-  } break;
-  case ReflectionKind::Type: {
-    appendQualType(ID, R.getReflectedType());
-  } break;
-  case ReflectionKind::Object: {
-    appendAPValue(C, ID, R.getReflectedObject());
-  } break;
-  case ReflectionKind::Value: {
-    appendAPValue(C, ID, R.getReflectedValue());
-  } break;
-  case ReflectionKind::Declaration: {
-    appendSourceRange(ID, R.getReflectedDecl()->getSourceRange());
-  } break;
-  case ReflectionKind::Template: {
-    appendSourceRange(ID, R.getReflectedTemplate().getAsTemplateDecl()->getSourceRange());
-  } break;
-  case ReflectionKind::Namespace: {
-    appendSourceRange(ID, R.getReflectedNamespace()->getSourceRange());
-  } break;
-  case ReflectionKind::EntityProxy: {
-    appendSourceLocation(ID, R.getReflectedEntityProxy()->getLocation());
-  } break;
-  case ReflectionKind::Parameter: {
-    appendSourceLocation(ID, R.getReflectedParameter()->getLocation());
-  } break;
-  case ReflectionKind::BaseSpecifier: {
-    appendSourceRange(ID, R.getReflectedBaseSpecifier()->getSourceRange());
-  } break;
-  case ReflectionKind::DataMemberSpec: {
-    TagDataMemberSpec *TDMS = R.getReflectedDataMemberSpec();
-    appendQualType(ID, TDMS->Ty);
-    if (TDMS->Name) {
-        ID.AddString(TDMS->Name.value());
-    }
-    if (TDMS->Alignment) {
-        ID.AddInteger(TDMS->Alignment.value());
-    }
-    if (TDMS->BitWidth) {
-        ID.AddInteger(TDMS->BitWidth.value());
-    }
-    ID.AddInteger(TDMS->NoUniqueAddress);
-  } break;
-  case ReflectionKind::Annotation: {
-    appendSourceLocation(ID, R.getReflectedAnnotation()->getEqLoc());
-  } break;
-  default:
-    llvm_unreachable("unknown reflection kind");
-  }
-
+  appendReflection(C, ID, R);
   return SetAndSucceed(
     Result,
     APValue(C.MakeIntValue(ID.computeStableHash(), C.getSizeType())));
