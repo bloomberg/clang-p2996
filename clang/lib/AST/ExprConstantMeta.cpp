@@ -6511,9 +6511,12 @@ static void appendAPValue(ASTContext &C, llvm::FoldingSetNodeID &ID, const APVal
           appendQualType(ID, C.getRecordType(RD));
         } break;
 
+        // I believe this is only usable in C, so we cannot hope to get a
+        // reflection of it.
         case APValue::AddrLabelDiff: {
-          llvm_unreachable("TODO: Hashing APValue::AddrLabelDiff not implemented");
+          llvm_unreachable("Non-standard extension not supported in C++");
         } break;
+
         case APValue::Reflection: {
           auto V = APV;
           while (V.getReflectionDepth() > 0) {
