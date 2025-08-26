@@ -6484,7 +6484,7 @@ static void appendAPValue(ASTContext &C, llvm::FoldingSetNodeID &ID, const APVal
           APV.getComplexFloatImag().Profile(ID);
           APV.getComplexFloatReal().Profile(ID);
         } break;
-        case APValue::LValue: { // TODO: Fill this in
+        case APValue::LValue: {
           appendLValue(C, ID, APV);
         } break;
         case APValue::Vector: {
