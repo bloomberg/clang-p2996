@@ -72,6 +72,15 @@ consteval bool testIdentifierOf() {
   return true;
 }
 
+enum class TMD;
+enum class [[nodiscard("Error discarded")]] TMD;
+enum class [[nodiscard]] TMD {};
+consteval bool testMultipleDecl() {
+  // Either of [[nodiscard("Error discarded")]] or [[nodiscard]]
+  static_assert(attributes_of(^^TMD).size() == 1);
+  return true;
+}
+
 consteval bool testHasAttr() {
   static_assert(
        std::meta::has_attribute(^^Foo, stdAttr)

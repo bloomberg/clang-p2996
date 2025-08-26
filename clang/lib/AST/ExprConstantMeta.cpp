@@ -1748,10 +1748,7 @@ bool DiagnoseReflectionKind(DiagFn Diagnoser, SourceRange Range,
 
 llvm::SmallVector<const Attr*, 8> static collectUniqueCxx11Attrs(const Decl *D) {
   llvm::SmallVector<const Attr*, 8> Result;
-  // We ll persist a representation of the attribute with the scope otherwise
-  // we would count [[clang::warn_unused_result]] and [[nodiscard]] as
-  // the same attribute
-  llvm::SmallSet<std::string, 8> SeenKinds; // FIXME why not use ParsedAttr->profile()
+  llvm::SmallSet<std::string, 8> SeenKinds;
 
   for (const Decl *RD : D->redecls()) {
     if (!RD->hasAttrs()) {
@@ -1761,10 +1758,8 @@ llvm::SmallVector<const Attr*, 8> static collectUniqueCxx11Attrs(const Decl *D) 
       if (!isAttributeWithReflectableVariant(A->getParsedKind())) {
         continue;
       }
-      std::string S;
-      llvm::raw_string_ostream OS(S);
-      A->printPretty(OS, D->getASTContext().getPrintingPolicy());
-      if (SeenKinds.insert(S).second) {
+
+      if (SeenKinds.insert(std::string(A->getSpelling())).second) {
         Result.push_back(A);
       }
     }
@@ -1889,7 +1884,7 @@ static const ParsedAttr* toSyntacticForm(const Attr* val, ASTContext * C) {
 }
 
 enum class AttributeComparison : int64_t {
-  Default         = 1 << 0,
+  /* 0 = include all */
   IgnoreNamespace = 1 << 1, // Namespace is ignored during the comparison
   IgnoreArgument  = 1 << 2, // The argument is ignored during the comparison
 };
