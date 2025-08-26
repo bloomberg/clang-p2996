@@ -6436,6 +6436,31 @@ static void appendSourceRange(llvm::FoldingSetNodeID &ID, const SourceRange& Ran
 }
 
 static void appendReflection(ASTContext &C, llvm::FoldingSetNodeID &ID, const APValue& APV);
+static void appendAPValue(ASTContext &C, llvm::FoldingSetNodeID &ID, const APValue& APV);
+
+static void appendLValue(ASTContext &C, llvm::FoldingSetNodeID &ID, const APValue &APV) {
+    const auto &Base = APV.getLValueBase();
+
+    if (!Base.is<const ValueDecl *>()) {
+      llvm_unreachable("can only reflect value decls");
+    }
+    
+    const ValueDecl *VD = Base.get<const ValueDecl *>();
+    if (!VD) {
+      ID.AddInteger(0); // nullptr;
+      return;
+    }
+
+    ID.AddString(VD->getQualifiedNameAsString());
+    appendQualType(ID, VD->getType());
+    ID.AddInteger(VD->getKind());
+
+    ID.AddInteger(APV.getLValueOffset().getQuantity());
+
+    ID.AddBoolean(APV.getLValueBase().isNull());
+    ID.AddBoolean(APV.isLValueOnePastTheEnd());
+}
+
 static void appendAPValue(ASTContext &C, llvm::FoldingSetNodeID &ID, const APValue& APV)
 {
     ID.AddInteger(APV.getKind());
@@ -6462,7 +6487,7 @@ static void appendAPValue(ASTContext &C, llvm::FoldingSetNodeID &ID, const APVal
           APV.getComplexFloatReal().Profile(ID);
         } break;
         case APValue::LValue: { // TODO: Fill this in
-          llvm_unreachable("TODO: Hashing APValue::LValue not implemented");
+          appendLValue(C, ID, APV);
         } break;
         case APValue::Vector: {
           for (std::size_t i = 0; i != APV.getVectorLength(); ++i) {
