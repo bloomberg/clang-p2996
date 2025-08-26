@@ -6418,24 +6418,24 @@ bool reflect_invoke(APValue &Result, ASTContext &C, MetaActions &Meta,
   return SetAndSucceed(Result, EvalResult.Val.Lift(CallExpr->getType()));
 }
 
-static void appendQualType(llvm::FoldingSetNodeID &ID, const QualType &Ty)
+static void AppendQualType(llvm::FoldingSetNodeID &ID, const QualType &Ty)
 {
     ID.AddInteger(Ty->getTypeUniqueId());
     ID.AddInteger(Ty.getQualifiers().getAsOpaqueValue());
 }
 
-static void appendSourceLocation(llvm::FoldingSetNodeID &ID, const SourceLocation& Loc)
+static void AppendSourceLocation(llvm::FoldingSetNodeID &ID, const SourceLocation& Loc)
 {
     ID.AddInteger(Loc.getHashValue());
 }
 
-static void appendSourceRange(llvm::FoldingSetNodeID &ID, const SourceRange& Range)
+static void AppendSourceRange(llvm::FoldingSetNodeID &ID, const SourceRange& Range)
 {
-    appendSourceLocation(ID, Range.getBegin());
-    appendSourceLocation(ID, Range.getEnd());
+    AppendSourceLocation(ID, Range.getBegin());
+    AppendSourceLocation(ID, Range.getEnd());
 }
 
-static void appendLValue(ASTContext &C, llvm::FoldingSetNodeID &ID, const APValue &APV) {
+static void AppendLValue(ASTContext &C, llvm::FoldingSetNodeID &ID, const APValue &APV) {
   const auto &Base = APV.getLValueBase();
   
   if (!Base.is<const ValueDecl *>()) {
@@ -6449,7 +6449,7 @@ static void appendLValue(ASTContext &C, llvm::FoldingSetNodeID &ID, const APValu
   }
   
   ID.AddString(VD->getQualifiedNameAsString());
-  appendQualType(ID, VD->getType());
+  AppendQualType(ID, VD->getType());
   ID.AddInteger(VD->getKind());
   
   // Are these needed?
@@ -6458,8 +6458,8 @@ static void appendLValue(ASTContext &C, llvm::FoldingSetNodeID &ID, const APValu
   ID.AddBoolean(APV.isLValueOnePastTheEnd());
 }
 
-static void appendReflection(ASTContext &C, llvm::FoldingSetNodeID &ID, const APValue& APV);
-static void appendAPValue(ASTContext &C, llvm::FoldingSetNodeID &ID, const APValue& APV)
+static void AppendReflection(ASTContext &C, llvm::FoldingSetNodeID &ID, const APValue& APV);
+static void AppendAPValue(ASTContext &C, llvm::FoldingSetNodeID &ID, const APValue& APV)
 {
     ID.AddInteger(APV.getKind());
     switch (APV.getKind()) {
@@ -6485,11 +6485,11 @@ static void appendAPValue(ASTContext &C, llvm::FoldingSetNodeID &ID, const APVal
           APV.getComplexFloatReal().Profile(ID);
         } break;
         case APValue::LValue: {
-          appendLValue(C, ID, APV);
+          AppendLValue(C, ID, APV);
         } break;
         case APValue::Vector: {
           for (std::size_t i = 0; i != APV.getVectorLength(); ++i) {
-            appendAPValue(C, ID, APV.getVectorElt(i));
+            AppendAPValue(C, ID, APV.getVectorElt(i));
           }
         } break;
 
@@ -6497,9 +6497,9 @@ static void appendAPValue(ASTContext &C, llvm::FoldingSetNodeID &ID, const APVal
         case APValue::Array: {
           for (std::size_t i = 0; i != APV.getArraySize(); ++i) {
             if (i < APV.getArrayInitializedElts()) {
-              appendAPValue(C, ID, APV.getArrayInitializedElt(i));
+              AppendAPValue(C, ID, APV.getArrayInitializedElt(i));
             } else {
-              appendAPValue(C, ID, APV.getArrayFiller());
+              AppendAPValue(C, ID, APV.getArrayFiller());
             }
           }
         } break;
@@ -6509,10 +6509,10 @@ static void appendAPValue(ASTContext &C, llvm::FoldingSetNodeID &ID, const APVal
         // objects of these types with the same values for x and y hash to the same.
         case APValue::Struct: {
           for (std::size_t i = 0; i != APV.getStructNumFields(); ++i) {
-            appendAPValue(C, ID, APV.getStructField(i));
+            AppendAPValue(C, ID, APV.getStructField(i));
           }
           for (std::size_t i = 0; i != APV.getStructNumBases(); ++i) {
-            appendAPValue(C, ID, APV.getStructBase(i));
+            AppendAPValue(C, ID, APV.getStructBase(i));
           }
         } break;
 
@@ -6520,9 +6520,9 @@ static void appendAPValue(ASTContext &C, llvm::FoldingSetNodeID &ID, const APVal
         case APValue::Union: {
           const auto *ActiveField = APV.getUnionField();
           ID.AddString(ActiveField->getName());
-          appendQualType(ID, ActiveField->getType());
-          appendQualType(ID, C.getRecordType(ActiveField->getParent()));
-          appendAPValue(C, ID, APV.getUnionValue());
+          AppendQualType(ID, ActiveField->getType());
+          AppendQualType(ID, C.getRecordType(ActiveField->getParent()));
+          AppendAPValue(C, ID, APV.getUnionValue());
         } break;
 
         // Hash is based on the QualType of the struct that the pointer is a member of,
@@ -6531,7 +6531,7 @@ static void appendAPValue(ASTContext &C, llvm::FoldingSetNodeID &ID, const APVal
           auto* VD = APV.getMemberPointerDecl();
           ID.AddString(VD->getNameAsString());
           const auto *RD = dyn_cast<CXXRecordDecl>(VD->getDeclContext());
-          appendQualType(ID, C.getRecordType(RD));
+          AppendQualType(ID, C.getRecordType(RD));
         } break;
 
         // I believe this is only usable in C, so we cannot hope to get a
@@ -6546,7 +6546,7 @@ static void appendAPValue(ASTContext &C, llvm::FoldingSetNodeID &ID, const APVal
             ID.AddInteger(V.getReflectionDepth());
             V = V.Lower();
           }
-          appendReflection(C, ID, V);
+          AppendReflection(C, ID, V);
         } break;
         default: {
             llvm_unreachable("unknown ap value");
@@ -6554,7 +6554,7 @@ static void appendAPValue(ASTContext &C, llvm::FoldingSetNodeID &ID, const APVal
     }
 }
 
-void appendReflection(ASTContext &C, llvm::FoldingSetNodeID &ID, const APValue& APV)
+void AppendReflection(ASTContext &C, llvm::FoldingSetNodeID &ID, const APValue& APV)
 {
   ID.AddInteger(static_cast<std::size_t>(APV.getReflectionKind()));
 
@@ -6563,35 +6563,35 @@ void appendReflection(ASTContext &C, llvm::FoldingSetNodeID &ID, const APValue& 
     ID.AddInteger(0);
   } break;
   case ReflectionKind::Type: {
-    appendQualType(ID, APV.getReflectedType());
+    AppendQualType(ID, APV.getReflectedType());
   } break;
   case ReflectionKind::Object: {
-    appendAPValue(C, ID, APV.getReflectedObject());
+    AppendAPValue(C, ID, APV.getReflectedObject());
   } break;
   case ReflectionKind::Value: {
-    appendAPValue(C, ID, APV.getReflectedValue());
+    AppendAPValue(C, ID, APV.getReflectedValue());
   } break;
   case ReflectionKind::Declaration: {
-    appendSourceRange(ID, APV.getReflectedDecl()->getSourceRange());
+    AppendSourceRange(ID, APV.getReflectedDecl()->getSourceRange());
   } break;
   case ReflectionKind::Template: {
-    appendSourceRange(ID, APV.getReflectedTemplate().getAsTemplateDecl()->getSourceRange());
+    AppendSourceRange(ID, APV.getReflectedTemplate().getAsTemplateDecl()->getSourceRange());
   } break;
   case ReflectionKind::Namespace: {
-    appendSourceRange(ID, APV.getReflectedNamespace()->getSourceRange());
+    AppendSourceRange(ID, APV.getReflectedNamespace()->getSourceRange());
   } break;
   case ReflectionKind::EntityProxy: {
-    appendSourceLocation(ID, APV.getReflectedEntityProxy()->getLocation());
+    AppendSourceLocation(ID, APV.getReflectedEntityProxy()->getLocation());
   } break;
   case ReflectionKind::Parameter: {
-    appendSourceLocation(ID, APV.getReflectedParameter()->getLocation());
+    AppendSourceLocation(ID, APV.getReflectedParameter()->getLocation());
   } break;
   case ReflectionKind::BaseSpecifier: {
-    appendSourceRange(ID, APV.getReflectedBaseSpecifier()->getSourceRange());
+    AppendSourceRange(ID, APV.getReflectedBaseSpecifier()->getSourceRange());
   } break;
   case ReflectionKind::DataMemberSpec: {
     TagDataMemberSpec *TDMS = APV.getReflectedDataMemberSpec();
-    appendQualType(ID, TDMS->Ty);
+    AppendQualType(ID, TDMS->Ty);
     if (TDMS->Name) {
         ID.AddString(TDMS->Name.value());
     }
@@ -6604,7 +6604,7 @@ void appendReflection(ASTContext &C, llvm::FoldingSetNodeID &ID, const APValue& 
     ID.AddInteger(TDMS->NoUniqueAddress);
   } break;
   case ReflectionKind::Annotation: {
-    appendSourceLocation(ID, APV.getReflectedAnnotation()->getEqLoc());
+    AppendSourceLocation(ID, APV.getReflectedAnnotation()->getEqLoc());
   } break;
   default:
     llvm_unreachable("unknown reflection kind");
@@ -6624,7 +6624,7 @@ bool reflection_hash(APValue &Result, ASTContext &C, MetaActions &Meta,
   }
 
   llvm::FoldingSetNodeID ID;
-  appendReflection(C, ID, R);
+  AppendReflection(C, ID, R);
   return SetAndSucceed(
     Result,
     APValue(C.MakeIntValue(ID.computeStableHash(), C.getSizeType())));
