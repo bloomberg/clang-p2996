@@ -6477,6 +6477,7 @@ static void appendAPValue(ASTContext &C, llvm::FoldingSetNodeID &ID, const APVal
             }
           }
         } break;
+        
         // Should this be unique per type?
         // Currently, given struct F { int x, y; }; and struct G { int x, y; };
         // objects of these types with the same values for x and y hash to the same.
@@ -6488,8 +6489,14 @@ static void appendAPValue(ASTContext &C, llvm::FoldingSetNodeID &ID, const APVal
             appendAPValue(C, ID, APV.getStructBase(i));
           }
         } break;
+
+        // Hash is based on the Union QualType as well as the name and value of the field.
         case APValue::Union: {
-          llvm_unreachable("TODO: Hashing APValue::Union not implemented");
+          const auto *ActiveField = APV.getUnionField();
+          ID.AddString(ActiveField->getName());
+          appendQualType(ID, ActiveField->getType());
+          appendQualType(ID, C.getRecordType(ActiveField->getParent()));
+          appendAPValue(C, ID, APV.getUnionValue());
         } break;
 
         // Hash is based on the QualType of the struct that the pointer is a member of,
@@ -6500,6 +6507,7 @@ static void appendAPValue(ASTContext &C, llvm::FoldingSetNodeID &ID, const APVal
           const auto *RD = dyn_cast<CXXRecordDecl>(VD->getDeclContext());
           appendQualType(ID, C.getRecordType(RD));
         } break;
+
         case APValue::AddrLabelDiff: {
           llvm_unreachable("TODO: Hashing APValue::AddrLabelDiff not implemented");
         } break;
