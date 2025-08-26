@@ -6455,8 +6455,8 @@ static void appendLValue(ASTContext &C, llvm::FoldingSetNodeID &ID, const APValu
     appendQualType(ID, VD->getType());
     ID.AddInteger(VD->getKind());
 
+    // Are these needed?
     ID.AddInteger(APV.getLValueOffset().getQuantity());
-
     ID.AddBoolean(APV.getLValueBase().isNull());
     ID.AddBoolean(APV.isLValueOnePastTheEnd());
 }
