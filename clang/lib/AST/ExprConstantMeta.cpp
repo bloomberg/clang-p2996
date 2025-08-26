@@ -6435,7 +6435,7 @@ static void appendSourceRange(llvm::FoldingSetNodeID &ID, const SourceRange& Ran
     appendSourceLocation(ID, Range.getEnd());
 }
 
-static void appendAPValue(llvm::FoldingSetNodeID &ID, const APValue& APV)
+static void appendAPValue(ASTContext &C, llvm::FoldingSetNodeID &ID, const APValue& APV)
 {
     ID.AddInteger(APV.getKind());
     switch (APV.getKind()) {
@@ -6465,15 +6465,15 @@ static void appendAPValue(llvm::FoldingSetNodeID &ID, const APValue& APV)
         } break;
         case APValue::Vector: {
           for (std::size_t i = 0; i != APV.getVectorLength(); ++i) {
-            appendAPValue(ID, APV.getVectorElt(i));
+            appendAPValue(C, ID, APV.getVectorElt(i));
           }
         } break;
         case APValue::Array: {
           for (std::size_t i = 0; i != APV.getArraySize(); ++i) {
             if (i < APV.getArrayInitializedElts()) {
-              appendAPValue(ID, APV.getArrayInitializedElt(i));
+              appendAPValue(C, ID, APV.getArrayInitializedElt(i));
             } else {
-              appendAPValue(ID, APV.getArrayFiller());
+              appendAPValue(C, ID, APV.getArrayFiller());
             }
           }
         } break;
@@ -6482,18 +6482,23 @@ static void appendAPValue(llvm::FoldingSetNodeID &ID, const APValue& APV)
         // objects of these types with the same values for x and y hash to the same.
         case APValue::Struct: {
           for (std::size_t i = 0; i != APV.getStructNumFields(); ++i) {
-            appendAPValue(ID, APV.getStructField(i));
+            appendAPValue(C, ID, APV.getStructField(i));
           }
           for (std::size_t i = 0; i != APV.getStructNumBases(); ++i) {
-            appendAPValue(ID, APV.getStructBase(i));
+            appendAPValue(C, ID, APV.getStructBase(i));
           }
         } break;
         case APValue::Union: {
           llvm_unreachable("TODO: Hashing APValue::Union not implemented");
         } break;
+
+        // Hash is based on the QualType of the struct that the pointer is a member of,
+        // and the name of the field.
         case APValue::MemberPointer: {
-          auto* MPD = APV.getMemberPointerDecl();
-          llvm_unreachable("TODO: Hashing APValue::MemberPointer not implemented");
+          auto* VD = APV.getMemberPointerDecl();
+          ID.AddString(VD->getNameAsString());
+          const auto *RD = dyn_cast<CXXRecordDecl>(VD->getDeclContext());
+          appendQualType(ID, C.getRecordType(RD));
         } break;
         case APValue::AddrLabelDiff: {
           llvm_unreachable("TODO: Hashing APValue::AddrLabelDiff not implemented");
@@ -6530,10 +6535,10 @@ bool reflection_hash(APValue &Result, ASTContext &C, MetaActions &Meta,
     appendQualType(ID, R.getReflectedType());
   } break;
   case ReflectionKind::Object: {
-    appendAPValue(ID, R.getReflectedObject());
+    appendAPValue(C, ID, R.getReflectedObject());
   } break;
   case ReflectionKind::Value: {
-    appendAPValue(ID, R.getReflectedValue());
+    appendAPValue(C, ID, R.getReflectedValue());
   } break;
   case ReflectionKind::Declaration: {
     appendSourceRange(ID, R.getReflectedDecl()->getSourceRange());
