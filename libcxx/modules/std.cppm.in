@@ -82,6 +82,7 @@ module;
 #include <mdspan>
 #include <memory>
 #include <memory_resource>
+#include <meta>
 #include <mutex>
 #include <new>
 #include <numbers>
