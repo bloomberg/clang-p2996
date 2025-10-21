@@ -1842,13 +1842,6 @@ public:
   };
 
 private:
-    static int s_idCounter;
-    int TypeUniqueId = ++s_idCounter;
-
-public:
-    auto getTypeUniqueId() const -> int { return TypeUniqueId; }
-
-private:
   /// Bitfields required by the Type class.
   class TypeBitfields {
     friend class Type;

@@ -6418,199 +6418,6 @@ bool reflect_invoke(APValue &Result, ASTContext &C, MetaActions &Meta,
   return SetAndSucceed(Result, EvalResult.Val.Lift(CallExpr->getType()));
 }
 
-static void AppendQualType(llvm::FoldingSetNodeID &ID, const QualType &Ty)
-{
-    ID.AddInteger(Ty->getTypeUniqueId());
-    ID.AddInteger(Ty.getQualifiers().getAsOpaqueValue());
-}
-
-static void AppendSourceLocation(llvm::FoldingSetNodeID &ID, const SourceLocation& Loc)
-{
-    ID.AddInteger(Loc.getHashValue());
-}
-
-static void AppendSourceRange(llvm::FoldingSetNodeID &ID, const SourceRange& Range)
-{
-    AppendSourceLocation(ID, Range.getBegin());
-    AppendSourceLocation(ID, Range.getEnd());
-}
-
-static void AppendLValue(ASTContext &C, llvm::FoldingSetNodeID &ID, const APValue &APV) {
-  const auto &Base = APV.getLValueBase();
-  
-  if (!Base.is<const ValueDecl *>()) {
-    llvm_unreachable("can only reflect value decls");
-  }
-  
-  const ValueDecl *VD = Base.get<const ValueDecl *>();
-  if (!VD) {
-    ID.AddInteger(0); // nullptr;
-    return;
-  }
-  
-  ID.AddString(VD->getQualifiedNameAsString());
-  AppendQualType(ID, VD->getType());
-  ID.AddInteger(VD->getKind());
-  
-  // Are these needed?
-  ID.AddInteger(APV.getLValueOffset().getQuantity());
-  ID.AddBoolean(APV.getLValueBase().isNull());
-  ID.AddBoolean(APV.isLValueOnePastTheEnd());
-}
-
-static void AppendReflection(ASTContext &C, llvm::FoldingSetNodeID &ID, const APValue& APV);
-static void AppendAPValue(ASTContext &C, llvm::FoldingSetNodeID &ID, const APValue& APV)
-{
-    ID.AddInteger(APV.getKind());
-    switch (APV.getKind()) {
-        case APValue::None:
-        case APValue::Indeterminate: {
-          llvm_unreachable("Type of APValue not available at compile time");
-        } break;
-        case APValue::Int: {
-          APV.getInt().Profile(ID);
-        } break;
-        case APValue::Float: {
-          APV.getFloat().Profile(ID);
-        } break;
-        case APValue::FixedPoint: {
-          APV.getFixedPoint().getValue().Profile(ID);
-        } break;
-        case APValue::ComplexInt: {
-          APV.getComplexIntImag().Profile(ID);
-          APV.getComplexIntReal().Profile(ID);
-        } break;
-        case APValue::ComplexFloat: {
-          APV.getComplexFloatImag().Profile(ID);
-          APV.getComplexFloatReal().Profile(ID);
-        } break;
-        case APValue::LValue: {
-          AppendLValue(C, ID, APV);
-        } break;
-        case APValue::Vector: {
-          for (std::size_t i = 0; i != APV.getVectorLength(); ++i) {
-            AppendAPValue(C, ID, APV.getVectorElt(i));
-          }
-        } break;
-
-        // Value is obtained by recursing and hashing the inner values.
-        case APValue::Array: {
-          for (std::size_t i = 0; i != APV.getArraySize(); ++i) {
-            if (i < APV.getArrayInitializedElts()) {
-              AppendAPValue(C, ID, APV.getArrayInitializedElt(i));
-            } else {
-              AppendAPValue(C, ID, APV.getArrayFiller());
-            }
-          }
-        } break;
-
-        // Should this be unique per type?
-        // Currently, given struct F { int x, y; }; and struct G { int x, y; };
-        // objects of these types with the same values for x and y hash to the same.
-        case APValue::Struct: {
-          for (std::size_t i = 0; i != APV.getStructNumFields(); ++i) {
-            AppendAPValue(C, ID, APV.getStructField(i));
-          }
-          for (std::size_t i = 0; i != APV.getStructNumBases(); ++i) {
-            AppendAPValue(C, ID, APV.getStructBase(i));
-          }
-        } break;
-
-        // Hash is based on the Union QualType as well as the name and value of the field.
-        case APValue::Union: {
-          const auto *ActiveField = APV.getUnionField();
-          ID.AddString(ActiveField->getName());
-          AppendQualType(ID, ActiveField->getType());
-          AppendQualType(ID, C.getRecordType(ActiveField->getParent()));
-          AppendAPValue(C, ID, APV.getUnionValue());
-        } break;
-
-        // Hash is based on the QualType of the struct that the pointer is a member of,
-        // and the name of the field.
-        case APValue::MemberPointer: {
-          auto* VD = APV.getMemberPointerDecl();
-          ID.AddString(VD->getNameAsString());
-          const auto *RD = dyn_cast<CXXRecordDecl>(VD->getDeclContext());
-          AppendQualType(ID, C.getRecordType(RD));
-        } break;
-
-        // I believe this is only usable in C, so we cannot hope to get a
-        // reflection of it.
-        case APValue::AddrLabelDiff: {
-          llvm_unreachable("Non-standard extension not supported in C++");
-        } break;
-
-        case APValue::Reflection: {
-          auto V = APV;
-          while (V.getReflectionDepth() > 0) {
-            ID.AddInteger(V.getReflectionDepth());
-            V = V.Lower();
-          }
-          AppendReflection(C, ID, V);
-        } break;
-        default: {
-            llvm_unreachable("unknown ap value");
-        }
-    }
-}
-
-void AppendReflection(ASTContext &C, llvm::FoldingSetNodeID &ID, const APValue& APV)
-{
-  ID.AddInteger(static_cast<std::size_t>(APV.getReflectionKind()));
-
-  switch (APV.getReflectionKind()) {
-  case ReflectionKind::Null: {
-    ID.AddInteger(0);
-  } break;
-  case ReflectionKind::Type: {
-    AppendQualType(ID, APV.getReflectedType());
-  } break;
-  case ReflectionKind::Object: {
-    AppendAPValue(C, ID, APV.getReflectedObject());
-  } break;
-  case ReflectionKind::Value: {
-    AppendAPValue(C, ID, APV.getReflectedValue());
-  } break;
-  case ReflectionKind::Declaration: {
-    AppendSourceRange(ID, APV.getReflectedDecl()->getSourceRange());
-  } break;
-  case ReflectionKind::Template: {
-    AppendSourceRange(ID, APV.getReflectedTemplate().getAsTemplateDecl()->getSourceRange());
-  } break;
-  case ReflectionKind::Namespace: {
-    AppendSourceRange(ID, APV.getReflectedNamespace()->getSourceRange());
-  } break;
-  case ReflectionKind::EntityProxy: {
-    AppendSourceLocation(ID, APV.getReflectedEntityProxy()->getLocation());
-  } break;
-  case ReflectionKind::Parameter: {
-    AppendSourceLocation(ID, APV.getReflectedParameter()->getLocation());
-  } break;
-  case ReflectionKind::BaseSpecifier: {
-    AppendSourceRange(ID, APV.getReflectedBaseSpecifier()->getSourceRange());
-  } break;
-  case ReflectionKind::DataMemberSpec: {
-    TagDataMemberSpec *TDMS = APV.getReflectedDataMemberSpec();
-    AppendQualType(ID, TDMS->Ty);
-    if (TDMS->Name) {
-        ID.AddString(TDMS->Name.value());
-    }
-    if (TDMS->Alignment) {
-        ID.AddInteger(TDMS->Alignment.value());
-    }
-    if (TDMS->BitWidth) {
-        ID.AddInteger(TDMS->BitWidth.value());
-    }
-    ID.AddInteger(TDMS->NoUniqueAddress);
-  } break;
-  case ReflectionKind::Annotation: {
-    AppendSourceLocation(ID, APV.getReflectedAnnotation()->getEqLoc());
-  } break;
-  default:
-    llvm_unreachable("unknown reflection kind");
-  }
-}
-
 bool reflection_hash(APValue &Result, ASTContext &C, MetaActions &Meta,
                     EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
                     QualType ResultTy, SourceRange Range, ArrayRef<Expr *> Args,
@@ -6622,12 +6429,18 @@ bool reflection_hash(APValue &Result, ASTContext &C, MetaActions &Meta,
   if (!Evaluator(R, Args[0], true)) {
     return true;
   }
+  
+  static std::unordered_map<const void*, std::size_t> s_values;
+  static std::size_t s_count = 0;
+  
+  const void* ptr = R.getOpaqueReflectionData();
+  if (!s_values.contains(ptr)) {
+    s_values[ptr] = ++s_count;
+  }
 
-  llvm::FoldingSetNodeID ID;
-  AppendReflection(C, ID, R);
   return SetAndSucceed(
     Result,
-    APValue(C.MakeIntValue(ID.computeStableHash(), C.getSizeType())));
+    APValue(C.MakeIntValue(s_values.at(ptr), C.getSizeType())));
 }
 
 }  // end namespace clang
