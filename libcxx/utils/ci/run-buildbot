@@ -282,6 +282,8 @@ check-generated-output)
            --exclude 'ostream.pass.cpp' \
            --exclude 'transcoding.pass.cpp' \
            --exclude 'underflow.pass.cpp' \
+           --exclude 'define-aggregate.pass.cpp' \
+           --exclude 'names.pass.cpp' \
            || false
 ;;
 #
