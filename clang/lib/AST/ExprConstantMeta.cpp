@@ -6433,8 +6433,7 @@ bool reflection_hash(APValue &Result, ASTContext &C, MetaActions &Meta,
   static std::unordered_map<const void*, std::size_t> s_values;
   static std::size_t s_count = 0;
   
-  const void* ptr = R.getOpaqueReflectionData();
-  const auto [it, success] = s_values.insert({ptr, s_count});
+  const auto [it, success] = s_values.insert({R.getOpaqueReflectionData(), s_count});
   if (success) {
     ++s_count;
   }
