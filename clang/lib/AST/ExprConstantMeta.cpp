@@ -3328,9 +3328,27 @@ bool is_public(APValue &Result, ASTContext &C, MetaActions &Meta,
                EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
                QualType ResultTy, SourceRange Range, ArrayRef<Expr *> Args,
                Decl *ContainingDecl) {
-  return is_ACCESS<AS_public>(Result, C, Meta, Evaluator, Diagnoser,
-                              AllowInjection, ResultTy, Range, Args,
-                              ContainingDecl);
+
+  [[maybe_unused]] bool scratch
+    = is_class_member(Result, C, Meta, Evaluator, Diagnoser,
+                      AllowInjection, ResultTy, Range, Args,
+                      ContainingDecl);
+
+  if (const bool isClassMember = Result.getInt().getBoolValue();isClassMember) {
+    return is_ACCESS<AS_public>(Result, C, Meta, Evaluator, Diagnoser,
+                                AllowInjection, ResultTy, Range, Args,
+                                ContainingDecl);
+  }
+  // fallthrough: base-class relationship
+  scratch = is_base(Result, C, Meta, Evaluator, Diagnoser,
+                    AllowInjection, ResultTy, Range, Args,
+                    ContainingDecl);
+  if (const bool isBaseClass = Result.getInt().getBoolValue();isBaseClass) {
+    return is_ACCESS<AS_public>(Result, C, Meta, Evaluator, Diagnoser,
+                                AllowInjection, ResultTy, Range, Args,
+                                ContainingDecl);
+  }
+  return false;
 }
 
 bool is_protected(APValue &Result, ASTContext &C, MetaActions &Meta,
@@ -3890,7 +3908,6 @@ bool is_class_member(APValue &Result, ASTContext &C, MetaActions &Meta,
                      ArrayRef<Expr *> Args, Decl *ContainingDecl) {
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == C.BoolTy);
-
   APValue Scratch;
   bool result = false;
 
@@ -3898,8 +3915,15 @@ bool is_class_member(APValue &Result, ASTContext &C, MetaActions &Meta,
   if (!parent_of(Scratch, C, Meta, Evaluator, SwallowDiags, AllowInjection,
                  C.MetaInfoTy, Range, Args, ContainingDecl)) {
     assert(Scratch.isReflection());
-    result = Scratch.isReflectedType() &&
-             Scratch.getReflectedType()->isRecordType();
+    // For unscoped enumerators, parent_of will return its enumeration type
+    // We need now to lookup context on that type
+    if (Scratch.isReflectedType() && Scratch.getReflectedType()->isUnscopedEnumerationType()) {
+      Decl *D = findTypeDecl(Scratch.getReflectedType());
+      result = D && D->getDeclContext() && D->getDeclContext()->isRecord();
+    } else {
+      result = Scratch.isReflectedType() &&
+              Scratch.getReflectedType()->isRecordType();
+    }
   }
   return SetAndSucceed(Result, makeBool(C, result));
 }
