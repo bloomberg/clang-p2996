@@ -3324,18 +3324,19 @@ bool is_ACCESS(APValue &Result, ASTContext &C, MetaActions &Meta,
   llvm_unreachable("invalid reflection type");
 }
 
-bool is_public(APValue &Result, ASTContext &C, MetaActions &Meta,
+template <AccessSpecifier AS>
+static inline
+bool is_ClassMember_ACCESS(APValue &Result, ASTContext &C, MetaActions &Meta,
                EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
                QualType ResultTy, SourceRange Range, ArrayRef<Expr *> Args,
                Decl *ContainingDecl) {
-
   [[maybe_unused]] bool scratch
     = is_class_member(Result, C, Meta, Evaluator, Diagnoser,
                       AllowInjection, ResultTy, Range, Args,
                       ContainingDecl);
 
   if (const bool isClassMember = Result.getInt().getBoolValue();isClassMember) {
-    return is_ACCESS<AS_public>(Result, C, Meta, Evaluator, Diagnoser,
+    return is_ACCESS<AS>(Result, C, Meta, Evaluator, Diagnoser,
                                 AllowInjection, ResultTy, Range, Args,
                                 ContainingDecl);
   }
@@ -3344,29 +3345,41 @@ bool is_public(APValue &Result, ASTContext &C, MetaActions &Meta,
                     AllowInjection, ResultTy, Range, Args,
                     ContainingDecl);
   if (const bool isBaseClass = Result.getInt().getBoolValue();isBaseClass) {
-    return is_ACCESS<AS_public>(Result, C, Meta, Evaluator, Diagnoser,
+    return is_ACCESS<AS>(Result, C, Meta, Evaluator, Diagnoser,
                                 AllowInjection, ResultTy, Range, Args,
                                 ContainingDecl);
   }
   return false;
 }
 
+bool is_public(APValue &Result, ASTContext &C, MetaActions &Meta,
+               EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
+               QualType ResultTy, SourceRange Range, ArrayRef<Expr *> Args,
+               Decl *ContainingDecl) {
+    return is_ClassMember_ACCESS<AS_public>(
+      Result, C, Meta, Evaluator, Diagnoser,
+      AllowInjection, ResultTy, Range, Args,
+      ContainingDecl);
+}
+
 bool is_protected(APValue &Result, ASTContext &C, MetaActions &Meta,
                   EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
                   QualType ResultTy, SourceRange Range, ArrayRef<Expr *> Args,
                   Decl *ContainingDecl) {
-  return is_ACCESS<AS_protected>(Result, C, Meta, Evaluator, Diagnoser,
-                                 AllowInjection, ResultTy, Range, Args,
-                                 ContainingDecl);
+  return is_ClassMember_ACCESS<AS_protected>(
+    Result, C, Meta, Evaluator, Diagnoser,
+    AllowInjection, ResultTy, Range, Args,
+    ContainingDecl);
 }
 
 bool is_private(APValue &Result, ASTContext &C, MetaActions &Meta,
                 EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
                 QualType ResultTy, SourceRange Range, ArrayRef<Expr *> Args,
                 Decl *ContainingDecl) {
-  return is_ACCESS<AS_private>(Result, C, Meta, Evaluator, Diagnoser,
-                               AllowInjection, ResultTy, Range, Args,
-                               ContainingDecl);
+  return is_ClassMember_ACCESS<AS_private>(
+    Result, C, Meta, Evaluator, Diagnoser,
+    AllowInjection, ResultTy, Range, Args,
+    ContainingDecl);
 }
 
 bool is_virtual(APValue &Result, ASTContext &C, MetaActions &Meta,
