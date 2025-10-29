@@ -705,14 +705,14 @@ static_assert(!is_noexcept(^^E_Something));
 static_assert(!is_noexcept(type_of(^^E_Something)));
 
 // Defaulted special members
-struct TT { ~TT() = delete; };
-static_assert(is_noexcept (^^TT::~TT));
+struct DelDest { ~DelDest() = delete; };
+static_assert(is_noexcept (^^DelDest::~DelDest));
 
-struct U { ~U() = default; };
-static_assert(is_noexcept (^^U::~U));
+struct DefDest { ~DefDest() = default; };
+static_assert(is_noexcept (^^DefDest::~DefDest));
 
-struct W { };
-static_assert(is_noexcept (^^W::~W));
+struct EmptyStruct { };
+static_assert(is_noexcept (^^EmptyStruct::~EmptyStruct));
 } // namespace noexcept_functions
 
                               // ================
