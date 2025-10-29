@@ -1481,13 +1481,12 @@ static bool isFunctionOrMethodNoexcept(const QualType QT) {
   if (T->isFunctionProtoType()) {
     // This covers (virtual) methods & functions
     const auto *FPT = T->getAs<FunctionProtoType>();
-
     switch (FPT->getExceptionSpecType()) {
-    case EST_BasicNoexcept:
-    case EST_NoexceptTrue:
-      return true;
-    default:
-      return false;
+      case EST_BasicNoexcept:
+      case EST_NoexceptTrue:
+        return true;
+      default:
+        return false;
     }
   }
 

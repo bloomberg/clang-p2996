@@ -349,7 +349,13 @@ public:
 
   void EnsureInstantiationOfExceptionSpec(SourceLocation Loc,
                                           FunctionDecl *FD) override {
-    S.InstantiateExceptionSpec(Loc, FD);
+    const FunctionProtoType *Proto = FD->getType()->castAs<FunctionProtoType>();
+    if (Proto->getExceptionSpecType() == EST_Uninstantiated) {
+      S.InstantiateExceptionSpec(Loc, FD);
+    }
+    if (Proto->getExceptionSpecType() == EST_Unevaluated) {
+      S.ResolveExceptionSpec(Loc, Proto);
+    }
   }
 
   QualType Substitute(TypeAliasTemplateDecl *TD,
