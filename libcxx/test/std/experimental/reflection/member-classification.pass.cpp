@@ -703,6 +703,16 @@ static_assert(!is_noexcept(type_of(^^EC::Something)));
 static_assert(!is_noexcept(^^E));
 static_assert(!is_noexcept(^^E_Something));
 static_assert(!is_noexcept(type_of(^^E_Something)));
+
+// Defaulted special members
+struct T { ~T() = delete; };
+static_assert(is_noexcept (^^T::~T));
+
+struct U { ~U() = default; };
+static_assert(is_noexcept (^^U::~U));
+
+struct W { };
+static_assert(is_noexcept (^^W::~W));
 } // namespace noexcept_functions
 
                               // ================
