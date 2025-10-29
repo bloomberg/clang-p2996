@@ -705,8 +705,8 @@ static_assert(!is_noexcept(^^E_Something));
 static_assert(!is_noexcept(type_of(^^E_Something)));
 
 // Defaulted special members
-struct T { ~T() = delete; };
-static_assert(is_noexcept (^^T::~T));
+struct TT { ~TT() = delete; };
+static_assert(is_noexcept (^^TT::~TT));
 
 struct U { ~U() = default; };
 static_assert(is_noexcept (^^U::~U));
