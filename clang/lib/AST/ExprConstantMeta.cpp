@@ -1876,7 +1876,7 @@ bool get_ith_template_argument_of(APValue &Result, ASTContext &C,
       return DiagnoseReflectionKind(Diagnoser, Range,
                                     "a template specialization");
     APValue R = getNthTemplateArgument(C, TArgs, Evaluator, Sentinel, idx);
-    if (R.isReflectedDecl())
+    if (R.isReflectedDecl() && !isa<FunctionDecl>(R.getReflectedDecl()))
       R = APValue(APValue::LValueBase{R.getReflectedDecl()}, CharUnits::Zero(),
                   {}, false, false).Lift(QualType{});
     return SetAndSucceed(Result, R);
