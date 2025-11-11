@@ -2985,17 +2985,21 @@ bool substitute(APValue &Result, ASTContext &C, MetaActions &Meta,
                const_cast<Type *>(TSpecDecl->getTypeForDecl()));
     //C.recordCachedSubstitution(SubstitutionHash, RV);
     return SetAndSucceed(Result, RV);
-  } else if (auto *TATD = dyn_cast<TypeAliasTemplateDecl>(TDecl)) {
+  }
+  if (auto *TATD = dyn_cast<TypeAliasTemplateDecl>(TDecl)) {
     TArgs.clear();
     expandTemplateArgPacks(ExpandedTArgs, TArgs);
 
     QualType QT = Meta.Substitute(TATD, TArgs, Range.getBegin());
-    assert(!QT.isNull() && "substitution failed after validating arguments?");
-
+    if(QT.isNull()) {
+      // substitution failed after validating arguments
+      return true;
+    }
     APValue RV = makeReflection(QT);
     //C.recordCachedSubstitution(SubstitutionHash, RV);
     return SetAndSucceed(Result, makeReflection(QT));
-  } else if (auto *FTD = dyn_cast<FunctionTemplateDecl>(TDecl)) {
+  }
+  if (auto *FTD = dyn_cast<FunctionTemplateDecl>(TDecl)) {
     FunctionDecl *Spec = Meta.Substitute(FTD, ExpandedTArgs, Range.getBegin());
     assert(Spec && "substitution failed after validating arguments?");
 
@@ -3007,7 +3011,8 @@ bool substitute(APValue &Result, ASTContext &C, MetaActions &Meta,
     APValue RV = makeReflection(Spec);
     //C.recordCachedSubstitution(SubstitutionHash, RV);
     return SetAndSucceed(Result, RV);
-  } else if (auto *VTD = dyn_cast<VarTemplateDecl>(TDecl)) {
+  }
+  if (auto *VTD = dyn_cast<VarTemplateDecl>(TDecl)) {
     TArgs.clear();
     expandTemplateArgPacks(ExpandedTArgs, TArgs);
 
@@ -3017,7 +3022,8 @@ bool substitute(APValue &Result, ASTContext &C, MetaActions &Meta,
     APValue RV = makeReflection(Spec);
     //C.recordCachedSubstitution(SubstitutionHash, RV);
     return SetAndSucceed(Result, makeReflection(Spec));
-  } else if (auto *CD = dyn_cast<ConceptDecl>(TDecl)) {
+  }
+  if (auto *CD = dyn_cast<ConceptDecl>(TDecl)) {
     TArgs.clear();
     expandTemplateArgPacks(ExpandedTArgs, TArgs);
 
