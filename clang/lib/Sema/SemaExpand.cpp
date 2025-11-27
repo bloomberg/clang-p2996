@@ -22,6 +22,7 @@
 #include "clang/Sema/Overload.h"
 #include "clang/Sema/Sema.h"
 #include "clang/Sema/Template.h"
+#include "llvm/Support/SaveAndRestore.h"
 
 
 using namespace clang;
@@ -556,7 +557,9 @@ StmtResult Sema::FinishCXXExpansionStmt(Stmt *Heading, Stmt *Body) {
   // Expand the body for each instantiation.
   SmallVector<Stmt *, 4> Instantiations;
   while (Instantiations.size() < Expansion->getNumInstantiations()) {
+
     ContextRAII CtxGuard(*this, DC, /*NewThis=*/false);
+    auto guard = llvm::SaveAndRestore(IsSynthesizingExpansionStmt, !DC->isDependentContext());
 
     TemplateArgument TArgs[] = {
         { Context, llvm::APSInt::get(Instantiations.size()),

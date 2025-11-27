@@ -15413,6 +15413,8 @@ private:
   IdentifierInfo *Ident__Nullable_result = nullptr;
   IdentifierInfo *Ident__Null_unspecified = nullptr;
 
+  bool IsSynthesizingExpansionStmt = false;
+
   ///@}
 
   //
