@@ -1,14 +1,5 @@
 // RUN: %clang_cc1 -std=c++26 -fexpansion-statements -x c++ %s -verify
 
-namespace std {
-template <typename T>
-struct initializer_list {
-  const T* a;
-  const T* b;
-  initializer_list(T* a, T* b): a{a}, b{b} {}
-};
-}
-
 struct S {
   int x;
   constexpr S(int x) : x{x} {}
@@ -59,7 +50,7 @@ struct T {
 
 consteval long f2(T s) {
   long result = 0;
-  template for (auto x : s) {                           // OK, destructuring expansion statement
+  template for (auto x : s) {
     result += sizeof(x);
   }
   return result;
