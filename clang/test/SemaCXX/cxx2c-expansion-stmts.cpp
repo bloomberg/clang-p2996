@@ -358,3 +358,18 @@ constexpr int c2[] = {4, 3, 2, 1};
 static_assert(f(c1, c2) == 5);
 
 }  // namespace paper_example_regression
+
+                          // ========================
+                          // issue_209_regression
+                          // ========================
+constexpr bool testIssue209() {
+    static constexpr int arr[]{1, 2, 3};
+    [n = 42]<class = void>() {
+        template for (constexpr auto _ : arr) {
+            (void)n;
+        }
+    }();
+    return true;
+}
+
+static_assert(testIssue209());
