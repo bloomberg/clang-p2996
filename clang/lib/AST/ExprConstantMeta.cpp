@@ -1360,7 +1360,7 @@ static bool isReflectableDecl(MetaActions &Meta, ASTContext &C, Decl *D) {
 
   if (auto *FD = dyn_cast<FunctionDecl>(D)) {
     for (auto *R = FD->getMostRecentDecl(); R; R = R->getPreviousDecl()) {
-      if (!R->getDeclaredReturnType()->isUndeducedType() &&
+      if (!R->getReturnType()->isUndeducedType() &&
           Meta.HasSatisfiedConstraints(R))
         return true;
     }
