@@ -6430,17 +6430,11 @@ bool reflection_hash(APValue &Result, ASTContext &C, MetaActions &Meta,
     return true;
   }
   
-  static std::unordered_map<const void*, std::size_t> s_values;
-  static std::size_t s_count = 0;
-  
-  const auto [it, success] = s_values.insert({R.getOpaqueReflectionData(), s_count});
-  if (success) {
-    ++s_count;
-  }
-
+  std::size_t ptr = 0;
+  std::memcpy(&ptr, R.getOpaqueReflectionData(), sizeof(ptr));
   return SetAndSucceed(
     Result,
-    APValue(C.MakeIntValue(it->second, C.getSizeType())));
+    APValue(C.MakeIntValue(ptr, C.getSizeType())));
 }
 
 }  // end namespace clang
