@@ -2167,12 +2167,19 @@ bool identifier_of(APValue &Result, ASTContext &C, MetaActions &Meta,
       Name = *TDMS->Name;
     break;
   }
+  case ReflectionKind::BaseSpecifier: {
+    CXXBaseSpecifier *Base = RV.getReflectedBaseSpecifier();
+    QualType QT = Base->getType();
+    if (!QT.isNull() && QT.getBaseTypeIdentifier()) {
+      Name = QT.getBaseTypeIdentifier()->getName();
+    }
+    break;
+  }
   case ReflectionKind::Null:
     return Diagnoser(Range.getBegin(),
                      diag::metafn_name_of_unnamed_singleton) << 0 << Range;
   case ReflectionKind::Object:
   case ReflectionKind::Value:
-  case ReflectionKind::BaseSpecifier:
   case ReflectionKind::Annotation:
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_have_name)
         << DescriptionOf(RV) << Range;
