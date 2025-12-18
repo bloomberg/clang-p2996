@@ -3613,7 +3613,11 @@ bool is_final(APValue &Result, ASTContext &C, MetaActions &Meta,
     return true;
 
   bool result = false;
-  if (RV.isReflectedDecl()) {
+  if (RV.isReflectedType()) {
+    if (auto * recordDecl = dyn_cast<CXXRecordDecl>(RV.getReflectedType()->getAsCXXRecordDecl())) {
+      result = recordDecl->hasAttr<FinalAttr>();
+    }
+  } else if (RV.isReflectedDecl()) {
     if (auto * funcDecl = dyn_cast<CXXMethodDecl>(RV.getReflectedDecl())){
       result = funcDecl->hasAttr<FinalAttr>();
     }
