@@ -463,6 +463,7 @@ enum : unsigned {
   __metafn_is_noexcept,
   __metafn_is_bit_field,
   __metafn_is_enumerator,
+  __metafn_is_final,
   __metafn_is_const,
   __metafn_is_volatile,
   __metafn_is_mutable_member,
@@ -976,6 +977,11 @@ consteval auto is_complete_type(info r) -> bool {
 // Returns whether the reflected class data member is an enumerator.
 consteval auto is_enumerator(info r) -> bool {
   return __metafunction(detail::__metafn_is_enumerator, r);
+}
+
+// Returns whether r represents a final class or a final member function.
+consteval auto is_final(info r) -> bool {
+  return __metafunction(detail::__metafn_is_final, r);
 }
 
 class access_context {

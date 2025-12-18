@@ -228,6 +228,12 @@ static bool is_enumerator(APValue &Result, ASTContext &C, MetaActions &Meta,
                           SourceRange Range, ArrayRef<Expr *> Args,
                           Decl *ContainingDecl);
 
+static bool is_final(APValue &Result, ASTContext &C, MetaActions &Meta,
+                          EvalFn Evaluator, DiagFn Diagnoser,
+                          bool AllowInjection, QualType ResultTy,
+                          SourceRange Range, ArrayRef<Expr *> Args,
+                          Decl *ContainingDecl);
+
 static bool is_const(APValue &Result, ASTContext &C, MetaActions &Meta,
                      EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
                      QualType ResultTy, SourceRange Range,
@@ -758,6 +764,7 @@ static constexpr Metafunction Metafunctions[] = {
   { Metafunction::MFRK_bool, 1, 1, is_noexcept },
   { Metafunction::MFRK_bool, 1, 1, is_bit_field },
   { Metafunction::MFRK_bool, 1, 1, is_enumerator },
+  { Metafunction::MFRK_bool, 1, 1, is_final },
   { Metafunction::MFRK_bool, 1, 1, is_const },
   { Metafunction::MFRK_bool, 1, 1, is_volatile },
   { Metafunction::MFRK_bool, 1, 1, is_mutable_member },
@@ -3591,6 +3598,29 @@ bool is_enumerator(APValue &Result, ASTContext &C, MetaActions &Meta,
   if (RV.isReflectedDecl())
     result = isa<EnumConstantDecl>(RV.getReflectedDecl());
 
+  return SetAndSucceed(Result, makeBool(C, result));
+}
+
+bool is_final(APValue &Result, ASTContext &C, MetaActions &Meta,
+              EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
+              QualType ResultTy, SourceRange Range,
+              ArrayRef<Expr *> Args, Decl *ContainingDecl) {
+  assert(Args[0]->getType()->isReflectionType());
+  assert(ResultTy == C.BoolTy);
+
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
+    return true;
+
+  bool result = false;
+  if (RV.isReflectedDecl()) {
+    if (auto * funcDecl = dyn_cast<CXXMethodDecl>(RV.getReflectedDecl())){
+      result = funcDecl->hasAttr<FinalAttr>();
+    }
+    else if (auto * recordDecl = dyn_cast<CXXRecordDecl>(RV.getReflectedDecl())) {
+      result = recordDecl->hasAttr<FinalAttr>();
+    }
+  }
   return SetAndSucceed(Result, makeBool(C, result));
 }
 
