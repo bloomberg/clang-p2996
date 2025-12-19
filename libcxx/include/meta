@@ -1406,10 +1406,13 @@ consteval auto is_user_declared(info r) -> bool {
   return __metafunction(detail::__metafn_is_user_declared, r);
 }
 
+consteval auto is_structural_type(info r) -> bool {
+  return __metafunction(detail::__metafn_is_structural_type, r);
+}
+
 // Returns a reflection of the value held by the provided argument.
 template <typename T>
-  requires (!is_reference_v<T> &&
-            __metafunction(detail::__metafn_is_structural_type, ^^T))
+  requires (!is_reference_v<T> && is_structural_type(^^T))
 consteval auto reflect_constant(T r) -> info {
   return __metafunction(detail::__metafn_reflect_result, ^^T, r);
 }

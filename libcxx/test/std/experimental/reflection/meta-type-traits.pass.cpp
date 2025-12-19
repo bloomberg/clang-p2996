@@ -225,4 +225,12 @@ using Var = std::variant<int, bool, char, int *>;
 static_assert(variant_size(^^Var) == 4);
 static_assert(variant_alternative(3, ^^Var) == ^^int *);
 
+ struct X { int x; };
+ struct Y { private: [[maybe_unused]] int x; };
+ template <class T> struct TCls { T t; };
+ static_assert(is_structural_type(^^X));
+ static_assert(!is_structural_type(^^Y));
+ static_assert(is_structural_type(^^TCls<X>));
+ static_assert(!is_structural_type(^^TCls<Y>));
+
 int main() { }
