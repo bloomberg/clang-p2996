@@ -38,6 +38,8 @@ struct C : A {
 
 struct D final : A {
   static_assert (std::meta::is_final (^^D));
+  // Easy to confuse is_final with is_final_type, which is really asking for completeness
+  static_assert (!std::meta::is_final_type(^^D));
 };
 
 static_assert (!std::meta::is_final (^^A));
