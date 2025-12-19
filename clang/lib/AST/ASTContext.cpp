@@ -13894,6 +13894,11 @@ static NestedNameSpecifier *getCommonNNS(ASTContext &Ctx,
     assert(K2 == NestedNameSpecifier::SpecifierKind::Global &&
            "Global NNS cannot be equivalent to any other kind");
     llvm_unreachable("Global NestedNameSpecifiers did not compare equal");
+
+  // todo unhandled
+  case NestedNameSpecifier::SpecifierKind::Splice:
+  case NestedNameSpecifier::SpecifierKind::SpliceWithTemplate:
+    break;
   }
   assert(Ctx.getCanonicalNestedNameSpecifier(R) == Canon);
   return R;

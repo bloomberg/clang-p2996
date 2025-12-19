@@ -271,6 +271,7 @@ public:
         continue;
 
       case NestedNameSpecifier::Splice:
+      case NestedNameSpecifier::SpliceWithTemplate:
         asImpl().writeSpliceSpecifierRef(NNS->getAsSplice());
         continue;
       }

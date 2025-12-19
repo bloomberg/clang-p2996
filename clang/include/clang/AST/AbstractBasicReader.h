@@ -292,6 +292,7 @@ public:
         continue;
 
       case NestedNameSpecifier::Splice:
+      case NestedNameSpecifier::SpliceWithTemplate:
         cur = NestedNameSpecifier::SpliceScopeSpecifier(ctx,
                                             asImpl().readBool(),
                                             asImpl().readSpliceSpecifierRef());

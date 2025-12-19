@@ -9876,6 +9876,7 @@ ASTImporter::Import(NestedNameSpecifier *FromNNS) {
     }
 
   case NestedNameSpecifier::Splice:
+  case NestedNameSpecifier::SpliceWithTemplate:
     llvm_unreachable("unimplemented");
   }
 

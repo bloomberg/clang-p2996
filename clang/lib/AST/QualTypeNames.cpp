@@ -254,6 +254,10 @@ static NestedNameSpecifier *getFullyQualifiedNestedNameSpecifier(
       }
       return Scope;
     }
+    // todo unhandled
+    case NestedNameSpecifier::Splice:
+    case NestedNameSpecifier::SpliceWithTemplate:
+      break;
   }
   llvm_unreachable("bad NNS kind");
 }

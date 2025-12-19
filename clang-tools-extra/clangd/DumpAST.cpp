@@ -159,6 +159,8 @@ class DumpVisitor : public RecursiveASTVisitor<DumpVisitor> {
       NNS_KIND(Global);
       NNS_KIND(Super);
       NNS_KIND(NamespaceAlias);
+      NNS_KIND(Splice);
+      NNS_KIND(SpliceWithTemplate);
 #undef NNS_KIND
     }
     llvm_unreachable("Unhandled SpecifierKind enum");

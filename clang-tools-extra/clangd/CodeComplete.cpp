@@ -1477,6 +1477,10 @@ bool allowIndex(CodeCompletionContext &CC) {
   // Unresolved inside a template.
   case NestedNameSpecifier::Identifier:
     return false;
+  // I don't think these should be indexed for code completion.
+  case NestedNameSpecifier::Splice:
+  case NestedNameSpecifier::SpliceWithTemplate:
+    return false;
   }
   llvm_unreachable("invalid NestedNameSpecifier kind");
 }

@@ -319,6 +319,8 @@ NestedNameSpecifier::translateToType(const ASTContext &Context) const {
   case SpecifierKind::Namespace:
   case SpecifierKind::NamespaceAlias:
   case SpecifierKind::Super:
+  case SpecifierKind::Splice:
+  case SpecifierKind::SpliceWithTemplate:
     // These are not representable as types.
     return nullptr;
   }

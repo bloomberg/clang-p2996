@@ -508,6 +508,10 @@ public:
     case NestedNameSpecifier::Super:
       add(NNS->getAsRecordDecl(), Flags);
       return;
+    // todo: not handled yet
+    case NestedNameSpecifier::Splice:
+    case NestedNameSpecifier::SpliceWithTemplate:
+      return;
     }
     llvm_unreachable("unhandled NestedNameSpecifier::SpecifierKind");
   }

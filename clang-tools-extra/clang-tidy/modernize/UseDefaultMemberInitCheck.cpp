@@ -29,6 +29,9 @@ static StringRef getValueOfValueInit(const QualType InitType) {
   case Type::STK_MemberPointer:
     return "nullptr";
 
+  case Type::STK_Reflection:
+    return "{}";
+
   case Type::STK_Bool:
     return "false";
 
