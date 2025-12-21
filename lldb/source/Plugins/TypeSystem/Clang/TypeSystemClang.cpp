@@ -4261,8 +4261,10 @@ TypeSystemClang::GetTypeClass(lldb::opaque_compiler_type_t type) {
     break;
   case clang::Type::HLSLInlineSpirv:
     break;
+  case clang::Type::ReflectionSplice:
+    break;
   }
-  // We don't know hot to display this type...
+  // We don't know how to display this type...
   return lldb::eTypeClassOther;
 }
 
@@ -5047,6 +5049,9 @@ lldb::Encoding TypeSystemClang::GetEncoding(lldb::opaque_compiler_type_t type,
     case clang::BuiltinType::UnresolvedTemplate:
       break;
 
+    case clang::BuiltinType::MetaInfo:
+      break;
+
     // AMD GPU builtin types.
 #define AMDGPU_TYPE(Name, Id, SingletonId, Width, Align)                       \
   case clang::BuiltinType::Id:
@@ -5129,6 +5134,10 @@ lldb::Encoding TypeSystemClang::GetEncoding(lldb::opaque_compiler_type_t type,
   case clang::Type::HLSLAttributedResource:
     break;
   case clang::Type::HLSLInlineSpirv:
+    break;
+
+  // todo
+  case clang::Type::ReflectionSplice:
     break;
   }
   count = 0;
@@ -5296,8 +5305,11 @@ lldb::Format TypeSystemClang::GetFormat(lldb::opaque_compiler_type_t type) {
     break;
   case clang::Type::HLSLInlineSpirv:
     break;
+
+  case clang::Type::ReflectionSplice:
+    break;
   }
-  // We don't know hot to display this type...
+  // We don't know how to display this type...
   return lldb::eFormatBytes;
 }
 
@@ -7860,9 +7872,10 @@ TypeSystemClang::CreateBaseClassSpecifier(lldb::opaque_compiler_type_t type,
     return nullptr;
 
   return std::make_unique<clang::CXXBaseSpecifier>(
-      clang::SourceRange(), is_virtual, base_of_class,
+      clang::SourceRange(), is_virtual, /*base_of_class,*/
       TypeSystemClang::ConvertAccessTypeToAccessSpecifier(access),
       getASTContext().getTrivialTypeSourceInfo(GetQualType(type)),
+      GetAsCXXRecordDecl(type),
       clang::SourceLocation());
 }
 
