@@ -19037,7 +19037,9 @@ void Sema::ActOnCXXEnterDeclInitializer(Scope *S, Decl *D) {
   if (S && D->isOutOfLine())
     EnterDeclaratorContext(S, D->getDeclContext());
 
-  /* todo [merge:yukino:maybe-revert]
+  // commit 6a993264 removed this piece of code, but it seems that doing so
+  // would break `constexpr auto ... = std::meta::...` initializer in
+  // non-constant-evaluated functions.
   auto Ctx = ExpressionEvaluationContext::PotentiallyEvaluated;
   if (getLangOpts().CPlusPlus23) {
     if (auto *VD = dyn_cast<VarDecl>(D)) {
@@ -19048,9 +19050,9 @@ void Sema::ActOnCXXEnterDeclInitializer(Scope *S, Decl *D) {
         Ctx = ExpressionEvaluationContext::ImmediateFunctionContext;
     }
   }
-  */
+
   PushExpressionEvaluationContext(
-      ExpressionEvaluationContext::PotentiallyEvaluated, D,
+      Ctx, D,
       ExpressionEvaluationContextRecord::EK_VariableInit);
 }
 
