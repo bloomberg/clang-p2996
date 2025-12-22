@@ -311,10 +311,24 @@ Response HandleFunction(Sema &SemaRef, const FunctionDecl *Function,
         isGenericLambdaCallOperatorOrStaticInvokerSpecialization(Function))
       return Response::Done();
 
-  } else if (Function->getDescribedFunctionTemplate()) {
+  } else if (auto *Template = Function->getDescribedFunctionTemplate()) {
     assert(
         (ForConstraintInstantiation || Result.getNumSubstitutedLevels() == 0) &&
         "Outer template not instantiated?");
+    if (ForConstraintInstantiation) {
+      for (auto &Inst : llvm::reverse(SemaRef.CodeSynthesisContexts)) {
+        if (Inst.Kind == Sema::CodeSynthesisContext::ConstraintsCheck &&
+            Inst.Entity == Template) {
+          // After CWG2369, the outer templates are not instantiated when
+          // checking its associated constraints. So add them back through the
+          // synthesis context; this is useful for e.g. nested constraints
+          // involving lambdas.
+          Result.addOuterTemplateArguments(Template, Inst.template_arguments(),
+                                           /*Final=*/false);
+          break;
+        }
+      }
+    }
   }
   // If this is a friend or local declaration and it declares an entity at
   // namespace scope, take arguments from its lexical parent
@@ -476,21 +490,6 @@ MultiLevelTemplateArgumentList Sema::getTemplateInstantiationArgs(
   assert((ND || DC) && "Can't find arguments for a decl if one isn't provided");
   // Accumulate the set of template argument lists in this structure.
   MultiLevelTemplateArgumentList Result;
-  getTemplateInstantiationArgs(
-      Result, ND, DC, Final, Innermost, RelativeToPrimary, Pattern,
-      ForConstraintInstantiation, SkipForSpecialization,
-      ForDefaultArgumentSubstitution);
-  return Result;
-}
-
-void Sema::getTemplateInstantiationArgs(
-    MultiLevelTemplateArgumentList &Result, const NamedDecl *ND,
-    const DeclContext *DC, bool Final,
-    std::optional<ArrayRef<TemplateArgument>> Innermost, bool RelativeToPrimary,
-    const FunctionDecl *Pattern, bool ForConstraintInstantiation,
-    bool SkipForSpecialization, bool ForDefaultArgumentSubstitution) {
-  assert((ND || DC) && "Can't find arguments for a decl if one isn't provided");
-  // Accumulate the set of template argument lists in this structure.
 
   using namespace TemplateInstArgsHelpers;
   const Decl *CurDecl = ND;
@@ -550,12 +549,13 @@ void Sema::getTemplateInstantiationArgs(
     }
 
     if (R.IsDone)
-      return;
+      return Result;
     if (R.ClearRelativeToPrimary)
       RelativeToPrimary = false;
     assert(R.NextDecl);
     CurDecl = R.NextDecl;
   }
+  return Result;
 }
 
 bool Sema::CodeSynthesisContext::isInstantiationRecord() const {
@@ -1916,8 +1916,7 @@ namespace {
 
   private:
     ExprResult
-    transformNonTypeTemplateParmRef(Decl *AssociatedDecl,
-                                    const NonTypeTemplateParmDecl *parm,
+    transformNonTypeTemplateParmRef(Decl *AssociatedDecl, const NamedDecl *parm,
                                     SourceLocation loc, TemplateArgument arg,
                                     UnsignedOrNone PackIndex, bool Final);
   };
@@ -2290,11 +2289,6 @@ TemplateInstantiator::TransformCXXAssumeAttr(const CXXAssumeAttr *AA) {
   if (!Res.isUsable())
     return AA;
 
-  Res = getSema().ActOnFinishFullExpr(Res.get(),
-                                      /*DiscardedValue=*/false);
-  if (!Res.isUsable())
-    return AA;
-
   if (!(Res.get()->getDependence() & ExprDependence::TypeValueInstantiation)) {
     Res = getSema().BuildCXXAssumeExpr(Res.get(), AA->getAttrName(),
                                        AA->getRange());
@@ -2363,22 +2357,25 @@ TemplateInstantiator::TransformOpenACCRoutineDeclAttr(
 }
 
 ExprResult TemplateInstantiator::transformNonTypeTemplateParmRef(
-    Decl *AssociatedDecl, const NonTypeTemplateParmDecl *parm,
-    SourceLocation loc, TemplateArgument arg, UnsignedOrNone PackIndex,
-    bool Final) {
+    Decl *AssociatedDecl, const NamedDecl *parm, SourceLocation loc,
+    TemplateArgument arg, UnsignedOrNone PackIndex, bool Final) {
   ExprResult result;
 
   // Determine the substituted parameter type. We can usually infer this from
   // the template argument, but not always.
   auto SubstParamType = [&] {
-    QualType T;
-    if (parm->isExpandedParameterPack())
-      T = parm->getExpansionType(*SemaRef.ArgPackSubstIndex);
-    else
-      T = parm->getType();
-    if (parm->isParameterPack() && isa<PackExpansionType>(T))
-      T = cast<PackExpansionType>(T)->getPattern();
-    return SemaRef.SubstType(T, TemplateArgs, loc, parm->getDeclName());
+    if (const auto *NTTP = dyn_cast<NonTypeTemplateParmDecl>(parm)) {
+      QualType T;
+      if (NTTP->isExpandedParameterPack())
+        T = NTTP->getExpansionType(*SemaRef.ArgPackSubstIndex);
+      else
+        T = NTTP->getType();
+      if (parm->isParameterPack() && isa<PackExpansionType>(T))
+        T = cast<PackExpansionType>(T)->getPattern();
+      return SemaRef.SubstType(T, TemplateArgs, loc, parm->getDeclName());
+    }
+    return SemaRef.SubstType(arg.getAsExpr()->getType(), TemplateArgs, loc,
+                             parm->getDeclName());
   };
 
   bool refParam = false;
@@ -2433,7 +2430,9 @@ ExprResult TemplateInstantiator::transformNonTypeTemplateParmRef(
   Expr *resultExpr = result.get();
   return new (SemaRef.Context) SubstNonTypeTemplateParmExpr(
       resultExpr->getType(), resultExpr->getValueKind(), loc, resultExpr,
-      AssociatedDecl, parm->getIndex(), PackIndex, refParam, Final);
+      AssociatedDecl,
+      clang::getDepthAndIndex(const_cast<NamedDecl *>(parm)).second, PackIndex,
+      refParam, Final);
 }
 
 ExprResult
@@ -4177,7 +4176,6 @@ static ActionResult<CXXRecordDecl *> getPatternForClassTemplateSpecialization(
         if (Ambiguous) {
           // Partial ordering did not produce a clear winner. Complain.
           Inst.Clear();
-          ClassTemplateSpec->setInvalidDecl();
           S.Diag(PointOfInstantiation,
                  diag::err_partial_spec_ordering_ambiguous)
               << ClassTemplateSpec;
@@ -4479,8 +4477,12 @@ Sema::InstantiateClassMembers(SourceLocation PointOfInstantiation,
       // No need to instantiate in-class initializers during explicit
       // instantiation.
       if (Field->hasInClassInitializer() && TSK == TSK_ImplicitInstantiation) {
+        // Handle local classes which could have substituted template params.
         CXXRecordDecl *ClassPattern =
-            Instantiation->getTemplateInstantiationPattern();
+            Instantiation->isLocalClass()
+                ? Instantiation->getInstantiatedFromMemberClass()
+                : Instantiation->getTemplateInstantiationPattern();
+
         DeclContext::lookup_result Lookup =
             ClassPattern->lookup(Field->getDeclName());
         FieldDecl *Pattern = Lookup.find_first<FieldDecl>();

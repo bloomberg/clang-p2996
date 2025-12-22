@@ -318,6 +318,8 @@ public:
   /// Determine whether this template argument is a pack expansion.
   bool isPackExpansion() const;
 
+  bool isConceptOrConceptTemplateParameter() const;
+
   /// Retrieve the type for a type template argument.
   QualType getAsType() const {
     assert(getKind() == Type && "Unexpected kind");

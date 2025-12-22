@@ -551,8 +551,7 @@ public:
   }
 
   CXXRecordDecl *getMostRecentNonInjectedDecl() {
-    CXXRecordDecl *Recent =
-        static_cast<CXXRecordDecl *>(this)->getMostRecentDecl();
+    CXXRecordDecl *Recent = getMostRecentDecl();
     while (Recent->isInjectedClassName()) {
       // FIXME: Does injected class name need to be in the redeclarations chain?
       assert(Recent->getPreviousDecl());
@@ -1894,6 +1893,21 @@ public:
     DL.IsGenericLambda = IsGeneric;
   }
 
+  /// Determines whether this declaration represents the
+  /// injected class name.
+  ///
+  /// The injected class name in C++ is the name of the class that
+  /// appears inside the class itself. For example:
+  ///
+  /// \code
+  /// struct C {
+  ///   // C is implicitly declared here as a synonym for the class name.
+  /// };
+  ///
+  /// C::C c; // same as "C c;"
+  /// \endcode
+  bool isInjectedClassName() const;
+
   // Determine whether this type is an Interface Like type for
   // __interface inheritance purposes.
   bool isInterfaceLike() const;
@@ -3202,7 +3216,7 @@ public:
 /// \code
 /// namespace Foo = Bar;
 /// \endcode
-class NamespaceAliasDecl : public NamedDecl,
+class NamespaceAliasDecl : public NamespaceBaseDecl,
                            public Redeclarable<NamespaceAliasDecl> {
   friend class ASTDeclReader;
 
@@ -3219,14 +3233,14 @@ class NamespaceAliasDecl : public NamedDecl,
 
   /// The Decl that this alias points to, either a NamespaceDecl or
   /// a NamespaceAliasDecl.
-  NamedDecl *Namespace;
+  NamespaceBaseDecl *Namespace;
 
   NamespaceAliasDecl(ASTContext &C, DeclContext *DC,
                      SourceLocation NamespaceLoc, SourceLocation AliasLoc,
                      IdentifierInfo *Alias, NestedNameSpecifierLoc QualifierLoc,
-                     SourceLocation IdentLoc, NamedDecl *Namespace)
-      : NamedDecl(NamespaceAlias, DC, AliasLoc, Alias), redeclarable_base(C),
-        NamespaceLoc(NamespaceLoc), IdentLoc(IdentLoc),
+                     SourceLocation IdentLoc, NamespaceBaseDecl *Namespace)
+      : NamespaceBaseDecl(NamespaceAlias, DC, AliasLoc, Alias),
+        redeclarable_base(C), NamespaceLoc(NamespaceLoc), IdentLoc(IdentLoc),
         QualifierLoc(QualifierLoc), Namespace(Namespace) {}
 
   void anchor() override;
@@ -3238,13 +3252,11 @@ class NamespaceAliasDecl : public NamedDecl,
   NamespaceAliasDecl *getMostRecentDeclImpl() override;
 
 public:
-  static NamespaceAliasDecl *Create(ASTContext &C, DeclContext *DC,
-                                    SourceLocation NamespaceLoc,
-                                    SourceLocation AliasLoc,
-                                    IdentifierInfo *Alias,
-                                    NestedNameSpecifierLoc QualifierLoc,
-                                    SourceLocation IdentLoc,
-                                    NamedDecl *Namespace);
+  static NamespaceAliasDecl *
+  Create(ASTContext &C, DeclContext *DC, SourceLocation NamespaceLoc,
+         SourceLocation AliasLoc, IdentifierInfo *Alias,
+         NestedNameSpecifierLoc QualifierLoc, SourceLocation IdentLoc,
+         NamespaceBaseDecl *Namespace);
 
   static NamespaceAliasDecl *CreateDeserialized(ASTContext &C, GlobalDeclID ID);
 
@@ -3309,7 +3321,7 @@ public:
 
   /// Retrieve the namespace that this alias refers to, which
   /// may either be a NamespaceDecl or a NamespaceAliasDecl.
-  NamedDecl *getAliasedNamespace() const { return Namespace; }
+  NamespaceBaseDecl *getAliasedNamespace() const { return Namespace; }
 
   SourceRange getSourceRange() const override LLVM_READONLY {
     return SourceRange(NamespaceLoc, IdentLoc);

@@ -3458,7 +3458,7 @@ static bool IsUnusedPrivateField(const FieldDecl *FD) {
 NamedDecl *
 Sema::ActOnCXXMemberDeclarator(Scope *S, AccessSpecifier AS, Declarator &D,
                                MultiTemplateParamsArg TemplateParameterLists,
-                               Expr *BW, const VirtSpecifiers &VS,
+                               Expr *BitWidth, const VirtSpecifiers &VS,
                                InClassInitStyle InitStyle) {
   const DeclSpec &DS = D.getDeclSpec();
   DeclarationNameInfo NameInfo = GetNameForDeclarator(D);
@@ -3468,8 +3468,6 @@ Sema::ActOnCXXMemberDeclarator(Scope *S, AccessSpecifier AS, Declarator &D,
   // For anonymous bitfields, the location should point to the type.
   if (Loc.isInvalid())
     Loc = D.getBeginLoc();
-
-  Expr *BitWidth = static_cast<Expr*>(BW);
 
   assert(isa<CXXRecordDecl>(CurContext));
   assert(!DS.isFriendSpecified());
@@ -11959,7 +11957,7 @@ Decl *Sema::ActOnStartNamespaceDef(Scope *NamespcScope,
 
 /// getNamespaceDecl - Returns the namespace a decl represents. If the decl
 /// is a namespace alias, returns the namespace it points to.
-static inline NamespaceDecl *getNamespaceDecl(NamedDecl *D) {
+static inline NamespaceDecl *getNamespaceDecl(NamespaceBaseDecl *D) {
   if (NamespaceAliasDecl *AD = dyn_cast_or_null<NamespaceAliasDecl>(D))
     return AD->getNamespace();
   return dyn_cast_or_null<NamespaceDecl>(D);
@@ -13420,7 +13418,7 @@ NamedDecl *Sema::BuildUsingEnumDeclaration(Scope *S, AccessSpecifier AS,
     LookupResult Previous(*this, UsingEnumName, LookupUsingDeclName,
                           RedeclarationKind::ForVisibleRedeclaration);
 
-    LookupName(Previous, S);
+    LookupQualifiedName(Previous, CurContext);
 
     for (NamedDecl *D : Previous)
       if (UsingEnumDecl *UED = dyn_cast<UsingEnumDecl>(D))
@@ -13750,7 +13748,7 @@ bool Sema::CheckUsingDeclQualifier(SourceLocation UsingLoc, bool HasTypename,
       Diag(SS.getBeginLoc(),
            diag::err_using_decl_nested_name_specifier_is_current_class)
           << SS.getRange();
-      return !getLangOpts().CPlusPlus20;
+      return true;
     }
 
     if (!cast<CXXRecordDecl>(NamedContext)->isInvalidDecl()) {
@@ -13926,7 +13924,7 @@ Decl *Sema::ActOnNamespaceAliasDef(Scope *S, SourceLocation NamespaceLoc,
                                    IdentifierInfo *Alias, CXXScopeSpec &SS,
                                    SourceLocation IdentLoc,
                                    IdentifierInfo *Ident) {
-  NamedDecl *ND;
+  NamespaceBaseDecl *ND;
 
   // Scope may be dependent if it has a splice as a leading component of its
   // qualifiers, and that splice is dependent on a template parameter.
@@ -13954,7 +13952,7 @@ Decl *Sema::ActOnNamespaceAliasDef(Scope *S, SourceLocation NamespaceLoc,
       }
     }
     assert(!R.isAmbiguous() && !R.empty());
-    ND = R.getRepresentativeDecl();
+    ND = cast<NamespaceBaseDecl>(R.getRepresentativeDecl());
   }
   return ActOnNamespaceAliasDef(S, NamespaceLoc, AliasLoc, Alias, SS, IdentLoc,
                                 ND);
@@ -13964,7 +13962,7 @@ Decl *Sema::ActOnNamespaceAliasDef(Scope *S, SourceLocation NamespaceLoc,
                                    SourceLocation AliasLoc,
                                    IdentifierInfo *Alias, CXXScopeSpec &SS,
                                    SourceLocation IdentLoc,
-                                   NamedDecl *ND) {
+                                   NamespaceBaseDecl *ND) {
   // Check if we have a previous declaration with the same name.
   LookupResult PrevR(*this, Alias, AliasLoc, LookupOrdinaryName,
                      RedeclarationKind::ForVisibleRedeclaration);
@@ -16684,12 +16682,8 @@ static inline bool CheckOperatorNewDeleteTypes(
   if (IsPotentiallyTypeAware) {
     // We don't emit this diagnosis for template instantiations as we will
     // have already emitted it for the original template declaration.
-    if (!FnDecl->isTemplateInstantiation()) {
-      unsigned DiagID = SemaRef.getLangOpts().CPlusPlus26
-                            ? diag::warn_cxx26_type_aware_allocators
-                            : diag::ext_cxx26_type_aware_allocators;
-      SemaRef.Diag(FnDecl->getLocation(), DiagID);
-    }
+    if (!FnDecl->isTemplateInstantiation())
+      SemaRef.Diag(FnDecl->getLocation(), diag::warn_ext_type_aware_allocators);
 
     if (OperatorKind == AllocationOperatorKind::New) {
       SizeParameterIndex = 1;
@@ -18830,7 +18824,7 @@ bool Sema::CheckOverridingFunctionAttributes(CXXMethodDecl *New,
         case FunctionEffectDiff::OverrideResult::NoAction:
           break;
         case FunctionEffectDiff::OverrideResult::Warn:
-          Diag(New->getLocation(), diag::warn_mismatched_func_effect_override)
+          Diag(New->getLocation(), diag::warn_conflicting_func_effect_override)
               << Diff.effectName();
           Diag(Old->getLocation(), diag::note_overridden_virtual_function)
               << Old->getReturnTypeSourceRange();
@@ -18843,6 +18837,14 @@ bool Sema::CheckOverridingFunctionAttributes(CXXMethodDecl *New,
           QualType ModQT = Context.getFunctionType(NewFT->getReturnType(),
                                                    NewFT->getParamTypes(), EPI);
           New->setType(ModQT);
+          if (Errs.empty()) {
+            // A warning here is somewhat pedantic. Skip this if there was
+            // already a merge conflict, which is more serious.
+            Diag(New->getLocation(), diag::warn_mismatched_func_effect_override)
+                << Diff.effectName();
+            Diag(Old->getLocation(), diag::note_overridden_virtual_function)
+                << Old->getReturnTypeSourceRange();
+          }
           break;
         }
         }
@@ -19035,6 +19037,7 @@ void Sema::ActOnCXXEnterDeclInitializer(Scope *S, Decl *D) {
   if (S && D->isOutOfLine())
     EnterDeclaratorContext(S, D->getDeclContext());
 
+  /* todo [merge:yukino:maybe-revert]
   auto Ctx = ExpressionEvaluationContext::PotentiallyEvaluated;
   if (getLangOpts().CPlusPlus23) {
     if (auto *VD = dyn_cast<VarDecl>(D)) {
@@ -19045,7 +19048,10 @@ void Sema::ActOnCXXEnterDeclInitializer(Scope *S, Decl *D) {
         Ctx = ExpressionEvaluationContext::ImmediateFunctionContext;
     }
   }
-  PushExpressionEvaluationContext(Ctx, D);
+  */
+  PushExpressionEvaluationContext(
+      ExpressionEvaluationContext::PotentiallyEvaluated, D,
+      ExpressionEvaluationContextRecord::EK_VariableInit);
 }
 
 void Sema::ActOnCXXExitDeclInitializer(Scope *S, Decl *D) {
@@ -19054,29 +19060,6 @@ void Sema::ActOnCXXExitDeclInitializer(Scope *S, Decl *D) {
   if (S && D->isOutOfLine())
     ExitDeclaratorContext(S);
 
-  if (getLangOpts().CPlusPlus23) {
-    // An expression or conversion is 'manifestly constant-evaluated' if it is:
-    // [...]
-    // - the initializer of a variable that is usable in constant expressions or
-    //   has constant initialization.
-    if (auto *VD = dyn_cast<VarDecl>(D);
-        VD && (VD->isUsableInConstantExpressions(Context) ||
-               VD->hasConstantInitialization())) {
-      // An expression or conversion is in an 'immediate function context' if it
-      // is potentially evaluated and either:
-      // [...]
-      // - it is a subexpression of a manifestly constant-evaluated expression
-      //   or conversion.
-      ExprEvalContexts.back().InImmediateFunctionContext = true;
-    }
-  }
-
-  // Unless the initializer is in an immediate function context (as determined
-  // above), this will evaluate all contained immediate function calls as
-  // constant expressions. If the initializer IS an immediate function context,
-  // the initializer has been determined to be a constant expression, and all
-  // such evaluations will be elided (i.e., as if we "knew the whole time" that
-  // it was a constant expression).
   PopExpressionEvaluationContext();
 }
 

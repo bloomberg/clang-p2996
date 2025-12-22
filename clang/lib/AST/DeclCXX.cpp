@@ -1983,7 +1983,7 @@ CXXRecordDecl::getVisibleConversionFunctions() const {
   ASTContext &Ctx = getASTContext();
 
   ASTUnresolvedSet *Set;
-  if (bases_begin() == bases_end()) {
+  if (bases().empty()) {
     // If root class, all conversions are visible.
     Set = &data().Conversions.get(Ctx);
   } else {
@@ -2146,6 +2146,16 @@ CXXDestructorDecl *CXXRecordDecl::getDestructor() const {
 bool CXXRecordDecl::hasDeletedDestructor() const {
   if (const CXXDestructorDecl *D = getDestructor())
     return D->isDeleted();
+  return false;
+}
+
+bool CXXRecordDecl::isInjectedClassName() const {
+  if (!isImplicit() || !getDeclName())
+    return false;
+
+  if (const auto *RD = dyn_cast<CXXRecordDecl>(getDeclContext()))
+    return RD->getDeclName() == getDeclName();
+
   return false;
 }
 
@@ -3201,6 +3211,12 @@ UsingDirectiveDecl *UsingDirectiveDecl::CreateDeserialized(ASTContext &C,
                                         SourceLocation(), nullptr, nullptr);
 }
 
+NamespaceDecl *NamespaceBaseDecl::getNamespace() {
+  if (auto *Alias = dyn_cast<NamespaceAliasDecl>(this))
+    return Alias->getNamespace();
+  return cast<NamespaceDecl>(this);
+}
+
 NamespaceDecl *UsingDirectiveDecl::getNominatedNamespace() {
   if (auto *NA = dyn_cast_or_null<NamespaceAliasDecl>(NominatedNamespace))
     return NA->getNamespace();
@@ -3211,7 +3227,18 @@ NamespaceDecl::NamespaceDecl(Kind K, ASTContext &C, DeclContext *DC,
                              bool Inline, SourceLocation StartLoc,
                              SourceLocation IdLoc, IdentifierInfo *Id,
                              NamespaceDecl *PrevDecl, bool Nested)
-    : NamedDecl(K, DC, IdLoc, Id), DeclContext(Namespace),
+    : NamespaceBaseDecl(K, DC, IdLoc, Id), DeclContext(Namespace),
+      redeclarable_base(C), LocStart(StartLoc) {
+  setInline(Inline);
+  setNested(Nested);
+  setPreviousDecl(PrevDecl);
+}
+
+NamespaceDecl::NamespaceDecl(ASTContext &C, DeclContext *DC, bool Inline,
+                             SourceLocation StartLoc, SourceLocation IdLoc,
+                             IdentifierInfo *Id, NamespaceDecl *PrevDecl,
+                             bool Nested)
+    : NamespaceBaseDecl(Namespace, DC, IdLoc, Id), DeclContext(Namespace),
       redeclarable_base(C), LocStart(StartLoc) {
   setInline(Inline);
   setNested(Nested);
@@ -3223,15 +3250,13 @@ NamespaceDecl *NamespaceDecl::Create(ASTContext &C, DeclContext *DC,
                                      SourceLocation IdLoc, IdentifierInfo *Id,
                                      NamespaceDecl *PrevDecl, bool Nested) {
   return new (C, DC)
-      NamespaceDecl(Namespace, C, DC, Inline, StartLoc, IdLoc, Id, PrevDecl,
-                    Nested);
+      NamespaceDecl(C, DC, Inline, StartLoc, IdLoc, Id, PrevDecl, Nested);
 }
 
 NamespaceDecl *NamespaceDecl::CreateDeserialized(ASTContext &C,
                                                  GlobalDeclID ID) {
-  return new (C, ID) NamespaceDecl(Namespace, C, nullptr, false,
-                                   SourceLocation(), SourceLocation(), nullptr,
-                                   nullptr, false);
+  return new (C, ID) NamespaceDecl(C, nullptr, false, SourceLocation(),
+                                   SourceLocation(), nullptr, nullptr, false);
 }
 
 NamespaceDecl *NamespaceDecl::getNextRedeclarationImpl() {
@@ -3260,13 +3285,11 @@ NamespaceAliasDecl *NamespaceAliasDecl::getMostRecentDeclImpl() {
   return getMostRecentDecl();
 }
 
-NamespaceAliasDecl *NamespaceAliasDecl::Create(ASTContext &C, DeclContext *DC,
-                                               SourceLocation UsingLoc,
-                                               SourceLocation AliasLoc,
-                                               IdentifierInfo *Alias,
-                                           NestedNameSpecifierLoc QualifierLoc,
-                                               SourceLocation IdentLoc,
-                                               NamedDecl *Namespace) {
+NamespaceAliasDecl *NamespaceAliasDecl::Create(
+    ASTContext &C, DeclContext *DC, SourceLocation UsingLoc,
+    SourceLocation AliasLoc, IdentifierInfo *Alias,
+    NestedNameSpecifierLoc QualifierLoc, SourceLocation IdentLoc,
+    NamespaceBaseDecl *Namespace) {
   // FIXME: Preserve the aliased namespace as written.
   if (auto *NS = dyn_cast_or_null<NamespaceDecl>(Namespace))
     Namespace = NS->getFirstDecl();

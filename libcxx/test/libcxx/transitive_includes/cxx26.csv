@@ -82,7 +82,6 @@ ccomplex ios
 ccomplex iosfwd
 ccomplex istream
 ccomplex limits
-ccomplex locale
 ccomplex ratio
 ccomplex sstream
 ccomplex stdexcept
@@ -120,7 +119,6 @@ chrono ios
 chrono iosfwd
 chrono istream
 chrono limits
-chrono locale
 chrono optional
 chrono ratio
 chrono sstream
@@ -177,7 +175,6 @@ complex ios
 complex iosfwd
 complex istream
 complex limits
-complex locale
 complex ratio
 complex sstream
 complex stdexcept
@@ -226,7 +223,6 @@ ctgmath ios
 ctgmath iosfwd
 ctgmath istream
 ctgmath limits
-ctgmath locale
 ctgmath ratio
 ctgmath sstream
 ctgmath stdexcept
@@ -278,7 +274,6 @@ experimental/iterator ios
 experimental/iterator iosfwd
 experimental/iterator iterator
 experimental/iterator limits
-experimental/iterator locale
 experimental/iterator ratio
 experimental/iterator stdexcept
 experimental/iterator streambuf
@@ -359,10 +354,8 @@ filesystem iomanip
 filesystem ios
 filesystem iosfwd
 filesystem limits
-filesystem locale
 filesystem ratio
 filesystem stdexcept
-filesystem streambuf
 filesystem string
 filesystem string_view
 filesystem tuple
@@ -447,7 +440,6 @@ fstream ios
 fstream iosfwd
 fstream istream
 fstream limits
-fstream locale
 fstream ratio
 fstream stdexcept
 fstream streambuf
@@ -490,7 +482,6 @@ future ios
 future iosfwd
 future istream
 future limits
-future locale
 future ratio
 future sstream
 future stdexcept
@@ -518,10 +509,8 @@ iomanip initializer_list
 iomanip ios
 iomanip iosfwd
 iomanip limits
-iomanip locale
 iomanip ratio
 iomanip stdexcept
-iomanip streambuf
 iomanip string
 iomanip string_view
 iomanip tuple
@@ -573,7 +562,6 @@ iostream ios
 iostream iosfwd
 iostream istream
 iostream limits
-iostream locale
 iostream optional
 iostream ostream
 iostream print
@@ -603,7 +591,6 @@ istream initializer_list
 istream ios
 istream iosfwd
 istream limits
-istream locale
 istream ratio
 istream stdexcept
 istream streambuf
@@ -759,7 +746,6 @@ ostream initializer_list
 ostream ios
 ostream iosfwd
 ostream limits
-ostream locale
 ostream optional
 ostream print
 ostream ratio
@@ -940,7 +926,6 @@ sstream ios
 sstream iosfwd
 sstream istream
 sstream limits
-sstream locale
 sstream ratio
 sstream stdexcept
 sstream streambuf
@@ -1039,7 +1024,6 @@ strstream ios
 strstream iosfwd
 strstream istream
 strstream limits
-strstream locale
 strstream ratio
 strstream stdexcept
 strstream streambuf
@@ -1069,7 +1053,6 @@ syncstream initializer_list
 syncstream ios
 syncstream iosfwd
 syncstream limits
-syncstream locale
 syncstream map
 syncstream optional
 syncstream ostream
@@ -1121,7 +1104,6 @@ thread ios
 thread iosfwd
 thread istream
 thread limits
-thread locale
 thread ratio
 thread sstream
 thread stdexcept
