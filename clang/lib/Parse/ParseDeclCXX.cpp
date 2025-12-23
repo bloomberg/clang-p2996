@@ -31,6 +31,7 @@
 #include "clang/Sema/Scope.h"
 #include "clang/Sema/SemaCodeCompletion.h"
 #include "clang/Sema/SemaHLSL.h"
+#include "llvm/Support/SaveAndRestore.h"
 #include "llvm/Support/TimeProfiler.h"
 #include <optional>
 
@@ -672,6 +673,10 @@ Parser::DeclGroupPtrTy Parser::ParseUsingDeclaration(
     SourceLocation UsingLoc, SourceLocation &DeclEnd,
     ParsedAttributes &PrefixAttrs, AccessSpecifier AS) {
   SourceLocation UELoc;
+  // Flag to the parser we are parsing a using declaration, among others we
+  // wanto to disallow annotations as valid here.
+  llvm::SaveAndRestore<bool> InInitStatementGuard(InUsingDeclaration, true);
+
   bool InInitStatement = Context == DeclaratorContext::SelectionInit ||
                          Context == DeclaratorContext::ForInit;
 
@@ -4839,7 +4844,11 @@ void Parser::ParseCXX11AttributeSpecifierInternal(ParsedAttributes &Attrs,
         if (CommonScopeName) {
           Diag(Tok.getLocation(), diag::err_annotation_with_using);
           SkipUntil(tok::r_square, tok::colon, tok::r_splice, StopBeforeMatch);
-        } else {
+        } else if (InUsingDeclaration) {
+          Diag(Tok.getLocation(), diag::err_annotation_used_on) << 0;
+          SkipUntil(tok::r_square, tok::colon, tok::r_splice, StopBeforeMatch);
+        }
+         else {
           ParseAnnotationSpecifier(Attrs, EndLoc);
         }
         continue;

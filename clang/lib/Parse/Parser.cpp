@@ -56,10 +56,10 @@ IdentifierInfo *Parser::getSEHExceptKeyword() {
 }
 
 Parser::Parser(Preprocessor &pp, Sema &actions, bool skipFunctionBodies)
-    : PP(pp),
+    :  PP(pp),
       PreferredType(&actions.getASTContext(), pp.isCodeCompletionEnabled()),
       Actions(actions), Diags(PP.getDiagnostics()), StackHandler(Diags),
-      GreaterThanIsOperator(true), ColonIsSacred(false),
+      InUsingDeclaration(false), GreaterThanIsOperator(true), ColonIsSacred(false),
       InMessageExpression(false), ParsingInObjCContainer(false),
       TemplateParameterDepth(0) {
   SkipFunctionBodies = pp.isCodeCompletionEnabled() || skipFunctionBodies;

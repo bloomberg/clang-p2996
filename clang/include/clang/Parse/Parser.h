@@ -1128,6 +1128,9 @@ private:
   ///@{
 
 private:
+  /// Flag whether we are inside a using-declaration.
+  bool InUsingDeclaration;
+
   struct ParsingClass;
 
   /// [class.mem]p1: "... the class is regarded as complete within
