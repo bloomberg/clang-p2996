@@ -130,9 +130,8 @@ def LValuePathSerializationHelper :
     PropertyType<"APValue::LValuePathSerializationHelper"> {
   let BufferElementTypes = [ LValuePathEntry ];
 }
-def NestedNameSpecifier : PropertyType<"NestedNameSpecifier *">;
-def NestedNameSpecifierKind :
-  EnumPropertyType<"NestedNameSpecifier::SpecifierKind">;
+def NestedNameSpecifier : PropertyType<"NestedNameSpecifier">;
+def NestedNameSpecifierKind : EnumPropertyType<"NestedNameSpecifier::Kind">;
 def OverloadedOperatorKind : EnumPropertyType;
 def Qualifiers : PropertyType;
 def QualType : DefaultValuePropertyType;

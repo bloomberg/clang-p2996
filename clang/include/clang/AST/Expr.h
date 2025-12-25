@@ -1400,7 +1400,7 @@ public:
 
   /// If the name was qualified, retrieves the nested-name-specifier
   /// that precedes the name. Otherwise, returns NULL.
-  NestedNameSpecifier *getQualifier() const {
+  NestedNameSpecifier getQualifier() const {
     return getQualifierLoc().getNestedNameSpecifier();
   }
 
@@ -3421,7 +3421,7 @@ public:
   /// If the member name was qualified, retrieves the
   /// nested-name-specifier that precedes the member name. Otherwise, returns
   /// NULL.
-  NestedNameSpecifier *getQualifier() const {
+  NestedNameSpecifier getQualifier() const {
     return getQualifierLoc().getNestedNameSpecifier();
   }
 

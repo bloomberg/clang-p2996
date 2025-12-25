@@ -23,10 +23,11 @@ class ASTContext;
 } // namespace clang
 
 // Defined in ASTContext.h
+// todo [merge:yukino,"NestedNameSpecifier needs it 16-byte aligned"]
 void *operator new(size_t Bytes, const clang::ASTContext &C,
-                   size_t Alignment = 8);
+                   size_t Alignment = 16);
 void *operator new[](size_t Bytes, const clang::ASTContext &C,
-                     size_t Alignment = 8);
+                     size_t Alignment = 16);
 
 // It is good practice to pair new/delete operators.  Also, MSVC gives many
 // warnings if a matching delete overload is not declared, even though the

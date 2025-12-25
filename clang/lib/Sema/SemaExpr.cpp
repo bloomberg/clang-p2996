@@ -1530,8 +1530,8 @@ void Sema::checkEnumArithmeticConversions(Expr *LHS, Expr *RHS,
     // are ill-formed.
     if (getLangOpts().CPlusPlus26)
       DiagID = diag::warn_conv_mixed_enum_types_cxx26;
-    else if (!L->castAs<EnumType>()->getDecl()->hasNameForLinkage() ||
-             !R->castAs<EnumType>()->getDecl()->hasNameForLinkage()) {
+    else if (!L->castAs<EnumType>()->getOriginalDecl()->hasNameForLinkage() ||
+             !R->castAs<EnumType>()->getOriginalDecl()->hasNameForLinkage()) {
       // If either enumeration type is unnamed, it's less likely that the
       // user cares about this, but this situation is still deprecated in
       // C++2a. Use a different warning group.
@@ -2533,7 +2533,7 @@ bool Sema::DiagnoseEmptyLookup(Scope *S, CXXScopeSpec &SS, LookupResult &R,
     if (isa<CXXRecordDecl>(DC)) {
       if (ExplicitTemplateArgs) {
         if (LookupTemplateName(
-                R, S, SS, Context.getRecordType(cast<CXXRecordDecl>(DC)),
+                R, S, SS, Context.getCanonicalTagType(cast<CXXRecordDecl>(DC)),
                 /*EnteringContext*/ false, TemplateNameIsRequired,
                 /*RequiredTemplateKind*/ nullptr, /*AllowTypoCorrection*/ true))
           return true;
@@ -2609,11 +2609,8 @@ bool Sema::DiagnoseEmptyLookup(Scope *S, CXXScopeSpec &SS, LookupResult &R,
       }
       R.addDecl(ND);
       if (getLangOpts().CPlusPlus && ND->isCXXClassMember()) {
-        CXXRecordDecl *Record = nullptr;
-        if (Corrected.getCorrectionSpecifier()) {
-          const Type *Ty = Corrected.getCorrectionSpecifier()->getAsType();
-          Record = Ty->getAsCXXRecordDecl();
-        }
+        CXXRecordDecl *Record =
+            Corrected.getCorrectionSpecifier().getAsRecordDecl();
         if (!Record)
           Record = cast<CXXRecordDecl>(
               ND->getDeclContext()->getRedeclContext());
@@ -2709,8 +2706,7 @@ recoverFromMSUnqualifiedLookup(Sema &S, ASTContext &Context,
   // Synthesize a fake NNS that points to the derived class.  This will
   // perform name lookup during template instantiation.
   CXXScopeSpec SS;
-  auto *NNS =
-      NestedNameSpecifier::Create(Context, nullptr, RD->getTypeForDecl());
+  NestedNameSpecifier NNS(Context.getCanonicalTagType(RD)->getTypePtr());
   SS.MakeTrivial(Context, NNS, SourceRange(Loc, Loc));
   return DependentScopeDeclRefExpr::Create(
       Context, SS.getWithLocInContext(Context), TemplateKWLoc, NameInfo,
@@ -2833,8 +2829,7 @@ Sema::ActOnIdExpression(Scope *S, CXXScopeSpec &SS,
 
     // If this name wasn't predeclared and if this is not a function
     // call, diagnose the problem.
-    DefaultFilterCCC DefaultValidator(II, SS.isValid() ? SS.getScopeRep()
-                                                       : nullptr);
+    DefaultFilterCCC DefaultValidator(II, SS.getScopeRep());
     DefaultValidator.IsAddressOfOperand = IsAddressOfOperand;
     assert((!CCC || CCC->IsAddressOfOperand == IsAddressOfOperand) &&
            "Typo correction callback misconfigured");
@@ -2945,8 +2940,28 @@ ExprResult Sema::BuildQualifiedDeclarationNameExpr(
   }
 
   if (const TypeDecl *TD = R.getAsSingle<TypeDecl>()) {
-    QualType Ty = Context.getTypeDeclType(TD);
-    QualType ET = getElaboratedType(ElaboratedTypeKeyword::None, SS, Ty);
+    QualType ET;
+    TypeLocBuilder TLB;
+    if (auto *TagD = dyn_cast<TagDecl>(TD)) {
+      ET = SemaRef.Context.getTagType(ElaboratedTypeKeyword::None,
+                                      SS.getScopeRep(), TagD,
+                                      /*OwnsTag=*/false);
+      auto TL = TLB.push<TagTypeLoc>(ET);
+      TL.setElaboratedKeywordLoc(SourceLocation());
+      TL.setQualifierLoc(SS.getWithLocInContext(Context));
+      TL.setNameLoc(NameInfo.getLoc());
+    } else if (auto *TypedefD = dyn_cast<TypedefNameDecl>(TD)) {
+      ET = SemaRef.Context.getTypedefType(ElaboratedTypeKeyword::None,
+                                          SS.getScopeRep(), TypedefD);
+      TLB.push<TypedefTypeLoc>(ET).set(
+          /*ElaboratedKeywordLoc=*/SourceLocation(),
+          SS.getWithLocInContext(Context), NameInfo.getLoc());
+    } else {
+      // FIXME: What else can appear here?
+      ET = SemaRef.Context.getTypeDeclType(TD);
+      TLB.pushTypeSpec(ET).setNameLoc(NameInfo.getLoc());
+      assert(SS.isEmpty());
+    }
 
     // Diagnose a missing typename if this resolved unambiguously to a type in
     // a dependent context.  If we can recover with a type, downgrade this to
@@ -2967,13 +2982,6 @@ ExprResult Sema::BuildQualifiedDeclarationNameExpr(
     D << FixItHint::CreateInsertion(Loc, "typename ");
 
     // Recover by pretending this was an elaborated type.
-    TypeLocBuilder TLB;
-    TLB.pushTypeSpec(Ty).setNameLoc(NameInfo.getLoc());
-
-    ElaboratedTypeLoc QTL = TLB.push<ElaboratedTypeLoc>(ET);
-    QTL.setElaboratedKeywordLoc(SourceLocation());
-    QTL.setQualifierLoc(SS.getWithLocInContext(Context));
-
     *RecoveryTSI = TLB.getTypeSourceInfo(Context, ET);
 
     return ExprEmpty();
@@ -2989,11 +2997,10 @@ ExprResult Sema::BuildQualifiedDeclarationNameExpr(
   return BuildDeclarationNameExpr(SS, R, /*ADL=*/false);
 }
 
-ExprResult
-Sema::PerformObjectMemberConversion(Expr *From,
-                                    NestedNameSpecifier *Qualifier,
-                                    NamedDecl *FoundDecl,
-                                    NamedDecl *Member) {
+ExprResult Sema::PerformObjectMemberConversion(Expr *From,
+                                               NestedNameSpecifier Qualifier,
+                                               NamedDecl *FoundDecl,
+                                               NamedDecl *Member) {
   const auto *RD = dyn_cast<CXXRecordDecl>(Member->getDeclContext());
   if (!RD)
     return From;
@@ -3004,7 +3011,7 @@ Sema::PerformObjectMemberConversion(Expr *From,
   QualType FromType = From->getType();
   bool PointerConversions = false;
   if (isa<FieldDecl>(Member)) {
-    DestRecordType = Context.getCanonicalType(Context.getTypeDeclType(RD));
+    DestRecordType = Context.getCanonicalTagType(RD);
     auto FromPtrType = FromType->getAs<PointerType>();
     DestRecordType = Context.getAddrSpaceQualType(
         DestRecordType, FromPtrType
@@ -3082,8 +3089,8 @@ Sema::PerformObjectMemberConversion(Expr *From,
   //     x = 17; // error: ambiguous base subobjects
   //     Derived1::x = 17; // okay, pick the Base subobject of Derived1
   //   }
-  if (Qualifier && Qualifier->getAsType()) {
-    QualType QType = QualType(Qualifier->getAsType(), 0);
+  if (Qualifier.getKind() == NestedNameSpecifier::Kind::Type) {
+    QualType QType = QualType(Qualifier.getAsType(), 0);
     assert(QType->isRecordType() && "lookup done with non-record type");
 
     QualType QRecordType = QualType(QType->castAs<RecordType>(), 0);
@@ -4485,9 +4492,6 @@ static void captureVariablyModifiedType(ASTContext &Context, QualType T,
     case Type::BitInt:
     case Type::HLSLInlineSpirv:
       llvm_unreachable("type class is never variably-modified!");
-    case Type::Elaborated:
-      T = cast<ElaboratedType>(Ty)->getNamedType();
-      break;
     case Type::Adjusted:
       T = cast<AdjustedType>(Ty)->getOriginalType();
       break;
@@ -5888,7 +5892,7 @@ static bool isParenthetizedAndQualifiedAddressOfExpr(Expr *Fn) {
     return DRE->hasQualifier();
   }
   if (auto *OVL = dyn_cast<OverloadExpr>(UO->getSubExpr()->IgnoreParens()))
-    return OVL->getQualifier();
+    return bool(OVL->getQualifier());
   return false;
 }
 
@@ -7100,7 +7104,7 @@ ExprResult Sema::BuildResolvedCallExpr(Expr *Fn, NamedDecl *NDecl,
     for (unsigned i = 0, e = Args.size(); i != e; i++) {
       if (const auto *RT =
               dyn_cast<RecordType>(Args[i]->getType().getCanonicalType())) {
-        if (RT->getDecl()->isOrContainsUnion())
+        if (RT->getOriginalDecl()->isOrContainsUnion())
           Diag(Args[i]->getBeginLoc(), diag::warn_cmse_nonsecure_union)
               << 0 << i;
       }
@@ -8629,7 +8633,8 @@ QualType Sema::CheckConditionalOperands(ExprResult &Cond, ExprResult &LHS,
   // type.
   if (const RecordType *LHSRT = LHSTy->getAs<RecordType>()) {    // C99 6.5.15p3
     if (const RecordType *RHSRT = RHSTy->getAs<RecordType>())
-      if (LHSRT->getDecl() == RHSRT->getDecl())
+      if (declaresSameEntity(LHSRT->getOriginalDecl(),
+                             RHSRT->getOriginalDecl()))
         // "If both the operands have structure or union type, the result has
         // that type."  This implies that CV qualifiers are dropped.
         return Context.getCommonSugaredType(LHSTy.getUnqualifiedType(),
@@ -9698,11 +9703,14 @@ Sema::CheckTransparentUnionArgumentConstraints(QualType ArgType,
   // If the ArgType is a Union type, we want to handle a potential
   // transparent_union GCC extension.
   const RecordType *UT = ArgType->getAsUnionType();
-  if (!UT || !UT->getDecl()->hasAttr<TransparentUnionAttr>())
+  if (!UT)
+    return AssignConvertType::Incompatible;
+
+  RecordDecl *UD = UT->getOriginalDecl()->getDefinitionOrSelf();
+  if (!UD->hasAttr<TransparentUnionAttr>())
     return AssignConvertType::Incompatible;
 
   // The field to initialize within the transparent union.
-  RecordDecl *UD = UT->getDecl();
   FieldDecl *InitField = nullptr;
   // It's compatible if the expression matches any of the fields.
   for (auto *it : UD->fields()) {
@@ -11425,7 +11433,7 @@ QualType Sema::CheckSubtractionOperands(ExprResult &LHS, ExprResult &RHS,
 
 static bool isScopedEnumerationType(QualType T) {
   if (const EnumType *ET = T->getAs<EnumType>())
-    return ET->getDecl()->isScoped();
+    return ET->getOriginalDecl()->isScoped();
   return false;
 }
 
@@ -12314,8 +12322,10 @@ static QualType checkArithmeticOrEnumeralThreeWayCompare(Sema &S,
       S.InvalidOperands(Loc, LHS, RHS);
       return QualType();
     }
-    QualType IntType =
-        LHSStrippedType->castAs<EnumType>()->getDecl()->getIntegerType();
+    QualType IntType = LHSStrippedType->castAs<EnumType>()
+                           ->getOriginalDecl()
+                           ->getDefinitionOrSelf()
+                           ->getIntegerType();
     assert(IntType->isArithmeticType());
 
     // We can't use `CK_IntegralCast` when the underlying type is 'bool', so we
@@ -12481,7 +12491,7 @@ QualType Sema::CheckCompareOperands(ExprResult &LHS, ExprResult &RHS,
 
   auto computeResultTy = [&]() {
     if (Opc != BO_Cmp)
-      return Context.getLogicalOperationType();
+      return QualType(Context.getLogicalOperationType());
     assert(getLangOpts().CPlusPlus);
     assert(Context.hasSameType(LHS.get()->getType(), RHS.get()->getType()));
 
@@ -13726,8 +13736,10 @@ static void DiagnoseRecursiveConstFields(Sema &S, const ValueDecl *VD,
   // diagnostics in field nesting order.
   while (RecordTypeList.size() > NextToCheckIndex) {
     bool IsNested = NextToCheckIndex > 0;
-    for (const FieldDecl *Field :
-         RecordTypeList[NextToCheckIndex]->getDecl()->fields()) {
+    for (const FieldDecl *Field : RecordTypeList[NextToCheckIndex]
+                                      ->getOriginalDecl()
+                                      ->getDefinitionOrSelf()
+                                      ->fields()) {
       // First, check every field for constness.
       QualType FieldTy = Field->getType();
       if (FieldTy.isConstQualified()) {
@@ -16198,7 +16210,7 @@ ExprResult Sema::BuildBuiltinOffsetOf(SourceLocation BuiltinLoc,
     if (!RC)
       return ExprError(Diag(OC.LocEnd, diag::err_offsetof_record_type)
                        << CurrentType);
-    RecordDecl *RD = RC->getDecl();
+    RecordDecl *RD = RC->getOriginalDecl()->getDefinitionOrSelf();
 
     // C++ [lib.support.types]p5:
     //   The macro offsetof accepts a restricted set of type arguments in this
@@ -16259,8 +16271,8 @@ ExprResult Sema::BuildBuiltinOffsetOf(SourceLocation BuiltinLoc,
     // If the member was found in a base class, introduce OffsetOfNodes for
     // the base class indirections.
     CXXBasePaths Paths;
-    if (IsDerivedFrom(OC.LocStart, CurrentType, Context.getTypeDeclType(Parent),
-                      Paths)) {
+    if (IsDerivedFrom(OC.LocStart, CurrentType,
+                      Context.getCanonicalTagType(Parent), Paths)) {
       if (Paths.getDetectedVirtual()) {
         Diag(OC.LocEnd, diag::err_offsetof_field_of_virtual_base)
           << MemberDecl->getDeclName()
@@ -16825,7 +16837,8 @@ ExprResult Sema::BuildVAArgExpr(SourceLocation BuiltinLoc,
       // that.
       QualType UnderlyingType = TInfo->getType();
       if (const auto *ET = UnderlyingType->getAs<EnumType>())
-        UnderlyingType = ET->getDecl()->getIntegerType();
+        UnderlyingType =
+            ET->getOriginalDecl()->getDefinitionOrSelf()->getIntegerType();
       if (Context.typesAreCompatible(PromoteType, UnderlyingType,
                                      /*CompareUnqualified*/ true))
         PromoteType = QualType();
@@ -16878,25 +16891,29 @@ ExprResult Sema::ActOnGNUNullExpr(SourceLocation TokenLoc) {
   return new (Context) GNUNullExpr(Ty, TokenLoc);
 }
 
+// todo [merge:yukino:maybe-revert]
 RecordDecl *Sema::lookupStdSourceLocationImpl(SourceLocation Loc) {
-  if (StdSourceLocationImplDecl)
-    return StdSourceLocationImplDecl;
+  return LookupStdSourceLocationImpl(*this, Loc);
+}
+
+CXXRecordDecl *Sema::LookupStdSourceLocationImpl(Sema &S, SourceLocation Loc) {
+  if (auto Impl = S.StdSourceLocationImplDecl)
+    return dyn_cast<CXXRecordDecl>(Impl);
 
   CXXRecordDecl *ImplDecl = nullptr;
 
   // Fetch the std::source_location::__impl decl.
-  if (NamespaceDecl *Std = getStdNamespace()) {
-    AccessControlScopeGuard guard(*this, true);
+  if (NamespaceDecl *Std = S.getStdNamespace()) {
+    AccessControlScopeGuard guard(S, true);
 
-    LookupResult ResultSL(*this,
-                          &PP.getIdentifierTable().get("source_location"), Loc,
-                          Sema::LookupOrdinaryName);
-    if (LookupQualifiedName(ResultSL, Std)) {
+    LookupResult ResultSL(S, &S.PP.getIdentifierTable().get("source_location"),
+                          Loc, Sema::LookupOrdinaryName);
+    if (S.LookupQualifiedName(ResultSL, Std)) {
       if (auto *SLDecl = ResultSL.getAsSingle<RecordDecl>()) {
-        LookupResult ResultImpl(*this, &PP.getIdentifierTable().get("__impl"),
+        LookupResult ResultImpl(S, &S.PP.getIdentifierTable().get("__impl"),
                                 Loc, Sema::LookupOrdinaryName);
         if ((SLDecl->isCompleteDefinition() || SLDecl->isBeingDefined()) &&
-            LookupQualifiedName(ResultImpl, SLDecl)) {
+            S.LookupQualifiedName(ResultImpl, SLDecl)) {
           ImplDecl = ResultImpl.getAsSingle<CXXRecordDecl>();
         }
       }
@@ -16904,7 +16921,7 @@ RecordDecl *Sema::lookupStdSourceLocationImpl(SourceLocation Loc) {
   }
 
   if (!ImplDecl || !ImplDecl->isCompleteDefinition()) {
-    Diag(Loc, diag::err_std_source_location_impl_not_found);
+    S.Diag(Loc, diag::err_std_source_location_impl_not_found);
     return nullptr;
   }
 
@@ -16912,7 +16929,7 @@ RecordDecl *Sema::lookupStdSourceLocationImpl(SourceLocation Loc) {
   // only the four expected fields.
   if (ImplDecl->isUnion() || !ImplDecl->isStandardLayout() ||
       ImplDecl->getNumBases() != 0) {
-    Diag(Loc, diag::err_std_source_location_impl_malformed);
+    S.Diag(Loc, diag::err_std_source_location_impl_malformed);
     return nullptr;
   }
 
@@ -16922,11 +16939,12 @@ RecordDecl *Sema::lookupStdSourceLocationImpl(SourceLocation Loc) {
 
     if (Name == "_M_file_name") {
       if (F->getType() !=
-          Context.getPointerType(Context.CharTy.withConst()))
+          S.Context.getPointerType(S.Context.CharTy.withConst()))
         break;
       Count++;
     } else if (Name == "_M_function_name") {
-      if (F->getType() != Context.getPointerType(Context.CharTy.withConst()))
+      if (F->getType() !=
+          S.Context.getPointerType(S.Context.CharTy.withConst()))
         break;
       Count++;
     } else if (Name == "_M_line") {
@@ -16943,11 +16961,11 @@ RecordDecl *Sema::lookupStdSourceLocationImpl(SourceLocation Loc) {
     }
   }
   if (Count != 4) {
-    Diag(Loc, diag::err_std_source_location_impl_malformed);
+    S.Diag(Loc, diag::err_std_source_location_impl_malformed);
     return nullptr;
   }
 
-  StdSourceLocationImplDecl = ImplDecl;
+  S.StdSourceLocationImplDecl = ImplDecl;
   return ImplDecl;
 }
 
@@ -16970,11 +16988,14 @@ ExprResult Sema::ActOnSourceLocExpr(SourceLocIdentKind Kind,
     ResultTy = Context.UnsignedIntTy;
     break;
   case SourceLocIdentKind::SourceLocStruct:
-    RecordDecl *ImplDecl = lookupStdSourceLocationImpl(BuiltinLoc);
-    if (!StdSourceLocationImplDecl)
-      return ExprError();
+    if (!StdSourceLocationImplDecl) {
+      StdSourceLocationImplDecl =
+          LookupStdSourceLocationImpl(*this, BuiltinLoc);
+      if (!StdSourceLocationImplDecl)
+        return ExprError();
+    }
     ResultTy = Context.getPointerType(
-                                   Context.getRecordType(ImplDecl).withConst());
+        Context.getCanonicalTagType(StdSourceLocationImplDecl).withConst());
     break;
   }
 
@@ -18890,7 +18911,9 @@ static bool isVariableCapturable(CapturingScopeInfo *CSI, ValueDecl *Var,
   // Prohibit structs with flexible array members too.
   // We cannot capture what is in the tail end of the struct.
   if (const RecordType *VTTy = Var->getType()->getAs<RecordType>()) {
-    if (VTTy->getDecl()->hasFlexibleArrayMember()) {
+    if (VTTy->getOriginalDecl()
+            ->getDefinitionOrSelf()
+            ->hasFlexibleArrayMember()) {
       if (Diagnose) {
         if (IsBlock)
           S.Diag(Loc, diag::err_ref_flexarray_type);
@@ -21351,7 +21374,7 @@ ExprResult Sema::CheckPlaceholderExpr(Expr *E) {
     NamedDecl *Temp = *ULE->decls_begin();
     const bool IsTypeAliasTemplateDecl = isa<TypeAliasTemplateDecl>(Temp);
 
-    NestedNameSpecifier *NNS = ULE->getQualifierLoc().getNestedNameSpecifier();
+    NestedNameSpecifier NNS = ULE->getQualifierLoc().getNestedNameSpecifier();
     // FIXME: AssumedTemplate is not very appropriate for error recovery here,
     // as it models only the unqualified-id case, where this case can clearly be
     // qualified. Thus we can't just qualify an assumed template.
@@ -21377,16 +21400,16 @@ ExprResult Sema::CheckPlaceholderExpr(Expr *E) {
     QualType TST;
     {
       SFINAETrap Trap(*this);
-      TST = CheckTemplateIdType(TN, NameInfo.getBeginLoc(), TAL);
+      TST = CheckTemplateIdType(ElaboratedTypeKeyword::None, TN,
+                                NameInfo.getBeginLoc(), TAL);
     }
     if (TST.isNull())
       TST = Context.getTemplateSpecializationType(
-          TN, ULE->template_arguments(), /*CanonicalArgs=*/{},
+          ElaboratedTypeKeyword::None, TN, ULE->template_arguments(),
+          /*CanonicalArgs=*/{},
           HasAnyDependentTA ? Context.DependentTy : Context.IntTy);
-    QualType ET =
-        Context.getElaboratedType(ElaboratedTypeKeyword::None, NNS, TST);
     return CreateRecoveryExpr(NameInfo.getBeginLoc(), NameInfo.getEndLoc(), {},
-                              ET);
+                              TST);
   }
 
   // Overloaded expressions.

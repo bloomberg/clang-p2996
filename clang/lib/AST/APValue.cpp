@@ -794,9 +794,11 @@ ReflectionKind APValue::getReflectionKind() const {
           if (const auto *D = E.getAsBaseOrMember().getPointer()) {
             if (auto *FD = dyn_cast<FieldDecl>(D))
               LVTy = FD->getType()->getCanonicalTypeUnqualified().getTypePtr();
+            // todo [merge:yukino:maybe-revert]
             else if (auto *TD = dyn_cast<CXXRecordDecl>(D))
-              LVTy = TD->getTypeForDecl()
-                        ->getCanonicalTypeUnqualified().getTypePtr();
+              LVTy = TD->getASTContext()
+                         .getCanonicalTagType(TD)
+                         .getTypePtrOrNull();
           }
         }
 
@@ -847,7 +849,8 @@ static QualType ComputeLValueType(const APValue &V) {
 
         continue;
       } else if (auto *TD = dyn_cast<CXXRecordDecl>(D)) {
-        SQT.Ty = TD->getTypeForDecl();
+        // todo [merge:yukino:maybe-revert]
+        SQT.Ty = D->getASTContext().getCanonicalTagType(TD).getTypePtrOrNull();
         continue;
       }
 
@@ -1244,8 +1247,9 @@ void APValue::printPretty(raw_ostream &Out, const PrintingPolicy &Policy,
   }
   case APValue::Struct: {
     Out << '{';
-    const RecordDecl *RD = Ty->castAs<RecordType>()->getDecl();
     bool First = true;
+    const RecordDecl *RD =
+        Ty->castAs<RecordType>()->getOriginalDecl()->getDefinitionOrSelf();
     if (unsigned N = getStructNumBases()) {
       const CXXRecordDecl *CD = cast<CXXRecordDecl>(RD);
       CXXRecordDecl::base_class_const_iterator BI = CD->bases_begin();
@@ -1610,10 +1614,11 @@ static QualType unwrapReflectedType(QualType QT) {
 
     if (const auto *LIT = dyn_cast<LocInfoType>(QT))
       QT = LIT->getType();
-    if (const auto *ET = dyn_cast<ElaboratedType>(QT)) {
-      QualType New = ET->getNamedType();
-      New.setLocalFastQualifiers(QT.getLocalFastQualifiers());
-      QT = New;
+    // todo [merge:yukino:maybe-revert]
+    // `ElaboratedType` has been removed and `DependentNameType` is always
+    // dependent so we do nothing here.
+    if (const auto *DNT = dyn_cast<DependentNameType>(QT)) {
+      // no-op
     }
     if (const auto *STTPT = dyn_cast<SubstTemplateTypeParmType>(QT);
         STTPT && !STTPT->isDependentType())

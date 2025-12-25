@@ -159,6 +159,13 @@ class CXXBaseSpecifier {
   LLVM_PREFERRED_TYPE(bool)
   unsigned Virtual : 1;
 
+  /// Whether this is the base of a class (true) or of a struct (false).
+  ///
+  /// This determines the mapping from the access specifier as written in the
+  /// source code to the access specifier used for semantic analysis.
+  LLVM_PREFERRED_TYPE(bool)
+  unsigned BaseOfClass : 1;
+
   /// Access specifier as written in the source code (may be AS_none).
   ///
   /// The actual type of data stored here is an AccessSpecifier, but we use
@@ -177,16 +184,20 @@ class CXXBaseSpecifier {
   /// range does not include the \c virtual or the access specifier.
   TypeSourceInfo *BaseTypeInfo;
 
+  // todo [dev:yukino,"this is kinda hacky"]
   /// The derived record type that this base specifier applies to.
   CXXRecordDecl *Derived;
 
 public:
   CXXBaseSpecifier() = default;
-  CXXBaseSpecifier(SourceRange R, bool V, AccessSpecifier A,
-                   TypeSourceInfo *TInfo, CXXRecordDecl *D,
+  // todo [merge:yukino:maybe-revert]
+  CXXBaseSpecifier(SourceRange R, bool V, CXXRecordDecl *D,
+                   /*bool BC, */ AccessSpecifier A, TypeSourceInfo *TInfo,
                    SourceLocation EllipsisLoc)
-    : Range(R), EllipsisLoc(EllipsisLoc), Virtual(V), Access(A),
-      InheritConstructors(false), BaseTypeInfo(TInfo), Derived(D) {}
+      : Range(R), EllipsisLoc(EllipsisLoc), Virtual(V), Access(A),
+        InheritConstructors(false), BaseTypeInfo(TInfo) {
+    setDerived(D);
+  }
 
   /// Retrieves the source range that contains the entire base specifier.
   SourceRange getSourceRange() const LLVM_READONLY { return Range; }
@@ -203,9 +214,7 @@ public:
 
   /// Determine whether this base class is a base of a class declared
   /// with the 'class' keyword (vs. one declared with the 'struct' keyword).
-  bool isBaseOfClass() const {
-    return dyn_cast<RecordDecl>(Derived)->isClass();
-  }
+  bool isBaseOfClass() const { return BaseOfClass; }
 
   /// Determine whether this base specifier is a pack expansion.
   bool isPackExpansion() const { return EllipsisLoc.isValid(); }
@@ -230,7 +239,7 @@ public:
   /// written in the source code, use getAccessSpecifierAsWritten().
   AccessSpecifier getAccessSpecifier() const {
     if ((AccessSpecifier)Access == AS_none)
-      return isBaseOfClass()? AS_private : AS_public;
+      return BaseOfClass ? AS_private : AS_public;
     else
       return (AccessSpecifier)Access;
   }
@@ -251,9 +260,18 @@ public:
     return BaseTypeInfo->getType().getUnqualifiedType();
   }
 
+  // For reflecting `bases_of`
   CXXRecordDecl *getDerived() const { return Derived; }
 
-  void setDerived(CXXRecordDecl *D) { Derived = D; }
+  // todo [merge:yukino:maybe-revert]
+  void setDerived(CXXRecordDecl *D) {
+    Derived = D;
+    BaseOfClass = [&] {
+      if (auto RD = dyn_cast<RecordDecl>(D))
+        return RD->isClass();
+      return false;
+    }();
+  }
 
   /// Retrieves the type and source location of the base class.
   TypeSourceInfo *getTypeSourceInfo() const { return BaseTypeInfo; }
@@ -571,13 +589,18 @@ public:
     return DD ? DD->Definition : nullptr;
   }
 
+  CXXRecordDecl *getDefinitionOrSelf() const {
+    if (auto *Def = getDefinition())
+      return Def;
+    return const_cast<CXXRecordDecl *>(this);
+  }
+
   bool hasDefinition() const { return DefinitionData || dataPtr(); }
 
   static CXXRecordDecl *Create(const ASTContext &C, TagKind TK, DeclContext *DC,
                                SourceLocation StartLoc, SourceLocation IdLoc,
                                IdentifierInfo *Id,
-                               CXXRecordDecl *PrevDecl = nullptr,
-                               bool DelayTypeCreation = false);
+                               CXXRecordDecl *PrevDecl = nullptr);
   static CXXRecordDecl *CreateLambda(const ASTContext &C, DeclContext *DC,
                                      TypeSourceInfo *Info, SourceLocation Loc,
                                      unsigned DependencyKind, bool IsGeneric,
@@ -1908,6 +1931,20 @@ public:
   /// \endcode
   bool isInjectedClassName() const;
 
+  /// Determines whether this declaration has is canonically of an injected
+  /// class type. These are non-instantiated class template patterns, which can
+  /// be used from within the class template itself. For example:
+  ///
+  /// \code
+  /// template<class T> struct C {
+  ///   C *t; // Here `C *` is a pointer to an injected class type.
+  /// };
+  /// \endcode
+  bool hasInjectedClassType() const;
+
+  CanQualType
+  getCanonicalTemplateSpecializationType(const ASTContext &Ctx) const;
+
   // Determine whether this type is an Interface Like type for
   // __interface inheritance purposes.
   bool isInterfaceLike() const;
@@ -3136,7 +3173,7 @@ public:
 
   /// Retrieve the nested-name-specifier that qualifies the
   /// name of the namespace.
-  NestedNameSpecifier *getQualifier() const {
+  NestedNameSpecifier getQualifier() const {
     return QualifierLoc.getNestedNameSpecifier();
   }
 
@@ -3282,7 +3319,7 @@ public:
 
   /// Retrieve the nested-name-specifier that qualifies the
   /// name of the namespace.
-  NestedNameSpecifier *getQualifier() const {
+  NestedNameSpecifier getQualifier() const {
     return QualifierLoc.getNestedNameSpecifier();
   }
 
@@ -3298,9 +3335,10 @@ public:
     return const_cast<NamespaceAliasDecl *>(this)->getNamespace();
   }
 
+  // todo [merge:yukino:maybe-revert]
   bool isDependent() const {
-    if (NestedNameSpecifier *Qualifier = getQualifier();
-        Qualifier && Qualifier->isDependent())
+    if (NestedNameSpecifier Qualifier = getQualifier();
+        Qualifier && Qualifier.isDependent())
       return true;
 
     if (auto *AD = dyn_cast<NamespaceAliasDecl>(Namespace))
@@ -3655,7 +3693,7 @@ public:
   NestedNameSpecifierLoc getQualifierLoc() const { return QualifierLoc; }
 
   /// Retrieve the nested-name-specifier that qualifies the name.
-  NestedNameSpecifier *getQualifier() const {
+  NestedNameSpecifier getQualifier() const {
     return QualifierLoc.getNestedNameSpecifier();
   }
 
@@ -3845,13 +3883,11 @@ public:
   /// The source location of the 'enum' keyword.
   SourceLocation getEnumLoc() const { return EnumLocation; }
   void setEnumLoc(SourceLocation L) { EnumLocation = L; }
-  NestedNameSpecifier *getQualifier() const {
+  NestedNameSpecifier getQualifier() const {
     return getQualifierLoc().getNestedNameSpecifier();
   }
   NestedNameSpecifierLoc getQualifierLoc() const {
-    if (auto ETL = EnumType->getTypeLoc().getAs<ElaboratedTypeLoc>())
-      return ETL.getQualifierLoc();
-    return NestedNameSpecifierLoc();
+    return getEnumTypeLoc().getPrefix();
   }
   // Returns the "qualifier::Name" part as a TypeLoc.
   TypeLoc getEnumTypeLoc() const {
@@ -4011,7 +4047,7 @@ public:
   NestedNameSpecifierLoc getQualifierLoc() const { return QualifierLoc; }
 
   /// Retrieve the nested-name-specifier that qualifies the name.
-  NestedNameSpecifier *getQualifier() const {
+  NestedNameSpecifier getQualifier() const {
     return QualifierLoc.getNestedNameSpecifier();
   }
 
@@ -4101,7 +4137,7 @@ public:
   NestedNameSpecifierLoc getQualifierLoc() const { return QualifierLoc; }
 
   /// Retrieve the nested-name-specifier that qualifies the name.
-  NestedNameSpecifier *getQualifier() const {
+  NestedNameSpecifier getQualifier() const {
     return QualifierLoc.getNestedNameSpecifier();
   }
 

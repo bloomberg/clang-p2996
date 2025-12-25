@@ -27,7 +27,8 @@ class Expr;
 
 
 /// Represents a C++26 'splice-specifier'.
-class alignas(void *) SpliceSpecifier {
+/// MUST be 16-byte aligned to match NestedNameSpecifier's `FlagBits`
+class alignas(16) SpliceSpecifier {
   SourceLocation LSpliceLoc;
   Expr *Operand;
   SourceLocation RSpliceLoc;
@@ -40,10 +41,10 @@ class alignas(void *) SpliceSpecifier {
 
 public:
   void *operator new(size_t bytes, const ASTContext &C,
-                     unsigned alignment = 8);
+                     unsigned alignment = 16);
 
   void *operator new(size_t bytes, const ASTContext *C,
-                     unsigned alignment = 8) {
+                     unsigned alignment = 16) {
     return operator new(bytes, *C, alignment);
   }
 

@@ -46,7 +46,8 @@ class LambdaCapture {
   //   capture of '*this' by value or reference.
   // - or, is a nullptr and Capture_This is not set in Bits if this represents
   //   a capture of a VLA type.
-  llvm::PointerIntPair<Decl*, 3> DeclAndBits;
+  // todo [merge:yukino,"NestedNameSpecifier needs it 16-byte aligned"]
+  llvm::PointerIntPair<Decl*, 4> DeclAndBits;
 
   SourceLocation Loc;
   SourceLocation EllipsisLoc;
