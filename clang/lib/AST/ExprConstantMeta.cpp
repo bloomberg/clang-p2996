@@ -1601,7 +1601,7 @@ StringRef DescriptionOf(APValue RV, bool Granular = true) {
     case DeclarationName::CXXConstructorName:
       return "a constructor";
     case DeclarationName::CXXDestructorName:
-      return "a destuctor";
+      return "a destructor";
     case DeclarationName::CXXConversionFunctionName:
       return "a conversion function";
     case DeclarationName::CXXOperatorName:
@@ -1630,7 +1630,7 @@ StringRef DescriptionOf(APValue RV, bool Granular = true) {
     case DeclarationName::CXXConstructorName:
       return "a constructor template";
     case DeclarationName::CXXDestructorName:
-      return "a destuctor template";
+      return "a destructor template";
     case DeclarationName::CXXConversionFunctionName:
       return "a conversion function template";
     case DeclarationName::CXXOperatorName:
