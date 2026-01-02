@@ -559,7 +559,7 @@ StmtResult Sema::FinishCXXExpansionStmt(Stmt *Heading, Stmt *Body) {
   while (Instantiations.size() < Expansion->getNumInstantiations()) {
 
     ContextRAII CtxGuard(*this, DC, /*NewThis=*/false);
-    auto guard = llvm::SaveAndRestore(IsSynthesizingExpansionStmt, !DC->isDependentContext());
+    ExpansionStmtSynthesisRAII ExpansionGuard(*this, !DC->isDependentContext());
 
     TemplateArgument TArgs[] = {
         { Context, llvm::APSInt::get(Instantiations.size()),

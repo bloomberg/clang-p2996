@@ -7733,11 +7733,12 @@ ExprResult Sema::ActOnFinishFullExpr(Expr *FE, SourceLocation CC,
   //  - Teach the handful of places that iterate over FunctionScopes to
   //    stop at the outermost enclosing lexical scope."
   DeclContext *DC = CurContext;
-  while (isa_and_nonnull<CapturedDecl>(DC))
+  while (isa_and_nonnull<CapturedDecl>(DC) || isa_and_nonnull<ExpansionStmtDecl>(DC))
     DC = DC->getParent();
   const bool IsInLambdaDeclContext = isLambdaCallOperator(DC);
-  if (!IsSynthesizingExpansionStmt && IsInLambdaDeclContext && CurrentLSI &&
-      CurrentLSI->hasPotentialCaptures() && !FullExpr.isInvalid())
+  if (IsInLambdaDeclContext && CurrentLSI &&
+      CurrentLSI->hasPotentialCaptures() && !FullExpr.isInvalid() &&
+      !IsSynthesizingExpansionStmt)
     CheckIfAnyEnclosingLambdasMustCaptureAnyPotentialCaptures(FE, CurrentLSI,
                                                               *this);
   return MaybeCreateExprWithCleanups(FullExpr);

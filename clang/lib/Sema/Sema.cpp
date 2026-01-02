@@ -2555,8 +2555,6 @@ LambdaScopeInfo *Sema::getCurLambda(bool IgnoreNonLambdaCapturingScope) {
   auto *CurLSI = dyn_cast<LambdaScopeInfo>(*I);
   if (CurLSI && CurLSI->Lambda && CurLSI->CallOperator &&
       !CurLSI->Lambda->Encloses(CurContext) && CurLSI->AfterParameterList) {
-    // We have switched contexts due to template instantiation.
-    assert(!CodeSynthesisContexts.empty());
     return nullptr;
   }
 

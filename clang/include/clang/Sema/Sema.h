@@ -15415,6 +15415,23 @@ private:
 
   bool IsSynthesizingExpansionStmt = false;
 
+public:
+  bool isSynthesizingExpansionStmt() const { return IsSynthesizingExpansionStmt; }
+
+  class ExpansionStmtSynthesisRAII {
+    Sema &S;
+    bool OldValue;
+  public:
+    ExpansionStmtSynthesisRAII(Sema &S, bool Enable = true)
+        : S(S), OldValue(S.IsSynthesizingExpansionStmt) {
+      S.IsSynthesizingExpansionStmt = Enable;
+    }
+    ~ExpansionStmtSynthesisRAII() {
+      S.IsSynthesizingExpansionStmt = OldValue;
+    }
+  };
+
+private:
   ///@}
 
   //
