@@ -83,7 +83,8 @@ enum AvailabilityResult {
 /// (and its subclasses) in its Decl::operator new(). Proper alignment
 /// of all subclasses (not requiring more than the alignment of Decl) is
 /// asserted in DeclBase.cpp.
-class alignas(8) Decl {
+// todo [merge:yukino,"NestedNameSpecifier needs all Decl be 16-byte aligned"]
+class alignas(16) Decl {
 public:
   /// Lists the kind of concrete classes of Decl.
   enum Kind {
@@ -246,7 +247,8 @@ protected:
   /// traversed via DeclContext's decls_begin()/decls_end().
   ///
   /// The extra three bits are used for the ModuleOwnershipKind.
-  llvm::PointerIntPair<Decl *, 3, ModuleOwnershipKind> NextInContextAndBits;
+  // todo [merge:yukino,"NestedNameSpecifier needs it 16-byte aligned"]
+  llvm::PointerIntPair<Decl *, 4, ModuleOwnershipKind> NextInContextAndBits;
 
 private:
   friend class DeclContext;
@@ -411,9 +413,6 @@ protected:
   }
 
   virtual ~Decl();
-
-  /// Update a potentially out-of-date declaration.
-  void updateOutOfDate(IdentifierInfo &II) const;
 
   Linkage getCachedLinkage() const {
     return static_cast<Linkage>(CacheValidAndLinkage);
@@ -631,6 +630,12 @@ public:
   bool isThisDeclarationReferenced() const { return Referenced; }
 
   void setReferenced(bool R = true) { Referenced = R; }
+
+  /// When doing manipulations which might change the computed linkage,
+  /// such as changing the DeclContext after the declaration has already been
+  /// used, invalidating the cache will make sure its linkage will be
+  /// recomputed.
+  void invalidateCachedLinkage() { setCachedLinkage(Linkage::Invalid); }
 
   /// Whether this declaration is a top-level declaration (function,
   /// global variable, etc.) that is lexically inside an objc container
@@ -1324,7 +1329,8 @@ namespace llvm {
     static inline ::clang::NamedDecl *getFromVoidPointer(void *P) {
       return static_cast<::clang::NamedDecl *>(P);
     }
-    static constexpr int NumLowBitsAvailable = 3;
+    // todo [merge:yukino,"NestedNameSpecifier needs it 16-byte aligned"]
+    static constexpr int NumLowBitsAvailable = 4;
   };
 }
 
@@ -1570,13 +1576,6 @@ protected:
     /// True if this tag is free standing, e.g. "struct foo;".
     LLVM_PREFERRED_TYPE(bool)
     uint64_t IsFreeStanding : 1;
-
-    /// Indicates whether it is possible for declarations of this kind
-    /// to have an out-of-date definition.
-    ///
-    /// This option is only enabled when modules are enabled.
-    LLVM_PREFERRED_TYPE(bool)
-    uint64_t MayHaveOutOfDateDef : 1;
 
     /// Has the full definition of this type been required by a use somewhere in
     /// the TU.

@@ -304,7 +304,7 @@ Decl *Parser::ParseNamespaceAlias(SourceLocation NamespaceLoc,
 
     return Actions.ActOnNamespaceAliasDef(getCurScope(), NamespaceLoc, AliasLoc,
                                           Alias, SS, NSLoc,
-                                          cast<NamedDecl>(DR.get()));
+                                          cast<NamespaceBaseDecl>(DR.get()));
   } else if (Tok.isNot(tok::identifier)) {
     Diag(Tok, diag::err_expected_namespace_name);
     // Skip to end of the definition and eat the ';'.
@@ -643,8 +643,7 @@ bool Parser::ParseUsingDeclarator(DeclaratorContext Context,
        NextToken().isRegularKeywordAttribute() ||
        NextToken().is(tok::kw___attribute)) &&
       D.SS.isNotEmpty() && LastII == Tok.getIdentifierInfo() &&
-      !D.SS.getScopeRep()->getAsNamespace() &&
-      !D.SS.getScopeRep()->getAsNamespaceAlias()) {
+      D.SS.getScopeRep().getKind() != NestedNameSpecifier::Kind::Namespace) {
     SourceLocation IdLoc = ConsumeToken();
     ParsedType Type =
         Actions.getInheritingConstructorName(D.SS, IdLoc, *LastII);
@@ -1030,9 +1029,6 @@ Decl *Parser::ParseStaticAssertDeclaration(SourceLocation &DeclEnd) {
     if (!getLangOpts().CPlusPlus) {
       if (getLangOpts().C23)
         Diag(Tok, diag::warn_c23_compat_keyword) << Tok.getName();
-      else
-        Diag(Tok, diag::ext_ms_static_assert) << FixItHint::CreateReplacement(
-            Tok.getLocation(), "_Static_assert");
     } else
       Diag(Tok, diag::warn_cxx98_compat_static_assert);
   }
@@ -1259,13 +1255,6 @@ void Parser::AnnotateExistingDecltypeSpecifier(const DeclSpec &DS,
   // make sure we have a token we can turn into an annotation token
   if (PP.isBacktrackEnabled()) {
     PP.RevertCachedTokens(1);
-    if (DS.getTypeSpecType() == TST_error) {
-      // We encountered an error in parsing 'decltype(...)' so lets annotate all
-      // the tokens in the backtracking cache - that we likely had to skip over
-      // to get to a token that allows us to resume parsing, such as a
-      // semi-colon.
-      EndLoc = PP.getLastCachedTokenLocation();
-    }
   } else
     PP.EnterToken(Tok, /*IsReinject*/ true);
 
@@ -2384,7 +2373,7 @@ void Parser::ParseBaseClause(Decl *ClassDecl) {
   while (true) {
     // Parse a base-specifier.
     BaseResult Result = ParseBaseSpecifier(ClassDecl);
-    if (Result.isInvalid()) {
+    if (!Result.isUsable()) {
       // Skip the rest of this base specifier, up until the comma or
       // opening brace.
       SkipUntil(tok::comma, tok::l_brace, StopAtSemi | StopBeforeMatch);
@@ -5117,19 +5106,15 @@ void Parser::ParseHLSLRootSignatureAttributeArgs(ParsedAttributes &Attrs) {
   }
 
   // Construct our identifier
-  StringRef Signature = StrLiteral.value()->getString();
+  StringLiteral *Signature = StrLiteral.value();
   auto [DeclIdent, Found] =
-      Actions.HLSL().ActOnStartRootSignatureDecl(Signature);
+      Actions.HLSL().ActOnStartRootSignatureDecl(Signature->getString());
   // If we haven't found an already defined DeclIdent then parse the root
   // signature string and construct the in-memory elements
   if (!Found) {
-    // Offset location 1 to account for '"'
-    SourceLocation SignatureLoc =
-        StrLiteral.value()->getExprLoc().getLocWithOffset(1);
     // Invoke the root signature parser to construct the in-memory constructs
-    hlsl::RootSignatureLexer Lexer(Signature, SignatureLoc);
-    SmallVector<llvm::hlsl::rootsig::RootElement> RootElements;
-    hlsl::RootSignatureParser Parser(RootElements, Lexer, PP);
+    hlsl::RootSignatureParser Parser(getLangOpts().HLSLRootSigVer, Signature,
+                                     PP);
     if (Parser.parse()) {
       T.consumeClose();
       return;
@@ -5137,7 +5122,7 @@ void Parser::ParseHLSLRootSignatureAttributeArgs(ParsedAttributes &Attrs) {
 
     // Construct the declaration.
     Actions.HLSL().ActOnFinishRootSignatureDecl(RootSignatureLoc, DeclIdent,
-                                                RootElements);
+                                                Parser.getElements());
   }
 
   // Create the arg for the ParsedAttr

@@ -1302,8 +1302,7 @@ void MicrosoftCXXNameMangler::mangleUnqualifiedName(GlobalDecl GD,
         Name += "<unnamed-type-";
         Name += TND->getName();
       } else if (isa<EnumDecl>(TD) &&
-                 cast<EnumDecl>(TD)->enumerator_begin() !=
-                     cast<EnumDecl>(TD)->enumerator_end()) {
+                 !cast<EnumDecl>(TD)->enumerators().empty()) {
         // Anonymous non-empty enums mangle in the first enumerator.
         auto *ED = cast<EnumDecl>(TD);
         Name += "<unnamed-enum-";
@@ -1811,17 +1810,16 @@ void MicrosoftCXXNameMangler::mangleTemplateArg(const TemplateDecl *TD,
   case TemplateArgument::Declaration: {
     const NamedDecl *ND = TA.getAsDecl();
     if (isa<FieldDecl>(ND) || isa<IndirectFieldDecl>(ND)) {
-      mangleMemberDataPointer(cast<CXXRecordDecl>(ND->getDeclContext())
-                                  ->getMostRecentNonInjectedDecl(),
-                              cast<ValueDecl>(ND),
-                              cast<NonTypeTemplateParmDecl>(Parm),
-                              TA.getParamTypeForDecl());
+      mangleMemberDataPointer(
+          cast<CXXRecordDecl>(ND->getDeclContext())->getMostRecentDecl(),
+          cast<ValueDecl>(ND), cast<NonTypeTemplateParmDecl>(Parm),
+          TA.getParamTypeForDecl());
     } else if (const FunctionDecl *FD = dyn_cast<FunctionDecl>(ND)) {
       const CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(FD);
       if (MD && MD->isInstance()) {
-        mangleMemberFunctionPointer(
-            MD->getParent()->getMostRecentNonInjectedDecl(), MD,
-            cast<NonTypeTemplateParmDecl>(Parm), TA.getParamTypeForDecl());
+        mangleMemberFunctionPointer(MD->getParent()->getMostRecentDecl(), MD,
+                                    cast<NonTypeTemplateParmDecl>(Parm),
+                                    TA.getParamTypeForDecl());
       } else {
         mangleFunctionPointer(FD, cast<NonTypeTemplateParmDecl>(Parm),
                               TA.getParamTypeForDecl());
@@ -2027,7 +2025,7 @@ void MicrosoftCXXNameMangler::mangleTemplateArgValue(QualType T,
             if (RD->isAnonymousStructOrUnion())
               continue;
         } else {
-          ET = getASTContext().getRecordType(cast<CXXRecordDecl>(D));
+          ET = getASTContext().getCanonicalTagType(cast<CXXRecordDecl>(D));
           // Bug in MSVC: fully qualified name of base class should be used for
           // mangling to prevent collisions e.g. on base classes with same names
           // in different namespaces.
@@ -2173,46 +2171,229 @@ void MicrosoftCXXNameMangler::mangleTemplateArgValue(QualType T,
   }
 
   case APValue::Reflection:
-    llvm_unreachable("reflection arguments should be separately handled");
+    mangleReflection(V);
+    return;
   }
 }
 
 void MicrosoftCXXNameMangler::mangleReflection(const APValue &R) {
+  // Custom MSVC mangling for P2996 reflection values.
+  // Format: M <KindChar> <Payload> E
   Out << 'M';
 
   switch (R.getReflectionKind()) {
   case ReflectionKind::Null:
     Out << '0';
     break;
+
   case ReflectionKind::Type: {
     Out << 't';
     QualType QT = R.getReflectedType();
+
+    // 1. Strip internal LocInfo wrappers
     if (const LocInfoType *LIT = dyn_cast<LocInfoType>(QT)) {
       QT = LIT->getType();
     }
 
-    if (const ElaboratedType *UD = dyn_cast<ElaboratedType>(QT)) {
-      if (const TypedefType *TDT = dyn_cast<TypedefType>(UD->getNamedType())) {
-        mangleQualifiers(QT.getQualifiers(), false);
-        mangleName(TDT->getDecl());  // <- not sure if this is right.
-        break;
-      }
+    // P2996 distinguishes ^^Alias from ^^Underlying.
+    // We must detect if the top-level type is a TypedefType.
+    // Note: Clang AST often wraps TypedefType in ElaboratedType
+    // (e.g. for namespace qualifiers).
+    const Type *Ty = QT.getTypePtr();
+
+    // todo [merge:yukino:maybe-revert]
+    // Handles qualified names. A typedef may be qualified or not.
+    // if (const auto *ET = dyn_cast<ElaboratedType>(Ty)) {
+      // Ty = ET->getNamedType().getTypePtr();
+    // }
+
+    // If this is nested inside `dyn_cast<ElaboratedType>` unqualified typedefs
+    // will be ignored.
+    if (const auto *TDT = dyn_cast<TypedefType>(Ty)) {
+      // 2. Mangle the qualifiers of the *reflection itself*.
+      //    (e.g., ^^const MyAlias vs ^^MyAlias)
+      mangleQualifiers(QT.getQualifiers(), /*IsMember=*/false);
+
+      // 3. Mangle the name of the TypedefDecl.
+      //    'mangleName' handles namespaces/classes (e.g., MyNS::MyAlias).
+      mangleName(TDT->getDecl());
+      break;
     }
-    Context.mangleCanonicalTypeName(QT, Out, false);
+
+    // 4. Base case: Mangle the canonical type.
+    //    Use the existing mangleType logic to ensure MSVC compliance for
+    //    primitives.
+    mangleType(QT.getCanonicalType(), SourceRange(), QMM_Escape);
+    // Don't do this. This creates a new `MicrosoftCXXNameMangler` with only
+    // the `Out` stream. Other states are lost.
+    // Context.mangleCanonicalTypeName(QT, Out, false);
     break;
   }
-  case ReflectionKind::Object:
-  case ReflectionKind::Value:
-  case ReflectionKind::Declaration:
-  case ReflectionKind::Template:
-  case ReflectionKind::Namespace:
-  case ReflectionKind::EntityProxy:
-  case ReflectionKind::Parameter:
-  case ReflectionKind::BaseSpecifier:
-  case ReflectionKind::DataMemberSpec:
-  case ReflectionKind::Annotation:
-    llvm_unreachable("unimplemented");
+
+  case ReflectionKind::Object: {
+    Out << 'o';
+    // Objects are LValues.
+    QualType T = R.getTypeOfReflectedResult(getASTContext());
+    const APValue &O = R.getReflectedObject();
+    mangleTemplateArgValue(T, O, TplArgKind::StructuralValue,
+                           /*WithScalarType=*/true);
+    break;
   }
+
+  case ReflectionKind::Value: {
+    Out << 'v';
+    // Mangle the value. We must include the type to distinguish
+    // ^^value(1) (int) from ^^value(1.0) (double).
+    QualType T = R.getTypeOfReflectedResult(getASTContext());
+    const APValue &V = R.getReflectedValue();
+
+    // Recurse: Re-use the existing scalar/struct mangling logic.
+    mangleTemplateArgValue(T, V, TplArgKind::StructuralValue,
+                           /*WithScalarType=*/true);
+    break;
+  }
+
+  case ReflectionKind::Declaration: {
+    Out << 'd';
+    const Decl *D = R.getReflectedDecl();
+    const auto *ND = dyn_cast<NamedDecl>(D);
+
+    if (!ND) {
+      // Should effectively not happen in valid reflection
+      Error("reflection of unsupported declaration type");
+      break;
+    }
+
+    // 1. Handle Declarations that have standard MSVC "Global" symbol mangling.
+    //    (Functions, Variables, etc. need full type encoding for
+    //    uniqueness/overloads)
+    if (isa<FunctionDecl>(ND) || isa<VarDecl>(ND) || isa<MSGuidDecl>(ND) ||
+        isa<TemplateParamObjectDecl>(ND)) {
+      mangle(ND);
+    }
+    // 2. Handle Declarations that are identified purely by their Qualified
+    // Name.
+    //    (Enumerators, Fields, TypeDefs, etc.)
+    else {
+      // MSVC does not have a 'symbol' mangling for an EnumConstantDecl.
+      // We strictly need the identity of the declaration, not its value.
+      // 'mangleName' gives us the qualified path (e.g., "Red@Color@@").
+      mangleName(ND);
+    }
+    break;
+  }
+
+  case ReflectionKind::Template: {
+    Out << 'T';
+    TemplateName TN = R.getReflectedTemplate();
+    TemplateDecl *TD = TN.getAsTemplateDecl();
+
+    // Safety check: Overloaded templates or dependent templates might not have
+    // a single Decl. In a resolved APValue, this should normally be set.
+    if (TD) {
+      mangleName(TD);
+    } else {
+      // Fallback or Error if we somehow get a template name that isn't a Decl
+      // (unlikely in a resolved reflection value, but good for stability)
+      Error("reflection of template without a backing decl");
+    }
+    break;
+  }
+
+  case ReflectionKind::Namespace: {
+    Out << 'n';
+    const Decl *D = R.getReflectedNamespace();
+
+    // 1. Handle Global Namespace (TranslationUnitDecl)
+    //    The TU is a DeclContext but NOT a NamedDecl.
+    //    We emit explicit root punctuation (matches MSVC root scope behavior).
+    if (isa<TranslationUnitDecl>(D)) {
+      Out << "@";
+    }
+    // 2. Handle Standard Namespaces (NamespaceDecl, NamespaceAliasDecl)
+    else if (const auto *ND = dyn_cast<NamedDecl>(D)) {
+      // Use mangleName() to emit the qualified name path (e.g. "std@@").
+      // DO NOT use mangle(), which attempts to generate a symbol with linkage.
+      mangleName(ND);
+    } else {
+      // Should not happen given the hierarchy, but safe fallback
+      Error("reflection of unsupported namespace type");
+    }
+    break;
+  }
+
+  case ReflectionKind::Parameter: {
+    Out << 'p';
+    const auto *PVD = R.getReflectedParameter();
+    // To ensure uniqueness, we mangle the parent function + parameter index.
+    if (const auto *FD = dyn_cast<FunctionDecl>(PVD->getDeclContext())) {
+      mangle(FD);
+      Out << "0";
+      mangleNumber(PVD->getFunctionScopeIndex());
+      Out << "@"; // Terminator for the number
+    } else {
+      Error("reflection of parameter not in function context");
+    }
+    break;
+  }
+
+  case ReflectionKind::BaseSpecifier: {
+    Out << 'b';
+    // Mangle the type of the base class.
+    // mangleType handles state/back-refs correctly.
+    mangleType(R.getReflectedBaseSpecifier()->getType(), SourceRange(),
+               QMM_Escape);
+    break;
+  }
+
+  case ReflectionKind::DataMemberSpec: {
+    Out << 'm'; // 'm' for Member spec
+    TagDataMemberSpec *TDMS = R.getReflectedDataMemberSpec();
+
+    // 1. Mangle Type
+    mangleType(TDMS->Ty, SourceRange(), QMM_Escape);
+
+    // 2. Mangle Name (if present)
+    if (TDMS->Name) {
+      // MSVC encoding: N <SourceString> @
+      Out << 'N' << *TDMS->Name << '@';
+    }
+
+    // 3. Mangle Alignment (if present)
+    if (TDMS->Alignment) {
+      Out << 'A';
+      mangleNumber(*TDMS->Alignment);
+    }
+
+    // 4. Mangle BitWidth (if present)
+    if (TDMS->BitWidth) {
+      Out << 'B';
+      mangleNumber(*TDMS->BitWidth);
+    }
+    break;
+  }
+
+  case ReflectionKind::EntityProxy: {
+    Out << 'x'; 
+    // UsingShadowDecl traps in mangle(). Use mangleName() instead.
+    // This emits the qualified name (e.g. "func@MyNS@@") which is sufficient
+    // to distinguish the proxy from other entities.
+    mangleName(R.getReflectedEntityProxy());
+    break;
+  }
+
+  case ReflectionKind::Annotation: {
+    Out << 'a';
+    // Mangle the expression associated with the annotation.
+    // MicrosoftCXXNameMangler::mangleExpression() exists and is suitable
+    // here.
+    // We pass nullptr for the NonTypeTemplateParmDecl because this
+    // expression is part of a reflection value and not binding to a specific
+    // template parameter.
+    mangleExpression(R.getReflectedAnnotation()->getArg(), nullptr);
+    break;
+  }
+  } // switch
   Out << 'E';
 }
 
@@ -3299,11 +3480,11 @@ void MicrosoftCXXNameMangler::mangleTagTypeKind(TagTypeKind TTK) {
 }
 void MicrosoftCXXNameMangler::mangleType(const EnumType *T, Qualifiers,
                                          SourceRange) {
-  mangleType(cast<TagType>(T)->getDecl());
+  mangleType(cast<TagType>(T)->getOriginalDecl()->getDefinitionOrSelf());
 }
 void MicrosoftCXXNameMangler::mangleType(const RecordType *T, Qualifiers,
                                          SourceRange) {
-  mangleType(cast<TagType>(T)->getDecl());
+  mangleType(cast<TagType>(T)->getOriginalDecl()->getDefinitionOrSelf());
 }
 void MicrosoftCXXNameMangler::mangleType(const TagDecl *TD) {
   mangleTagTypeKind(TD->getTagKind());

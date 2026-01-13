@@ -140,8 +140,9 @@ class ModuleConstructorTag {
 
 /// Describes a module or submodule.
 ///
-/// Aligned to 8 bytes to allow for llvm::PointerIntPair<Module *, 3>.
-class alignas(8) Module {
+/// Aligned to 16 bytes to allow for llvm::PointerIntPair<Module *, 4>.
+// todo [merge:yukino,"NestedNameSpecifier needs it 16-byte aligned with Decl"]
+class alignas(16) Module {
 public:
   /// The name of this module.
   std::string Name;

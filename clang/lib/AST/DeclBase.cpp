@@ -61,12 +61,9 @@ using namespace clang;
 #define ABSTRACT_DECL(DECL)
 #include "clang/AST/DeclNodes.inc"
 
-void Decl::updateOutOfDate(IdentifierInfo &II) const {
-  getASTContext().getExternalSource()->updateOutOfDateIdentifier(II);
-}
-
+// todo [merge:yukino,"NestedNameSpecifier needs all Decl be 16-byte aligned"]
 #define DECL(DERIVED, BASE)                                                    \
-  static_assert(alignof(Decl) >= alignof(DERIVED##Decl),                       \
+  static_assert(alignof(Decl) <= alignof(DERIVED##Decl),                       \
                 "Alignment sufficient after objects prepended to " #DERIVED);
 #define ABSTRACT_DECL(DECL)
 #include "clang/AST/DeclNodes.inc"
@@ -75,9 +72,12 @@ void *Decl::operator new(std::size_t Size, const ASTContext &Context,
                          GlobalDeclID ID, std::size_t Extra) {
   // Allocate an extra 8 bytes worth of storage, which ensures that the
   // resulting pointer will still be 8-byte aligned.
-  static_assert(sizeof(uint64_t) >= alignof(Decl), "Decl won't be misaligned");
-  void *Start = Context.Allocate(Size + Extra + 8);
-  void *Result = (char*)Start + 8;
+  // todo [merge:yukino,"NestedNameSpecifier needs it 16-byte aligned so we give
+  //   it 16 bytes extra"]
+  constexpr uintptr_t DefaultExtraAlloc = sizeof(uint64_t) * 2;
+  static_assert(DefaultExtraAlloc >= alignof(Decl), "Decl won't be misaligned");
+  void *Start = Context.Allocate(Size + Extra + DefaultExtraAlloc);
+  void *Result = (char*)Start + DefaultExtraAlloc;
 
   uint64_t *PrefixPtr = (uint64_t *)Result - 1;
 
@@ -99,8 +99,10 @@ void *Decl::operator new(std::size_t Size, const ASTContext &Ctx,
   if (Ctx.getLangOpts().trackLocalOwningModule() || !Parent) {
     // Ensure required alignment of the resulting object by adding extra
     // padding at the start if required.
-    size_t ExtraAlign =
-        llvm::offsetToAlignment(sizeof(Module *), llvm::Align(alignof(Decl)));
+    // todo [merge:yukino,"NestedNameSpecifier needs it 16-byte aligned so we give
+    //   it 16 bytes extra"]
+    size_t ExtraAlign = sizeof(Module *) + alignof(Decl);
+    // llvm::offsetToAlignment(DefaultExtraAlloc, llvm::Align(alignof(Decl)));
     auto *Buffer = reinterpret_cast<char *>(
         ::operator new(ExtraAlign + sizeof(Module *) + Size + Extra, Ctx));
     Buffer += ExtraAlign;
@@ -496,8 +498,7 @@ bool Decl::isFlexibleArrayMemberLike(
 
       // Look through typedefs.
       if (TypedefTypeLoc TTL = TL.getAsAdjusted<TypedefTypeLoc>()) {
-        const TypedefNameDecl *TDL = TTL.getTypedefNameDecl();
-        TInfo = TDL->getTypeSourceInfo();
+        TInfo = TTL.getDecl()->getTypeSourceInfo();
         continue;
       }
 
@@ -1531,30 +1532,19 @@ DeclContext *DeclContext::getPrimaryContext() {
   case Decl::ObjCCategoryImpl:
     return this;
 
+  // If this is a tag type that has a definition or is currently
+  // being defined, that definition is our primary context.
+  case Decl::ClassTemplatePartialSpecialization:
+  case Decl::ClassTemplateSpecialization:
+  case Decl::CXXRecord:
+    return cast<CXXRecordDecl>(this)->getDefinitionOrSelf();
+  case Decl::Record:
+  case Decl::Enum:
+    return cast<TagDecl>(this)->getDefinitionOrSelf();
+
   default:
-    if (getDeclKind() >= Decl::firstTag && getDeclKind() <= Decl::lastTag) {
-      // If this is a tag type that has a definition or is currently
-      // being defined, that definition is our primary context.
-      auto *Tag = cast<TagDecl>(this);
-
-      if (TagDecl *Def = Tag->getDefinition())
-        return Def;
-
-      if (const auto *TagTy = dyn_cast<TagType>(Tag->getTypeForDecl())) {
-        // Note, TagType::getDecl returns the (partial) definition one exists.
-        TagDecl *PossiblePartialDef = TagTy->getDecl();
-        if (PossiblePartialDef->isBeingDefined())
-          return PossiblePartialDef;
-      } else {
-        assert(isa<InjectedClassNameType>(Tag->getTypeForDecl()));
-      }
-
-      return Tag;
-    }
-
     assert(getDeclKind() >= Decl::firstFunction &&
-           getDeclKind() <= Decl::lastFunction &&
-          "Unknown DeclContext kind");
+           getDeclKind() <= Decl::lastFunction && "Unknown DeclContext kind");
     return this;
   }
 }

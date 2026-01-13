@@ -55,7 +55,8 @@ enum class KernelReferenceKind : unsigned {
 /// ASTNameGenerator::Implementation::writeFuncOrVarName in lib/AST/Mangle.cpp
 ///
 class GlobalDecl {
-  llvm::PointerIntPair<const Decl *, 3> Value;
+  // todo [merge:yukino,"NestedNameSpecifier needs it 16-byte aligned"]
+  llvm::PointerIntPair<const Decl *, 4> Value;
   unsigned MultiVersionIndex = 0;
 
   void Init(const Decl *D) {

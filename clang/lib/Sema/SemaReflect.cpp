@@ -55,9 +55,10 @@ TemplateArgumentListInfo addLocToTemplateArgs(Sema &S,
 Expr *CreateRefToDecl(Sema &S, ValueDecl *D, SourceLocation ExprLoc) {
   CXXScopeSpec SS;
   if (const auto *RDC = dyn_cast<RecordDecl>(D->getDeclContext())) {
-    QualType QT(RDC->getTypeForDecl(), 0);
+    // todo [merge:yukino:maybe-revert]
+    QualType QT = S.Context.getCanonicalTagType(RDC);
     TypeSourceInfo *TSI = S.Context.CreateTypeSourceInfo(QT, 0);
-    SS.Extend(S.Context, TSI->getTypeLoc(), ExprLoc);
+    SS.Make(S.Context, TSI->getTypeLoc(), ExprLoc);
   }
 
   ExprValueKind ValueKind = VK_LValue;
@@ -223,10 +224,12 @@ public:
         Target = cast<NamedDecl>(Target->getDeclContext());
 
     if (auto *Cls = dyn_cast_or_null<CXXRecordDecl>(Target->getDeclContext())) {
+      // todo [merge:yukino:maybe-revert]
       if (Cls != NamingCls &&
-          !S.IsDerivedFrom(SourceLocation{},
-                           QualType(NamingCls->getTypeForDecl(), 0),
-                           QualType(Cls->getTypeForDecl(), 0)))
+          !S.IsDerivedFrom(
+              SourceLocation{},
+              Ctx->getParentASTContext().getCanonicalTagType(NamingCls),
+              Ctx->getParentASTContext().getCanonicalTagType(Cls)))
         return false;
       else if (NamingCls->isAnonymousStructOrUnion())
         // Clang's access-checking machinery isn't equipped to deal with checks
@@ -367,7 +370,9 @@ public:
     // TODO(P2996): Calling 'substitute' should substitute without
     // instantiation. Should a lighter weight call be used?
     TemplateName TName(TD);
-    return S.CheckTemplateIdType(TName, InstantiateLoc, TAListInfo);
+    // todo [merge:yukino:maybe-revert]
+    return S.CheckTemplateIdType(ElaboratedTypeKeyword::None, TName,
+                                 InstantiateLoc, TAListInfo);
   }
 
   FunctionDecl *Substitute(FunctionTemplateDecl *TD,
@@ -474,7 +479,8 @@ public:
                                         Fn->getEndLoc());
     if (auto *DRE = dyn_cast<DeclRefExpr>(Fn))
       if (auto *Ctor = dyn_cast<CXXConstructorDecl>(DRE->getDecl())) {
-        QualType ClsTy(Ctor->getParent()->getTypeForDecl(), 0);
+        // todo [merge:yukino:maybe-revert]
+        QualType ClsTy = S.Context.getCanonicalTagType(Ctor->getParent());
         ExprResult Result = S.BuildCXXConstructExpr(
               Fn->getExprLoc(), ClsTy, Ctor, false, Args, false, false, false,
               false, CXXConstructionKind::Complete, Range);
@@ -548,7 +554,8 @@ public:
           }
           case TemplateArgument::Template: {
             ParsedTemplateTy P = ParsedTemplateTy::make(TArg.getAsTemplate());
-            ParsedTArgs.emplace_back(SS, P, SourceLocation());
+            // todo [merge:yukino:maybe-revert]
+            ParsedTArgs.emplace_back(DefinitionLoc, SS, P, SourceLocation());
             break;
           }
           case TemplateArgument::Declaration: {
@@ -873,7 +880,7 @@ ExprResult Sema::ActOnCXXReflectExpr(SourceLocation OpLoc,
            TNK == TNK_Concept_template);
 
     return BuildCXXReflectExpr(OpLoc, TemplateKWLoc, Template.get());
-  } else if (SS.isSet() && SS.getScopeRep()->isDependent()) {
+  } else if (SS.isSet() && SS.getScopeRep().isDependent()) {
     ExprResult Result = BuildDependentDeclRefExpr(SS, TemplateKWLoc, NameInfo,
                                                   TArgs);
     // This should only fail if 'SS' is invalid, but that should already have
@@ -956,7 +963,7 @@ ExprResult Sema::ActOnCXXReflectExpr(SourceLocation OpLoc, TypeResult T) {
   ParsedTemplateArgument Arg = ActOnTemplateTypeArgument(T);
   assert(Arg.getKind() == ParsedTemplateArgument::Type);
 
-  return BuildCXXReflectExpr(OpLoc, Arg.getLocation(), T.get().get());
+  return BuildCXXReflectExpr(OpLoc, Arg.getTemplateKwLoc(), T.get().get());
 }
 
 ExprResult Sema::ActOnCXXReflectExpr(SourceLocation OpLoc,
@@ -968,7 +975,7 @@ ExprResult Sema::ActOnCXXReflectExpr(SourceLocation OpLoc,
                                      ParsedTemplateArgument Template) {
   assert(Template.getKind() == ParsedTemplateArgument::Template);
 
-  ExprResult Result = BuildCXXReflectExpr(OpLoc, Template.getLocation(),
+  ExprResult Result = BuildCXXReflectExpr(OpLoc, Template.getTemplateKwLoc(),
                                           Template.getAsTemplate().get());
   if (!Result.isInvalid() && Template.getEllipsisLoc().isValid())
     Result = ActOnPackExpansion(Result.get(), Template.getEllipsisLoc());
@@ -1148,7 +1155,8 @@ ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
                                      SourceLocation OperandLoc, QualType T) {
   if (auto *UT = dyn_cast<UsingType>(T)) {
     if (Context.getLangOpts().EntityProxyReflection)
-      return BuildCXXReflectExpr(OperatorLoc, OperandLoc, UT->getFoundDecl());
+      // todo [merge:yukino:maybe-revert]
+      return BuildCXXReflectExpr(OperatorLoc, OperandLoc, UT->getAsTagDecl());
     else {
       Diag(OperandLoc, diag::err_reflect_using_declarator);
       return ExprError();
@@ -1259,6 +1267,39 @@ ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
 
   // Use the 'auto' deduction machinery to infer the operand type.
   if (DeduceVariableDeclarationType(InventedVD, true, ULE)) {
+    // If auto-deduction failed, it's likely because the ULE refers to a
+    // raw Template (which cannot initialize 'auto'), but IS valid to reflect.
+    // e.g. function template with deduced this.
+    // Also generalize for ANY template type (Function, Var, Class, Alias, etc.)
+
+    TemplateDecl *UniqueTemplate = nullptr;
+    bool IsAmbiguous = false;
+
+    for (NamedDecl *D : ULE->decls()) {
+      D = D->getUnderlyingDecl();
+
+      // Use TemplateDecl to cover Function, Var, Class, Alias, Concepts
+      if (auto *TD = dyn_cast<TemplateDecl>(D)) {
+        if (!UniqueTemplate) {
+          UniqueTemplate = TD;
+        } else if (UniqueTemplate != TD) {
+          IsAmbiguous = true;
+          break;
+        }
+      } else {
+        // Found something that isn't a template (e.g. a regular function).
+        // Mixing templates and non-templates is ambiguous for reflection.
+        IsAmbiguous = true;
+        break;
+      }
+    }
+
+    if (UniqueTemplate && !IsAmbiguous) {
+      // It is a unique Template. Break.
+      return BuildCXXReflectExpr(OperatorLoc, E->getExprLoc(),
+                                 TemplateName(UniqueTemplate));
+    }
+
     Diag(E->getExprLoc(), diag::err_reflect_overload_set)
         << E->getSourceRange();
     return ExprError();
@@ -1365,7 +1406,7 @@ ExprResult Sema::BuildCXXMetafunctionExpr(
       RecordDecl *SourceLocDecl = lookupStdSourceLocationImpl(KwLoc);
       if (SourceLocDecl)
         Result = Context.getPointerType(
-                              Context.getRecordType(SourceLocDecl).withConst());
+            Context.getCanonicalTagType(SourceLocDecl).withConst());
       return SourceLocDecl == nullptr;
     }
     case Metafunction::MFRK_spliceFromArg: {
@@ -1468,16 +1509,18 @@ QualType Sema::BuildReflectionSpliceType(SourceLocation TypenameKWLoc,
       TemplateArgumentListInfo TAListInfo;
       for (const auto &TArg : Splice->getTemplateArgs()->arguments())
         TAListInfo.addArgument(TArg);
-      ReflectedTy =
-          CheckTemplateIdType(Refl.getReflectedTemplate(),
-                              Splice->getBeginLoc(), TAListInfo);
+      // todo [merge:yukino:maybe-revert]
+      ReflectedTy = CheckTemplateIdType(ElaboratedTypeKeyword::None,
+                                        Refl.getReflectedTemplate(),
+                                        Splice->getBeginLoc(), TAListInfo);
       if (ReflectedTy.isNull()) {
         return QualType();
       }
     } else {
-      ReflectedTy =
-          Context.getDeducedTemplateSpecializationType(
-              Refl.getReflectedTemplate(), QualType(), false);
+      // todo [merge:yukino:maybe-revert]
+      ReflectedTy = Context.getDeducedTemplateSpecializationType(
+          ElaboratedTypeKeyword::None, Refl.getReflectedTemplate(), QualType(),
+          false);
     }
   } else if (!Refl.isReflectedType()) {
     if (Complain)
@@ -1490,7 +1533,9 @@ QualType Sema::BuildReflectionSpliceType(SourceLocation TypenameKWLoc,
 
   // Check if the type refers to a substituted but uninstantiated template.
   if (auto *TT = dyn_cast<TagType>(ReflectedTy)) {
-    if (auto *CTD = dyn_cast<ClassTemplateSpecializationDecl>(TT->getDecl());
+    // todo [merge:yukino:maybe-revert]
+    if (auto *CTD =
+            dyn_cast<ClassTemplateSpecializationDecl>(TT->getAsTagDecl());
         CTD && CTD->getSpecializationKind() == TSK_Undeclared) {
       TemplateName TName(CTD->getSpecializedTemplate());
 
@@ -1500,8 +1545,9 @@ QualType Sema::BuildReflectionSpliceType(SourceLocation TypenameKWLoc,
               addLocToTemplateArgs(*this, TAList.asArray(),
                                    Splice->getBeginLoc()));
 
-      ReflectedTy = CheckTemplateIdType(TName, Splice->getBeginLoc(),
-                                        TAListInfo);
+      // todo [merge:yukino:maybe-revert]
+      ReflectedTy = CheckTemplateIdType(ElaboratedTypeKeyword::None, TName,
+                                        Splice->getBeginLoc(), TAListInfo);
       if (ReflectedTy.isNull())
         return QualType();
     }
@@ -1522,8 +1568,10 @@ QualType Sema::BuildReflectionSpliceTypeLoc(TypeLocBuilder &TLB,
       cast<ReflectionSpliceType>(SpliceTy)->getSplice()->getBeginLoc();
 
   if (isa<TemplateSpecializationType>(SpliceTy)) {
-    auto TL = TLB.push<TemplateSpecializationTypeLoc>(SpliceTy);
-    TL.setTemplateNameLoc(Loc);
+    // todo [merge:yukino:maybe-revert]
+    TLB.push<TemplateSpecializationTypeLoc>(SpliceTy).set({}, {}, Loc, {}, {},
+                                                          {});
+    // TL.setTemplateNameLoc(Loc);
     return SpliceTy;
   } else if (isa<DeducedTemplateSpecializationType>(SpliceTy)) {
     auto TL = TLB.push<DeducedTemplateSpecializationTypeLoc>(SpliceTy);
@@ -1642,10 +1690,11 @@ ExprResult Sema::BuildReflectionSpliceExpr(SourceLocation TemplateKWLoc,
                                        Splice->getBeginLoc());
 
       CXXScopeSpec ScopeSpec;
+      // todo [merge:yukino:maybe-revert]
       if (auto *RD = dyn_cast<CXXRecordDecl>(TDecl->getDeclContext())) {
         TypeSourceInfo *TSI = Context.getTrivialTypeSourceInfo(
-                QualType(RD->getTypeForDecl(), 0), Splice->getBeginLoc());
-        ScopeSpec.Extend(Context, TSI->getTypeLoc(), Splice->getBeginLoc());
+            Context.getCanonicalTagType(RD), Splice->getBeginLoc());
+        ScopeSpec.Make(Context, TSI->getTypeLoc(), Splice->getBeginLoc());
       }
 
       // TODO(P2996): Would be nice not to have to copy these here.
@@ -1829,7 +1878,9 @@ DeclContext *Sema::TryFindDeclContextOf(SpliceSpecifier *Splice) {
     TemplateArgumentListInfo TAListInfo;
     for (const auto &TArg : Splice->getTemplateArgs()->arguments())
       TAListInfo.addArgument(TArg);
-    QualType QT = CheckTemplateIdType(Refl.getReflectedTemplate(),
+    // todo [merge:yukino:maybe-revert]
+    QualType QT = CheckTemplateIdType(ElaboratedTypeKeyword::None,
+                                      Refl.getReflectedTemplate(),
                                       SourceLocation(), TAListInfo);
     if (QT.isNull())
       return nullptr;

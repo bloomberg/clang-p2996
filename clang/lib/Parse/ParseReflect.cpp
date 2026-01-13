@@ -73,7 +73,7 @@ ExprResult Parser::ParseCXXReflectExpression(SourceLocation OpLoc) {
       }
     }
   } else if (SS.isValid() &&
-             SS.getScopeRep()->getKind() == NestedNameSpecifier::Global) {
+             SS.getScopeRep().getKind() == NestedNameSpecifier::Kind::Global) {
     // Check for '^::'.
     TentativeAction.Commit();
 

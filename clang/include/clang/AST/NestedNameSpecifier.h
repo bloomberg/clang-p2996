@@ -8,579 +8,360 @@
 //
 //===----------------------------------------------------------------------===//
 //
-//  This file defines the NestedNameSpecifier class, which represents
-//  a C++ nested-name-specifier.
+//  This file completes the definition of the NestedNameSpecifier class.
 //
 //===----------------------------------------------------------------------===//
 
 #ifndef LLVM_CLANG_AST_NESTEDNAMESPECIFIER_H
 #define LLVM_CLANG_AST_NESTEDNAMESPECIFIER_H
 
-#include "clang/AST/DependenceFlags.h"
-#include "clang/Basic/Diagnostic.h"
-#include "clang/Basic/SourceLocation.h"
+#include "Expr.h"
+
+#include "clang/AST/Decl.h"
+#include "clang/AST/NestedNameSpecifierBase.h"
+#include "clang/AST/Type.h"
+#include "clang/AST/TypeLoc.h"
 #include "llvm/ADT/DenseMapInfo.h"
-#include "llvm/ADT/FoldingSet.h"
-#include "llvm/ADT/PointerIntPair.h"
-#include "llvm/Support/Compiler.h"
-#include <cstdint>
-#include <cstdlib>
-#include <utility>
 
 namespace clang {
 
-class ASTContext;
-class CXXRecordDecl;
-class IdentifierInfo;
-class LangOptions;
-class NamespaceAliasDecl;
-class NamespaceDecl;
-struct PrintingPolicy;
-class SpliceSpecifier;
-class Type;
-class TypeLoc;
+auto NestedNameSpecifier::getKind() const -> Kind {
+  if (!isStoredKind()) {
+    switch (getFlagKind()) {
+    case FlagKind::Null:
+      return Kind::Null;
+    case FlagKind::Global:
+      return Kind::Global;
+    case FlagKind::Invalid:
+      llvm_unreachable("use of invalid NestedNameSpecifier");
+    }
+    llvm_unreachable("unhandled FlagKind");
+  }
+  switch (auto [K, Ptr] = getStored(); K) {
+  case StoredKind::Type:
+    return Kind::Type;
+  case StoredKind::NamespaceWithGlobal:
+  case StoredKind::NamespaceWithNamespace:
+    return Kind::Namespace;
+  case StoredKind::NamespaceOrSuper:
+    switch (static_cast<const Decl *>(Ptr)->getKind()) {
+    case Decl::Namespace:
+    case Decl::NamespaceAlias:
+      return Kind::Namespace;
+    case Decl::CXXRecord:
+    case Decl::ClassTemplateSpecialization:
+    case Decl::ClassTemplatePartialSpecialization:
+      return Kind::MicrosoftSuper;
+    default:
+      llvm_unreachable("unexpected decl kind");
+    }
+  // todo [merge:yukino:maybe-revert]
+  case StoredKind::SpliceSpecifier:
+    return Kind::Splice;
+  case StoredKind::SpliceSpecifierWithTemplate:
+    return Kind::SpliceWithTemplate;
+  case StoredKind::NumKinds:;
+  }
+  llvm_unreachable("unknown StoredKind");
+}
 
-/// Represents a C++ nested name specifier, such as
-/// "\::std::vector<int>::".
-///
-/// C++ nested name specifiers are the prefixes to qualified
-/// names. For example, "foo::" in "foo::x" is a nested name
-/// specifier. Nested name specifiers are made up of a sequence of
-/// specifiers, each of which can be a namespace, type, identifier
-/// (for dependent names), decltype specifier, expression (for
-/// splice specifiers), or the global specifier ('::').
-/// The last three specifiers can only appear at the start of a
-/// nested-namespace-specifier.
-class NestedNameSpecifier : public llvm::FoldingSetNode {
-  /// Enumeration describing
-  enum StoredSpecifierKind {
-    StoredIdentifier = 0,
-    StoredDecl = 1,
-    StoredTypeSpec = 2,
-    StoredSpliceSpecifier = 3,
-    StoredSpliceSpecifierWithTemplate = 4
-  };
+NestedNameSpecifier::NestedNameSpecifier(const Type *T)
+    : NestedNameSpecifier({StoredKind::Type, T}) {
+  assert(getKind() == Kind::Type);
+}
 
-  /// The nested name specifier that precedes this nested name
-  /// specifier.
-  ///
-  /// The pointer is the nested-name-specifier that precedes this
-  /// one. The integer stores one of the first five values of type
-  /// SpecifierKind.
-  llvm::PointerIntPair<NestedNameSpecifier *, 3, StoredSpecifierKind> Prefix;
+auto NestedNameSpecifier::MakeNamespacePtrKind(
+    const ASTContext &Ctx, const NamespaceBaseDecl *Namespace,
+    NestedNameSpecifier Prefix) -> PtrKind {
+  switch (auto Kind = Prefix.getKind()) {
+  case Kind::Null:
+    return {StoredKind::NamespaceOrSuper, Namespace};
+  case Kind::Global:
+    return {StoredKind::NamespaceWithGlobal, Namespace};
+  case Kind::Namespace:
+    return {StoredKind::NamespaceWithNamespace,
+            MakeNamespaceAndPrefixStorage(Ctx, Namespace, Prefix)};
+  // todo [merge:yukino:maybe-revert,"should be same as namespaces"]
+  case Kind::Splice:
+    [[fallthrough]];
+  case Kind::SpliceWithTemplate: {
+    auto SK = Kind == Kind::Splice ? StoredKind::SpliceSpecifier
+                                   : StoredKind::SpliceSpecifierWithTemplate;
+    if (Prefix.getAsNamespaceAndPrefix().Namespace) {
+      return {SK, MakeNamespaceAndPrefixStorage(Ctx, Namespace, Prefix)};
+    }
+    return {SK, Prefix.getSplice()};
+  }
+  case Kind::MicrosoftSuper:
+  case Kind::Type:
+    llvm_unreachable("invalid prefix for namespace");
+  }
+  llvm_unreachable("unhandled kind");
+}
 
-  /// The last component in the nested name specifier, which
-  /// can be an identifier, a declaration, or a type.
-  ///
-  /// When the pointer is NULL, this specifier represents the global
-  /// specifier '::'. Otherwise, the pointer is one of
-  /// IdentifierInfo*, Namespace*, or Type*, depending on the kind of
-  /// specifier as encoded within the prefix.
-  void* Specifier = nullptr;
+/// Builds a nested name specifier that names a namespace.
+NestedNameSpecifier::NestedNameSpecifier(const ASTContext &Ctx,
+                                         const NamespaceBaseDecl *Namespace,
+                                         NestedNameSpecifier Prefix)
+    : NestedNameSpecifier(MakeNamespacePtrKind(Ctx, Namespace, Prefix)) {
+  assert(getKind() == Kind::Namespace);
+}
 
-public:
-  /// The kind of specifier that completes this nested name
-  /// specifier.
-  enum SpecifierKind {
-    /// An identifier, stored as an IdentifierInfo*.
-    Identifier,
+/// Builds a nested name specifier that names a class through microsoft's
+/// __super specifier.
+NestedNameSpecifier::NestedNameSpecifier(CXXRecordDecl *RD)
+    : NestedNameSpecifier({StoredKind::NamespaceOrSuper, RD}) {
+  assert(getKind() == Kind::MicrosoftSuper);
+}
 
-    /// A namespace, stored as a NamespaceDecl*.
-    Namespace,
+// todo [merge:yukino:maybe-revert]
+NestedNameSpecifier::NestedNameSpecifier(/*const ASTContext &Context,*/
+                                         bool Template,
+                                         const SpliceSpecifier *Splice)
+    : NestedNameSpecifier(PtrKind{Template
+                                      ? StoredKind::SpliceSpecifierWithTemplate
+                                      : StoredKind::SpliceSpecifier,
+                                  Splice}) {
+  assert(Splice && "Splice cannot be NULL");
+  // todo [merge:yukino:maybe-revert,"It doesn't seem like Context is useful
+  //   here anymore"]
+  // (void)Context;
+}
 
-    /// A namespace alias, stored as a NamespaceAliasDecl*.
-    NamespaceAlias,
-
-    /// A type, stored as a Type*.
-    TypeSpec,
-
-    /// The global specifier '::'. There is no stored value.
-    Global,
-
-    /// Microsoft's '__super' specifier, stored as a CXXRecordDecl* of
-    /// the class it appeared in.
-    Super,
-
-    /// A splice specifier, stored as a SpliceSpecifier*.
-    Splice,
-
-    /// A splice specifier that was preceded by the 'template'
-    /// keyword, stored as a SpliceSpecifier*.
-    SpliceWithTemplate,
-  };
-
-private:
-  /// Builds the global specifier.
-  NestedNameSpecifier() : Prefix(nullptr, StoredIdentifier) {}
-
-  /// Copy constructor used internally to clone nested name
-  /// specifiers.
-  NestedNameSpecifier(const NestedNameSpecifier &Other) = default;
-
-  /// Either find or insert the given nested name specifier
-  /// mockup in the given context.
-  static NestedNameSpecifier *FindOrInsert(const ASTContext &Context,
-                                           const NestedNameSpecifier &Mockup);
-
-public:
-  NestedNameSpecifier &operator=(const NestedNameSpecifier &) = delete;
-
-  /// Builds a specifier combining a prefix and an identifier.
-  ///
-  /// The prefix must be dependent, since nested name specifiers
-  /// referencing an identifier are only permitted when the identifier
-  /// cannot be resolved.
-  static NestedNameSpecifier *Create(const ASTContext &Context,
-                                     NestedNameSpecifier *Prefix,
-                                     const IdentifierInfo *II);
-
-  /// Builds a nested name specifier that names a namespace.
-  static NestedNameSpecifier *Create(const ASTContext &Context,
-                                     NestedNameSpecifier *Prefix,
-                                     const NamespaceDecl *NS);
-
-  /// Builds a nested name specifier that names a namespace alias.
-  static NestedNameSpecifier *Create(const ASTContext &Context,
-                                     NestedNameSpecifier *Prefix,
-                                     const NamespaceAliasDecl *Alias);
-
-  /// Builds a nested name specifier that names a type.
-  static NestedNameSpecifier *
-  Create(const ASTContext &Context, NestedNameSpecifier *Prefix, const Type *T);
-
-  /// Builds a specifier that consists of just an identifier.
-  ///
-  /// The nested-name-specifier is assumed to be dependent, but has no
-  /// prefix because the prefix is implied by something outside of the
-  /// nested name specifier, e.g., in "x->Base::f", the "x" has a dependent
-  /// type.
-  static NestedNameSpecifier *Create(const ASTContext &Context,
-                                     const IdentifierInfo *II);
-
-  /// Returns the nested name specifier representing the global
-  /// scope.
-  static NestedNameSpecifier *GlobalSpecifier(const ASTContext &Context);
-
-  /// Returns the nested name specifier representing the __super scope
-  /// for the given CXXRecordDecl.
-  static NestedNameSpecifier *SuperSpecifier(const ASTContext &Context,
-                                             CXXRecordDecl *RD);
-
-  /// Returns the nested name specifier representing a splice specifier.
-  static NestedNameSpecifier *SpliceScopeSpecifier(
-        const ASTContext &Context, bool TemplateKW,
-        const SpliceSpecifier *Splice);
-
-  /// Return the prefix of this nested name specifier.
-  ///
-  /// The prefix contains all of the parts of the nested name
-  /// specifier that precede this current specifier. For example, for a
-  /// nested name specifier that represents "foo::bar::", the current
-  /// specifier will contain "bar::" and the prefix will contain
-  /// "foo::".
-  NestedNameSpecifier *getPrefix() const { return Prefix.getPointer(); }
-
-  /// Determine what kind of nested name specifier is stored.
-  SpecifierKind getKind() const;
-
-  /// Retrieve the identifier stored in this nested name
-  /// specifier.
-  IdentifierInfo *getAsIdentifier() const {
-    if (Prefix.getInt() == StoredIdentifier)
-      return (IdentifierInfo *)Specifier;
-
+CXXRecordDecl *NestedNameSpecifier::getAsRecordDecl() const {
+  switch (getKind()) {
+  case Kind::MicrosoftSuper:
+    return getAsMicrosoftSuper();
+  case Kind::Type:
+    return getAsType()->getAsCXXRecordDecl();
+  case Kind::Global:
+  case Kind::Namespace:
+    return nullptr;
+  // todo [merge:yukino:maybe-revert]
+  // If the splice resolved to a Type, it would be Kind::Type.
+  // If it is still Kind::Splice, it is likely dependent or unresolved.
+  // We cannot resolve it to a RecordDecl without ASTContext evaluation,
+  // and this function signature does not provide ASTContext.
+  case Kind::Splice:
+  case Kind::SpliceWithTemplate:
+    return nullptr;
+  case Kind::Null:
     return nullptr;
   }
+  llvm_unreachable("Invalid NNS Kind!");
+}
 
-  /// Retrieve the namespace stored in this nested name
-  /// specifier.
-  NamespaceDecl *getAsNamespace() const;
+NestedNameSpecifier NestedNameSpecifier::getCanonical() const {
+  switch (getKind()) {
+  case NestedNameSpecifier::Kind::Null:
+  case NestedNameSpecifier::Kind::Global:
+  case NestedNameSpecifier::Kind::MicrosoftSuper:
+    // These are canonical and unique.
+    return *this;
+  case NestedNameSpecifier::Kind::Namespace: {
+    // A namespace is canonical; build a nested-name-specifier with
+    // this namespace and no prefix.
+    const NamespaceBaseDecl *ND = getAsNamespaceAndPrefix().Namespace;
+    return NestedNameSpecifier(
+        {StoredKind::NamespaceOrSuper, ND->getNamespace()->getCanonicalDecl()});
+  }
+  case NestedNameSpecifier::Kind::Type:
+    return NestedNameSpecifier(
+        getAsType()->getCanonicalTypeInternal().getTypePtr());
 
-  /// Retrieve the namespace alias stored in this nested name
-  /// specifier.
-  NamespaceAliasDecl *getAsNamespaceAlias() const;
+  // todo [merge:yukino:maybe-revert]
+  // Splices should always be unique & canonical.
+  case NestedNameSpecifier::Kind::Splice:
+  case NestedNameSpecifier::Kind::SpliceWithTemplate:
+    return *this;
+  }
+  llvm_unreachable("unhandled kind");
+}
 
-  /// Retrieve the record declaration stored in this nested name
-  /// specifier.
-  CXXRecordDecl *getAsRecordDecl() const;
+bool NestedNameSpecifier::isCanonical() const {
+  return *this == getCanonical();
+}
 
-  /// Retrieve the type stored in this nested name specifier.
-  const Type *getAsType() const {
-    if (Prefix.getInt() == StoredTypeSpec)
-      return (const Type *)Specifier;
+TypeLoc NestedNameSpecifierLoc::castAsTypeLoc() const {
+  return TypeLoc(Qualifier.getAsType(), LoadPointer(/*Offset=*/0));
+}
 
+TypeLoc NestedNameSpecifierLoc::getAsTypeLoc() const {
+  if (Qualifier.getKind() != NestedNameSpecifier::Kind::Type)
+    return TypeLoc();
+  return castAsTypeLoc();
+}
+
+unsigned
+NestedNameSpecifierLoc::getLocalDataLength(NestedNameSpecifier Qualifier) {
+  // Location of the trailing '::'.
+  unsigned Length = sizeof(SourceLocation::UIntTy);
+
+  switch (Qualifier.getKind()) {
+  case NestedNameSpecifier::Kind::Global:
+    // Nothing more to add.
+    break;
+
+  case NestedNameSpecifier::Kind::Namespace:
+  case NestedNameSpecifier::Kind::MicrosoftSuper:
+    // The location of the identifier or namespace name.
+    Length += sizeof(SourceLocation::UIntTy);
+    break;
+
+  case NestedNameSpecifier::Kind::Type:
+    // The "void*" that points at the TypeLoc data.
+    // Note: the 'template' keyword is part of the TypeLoc.
+    Length += sizeof(void *);
+    break;
+
+  // todo [merge:yukino:maybe-revert]
+  case NestedNameSpecifier::Kind::SpliceWithTemplate:
+    Length += sizeof(SourceLocation::UIntTy);
+    [[fallthrough]];
+  case NestedNameSpecifier::Kind::Splice:
+    // The "void*" that points at the TypeLoc or Expr data.
+    // Note: the 'template' keyword is part of the TypeLoc.
+    Length += sizeof(void *);
+    break;
+
+  case NestedNameSpecifier::Kind::Null:
+    llvm_unreachable("Expected a non-NULL qualifier");
+  }
+  return Length;
+}
+
+NamespaceAndPrefixLoc NestedNameSpecifierLoc::castAsNamespaceAndPrefix() const {
+  auto [Namespace, Prefix] = Qualifier.getAsNamespaceAndPrefix();
+  return {Namespace, NestedNameSpecifierLoc(Prefix, Data)};
+}
+
+NamespaceAndPrefixLoc NestedNameSpecifierLoc::getAsNamespaceAndPrefix() const {
+  if (Qualifier.getKind() != NestedNameSpecifier::Kind::Namespace)
+    return {};
+  return castAsNamespaceAndPrefix();
+}
+
+unsigned NestedNameSpecifierLoc::getDataLength(NestedNameSpecifier Qualifier) {
+  unsigned Length = 0;
+  for (; Qualifier; Qualifier = Qualifier.getAsNamespaceAndPrefix().Prefix) {
+    Length += getLocalDataLength(Qualifier);
+    // todo [merge:yukino:maybe-revert,"why the break?"]
+    if (Qualifier.getKind() != NestedNameSpecifier::Kind::Namespace)
+      break;
+  }
+  return Length;
+}
+
+unsigned NestedNameSpecifierLoc::getDataLength() const {
+  return getDataLength(Qualifier);
+}
+
+SourceRange NestedNameSpecifierLoc::getLocalSourceRange() const {
+  switch (auto Kind = Qualifier.getKind()) {
+  case NestedNameSpecifier::Kind::Null:
+    return SourceRange();
+  case NestedNameSpecifier::Kind::Global:
+    return LoadSourceLocation(/*Offset=*/0);
+  case NestedNameSpecifier::Kind::Namespace:
+  case NestedNameSpecifier::Kind::MicrosoftSuper: {
+    unsigned Offset =
+        Kind == NestedNameSpecifier::Kind::Namespace
+            ? getDataLength(Qualifier.getAsNamespaceAndPrefix().Prefix)
+            : 0;
+    return SourceRange(
+        LoadSourceLocation(Offset),
+        LoadSourceLocation(Offset + sizeof(SourceLocation::UIntTy)));
+  }
+  case NestedNameSpecifier::Kind::Type: {
+    // The "void*" that points at the TypeLoc data.
+    // Note: the 'template' keyword is part of the TypeLoc.
+    void *TypeData = LoadPointer(/*Offset=*/0);
+    TypeLoc TL(Qualifier.getAsType(), TypeData);
+    return SourceRange(TL.getBeginLoc(), LoadSourceLocation(sizeof(void *)));
+  }
+
+  // todo [merge:yukino:maybe-revert]
+  case NestedNameSpecifier::Kind::Splice: {
+    // unsigned Offset = getDataLength(Qualifier.getAsNamespaceAndPrefix().Prefix);
+    const SpliceSpecifier *Splice =
+        reinterpret_cast<SpliceSpecifier *>(LoadPointer(/*Offset=*/0));
+    return SourceRange(Splice->getBeginLoc(),
+                       LoadSourceLocation(/*Offset=*/0 + sizeof(void *)));
+  }
+  case NestedNameSpecifier::Kind::SpliceWithTemplate: {
+    // unsigned Offset = getDataLength(Qualifier.getAsNamespaceAndPrefix().Prefix);
+    (void)LoadPointer(/*Offset=*/0);
+    return SourceRange(LoadSourceLocation(/*Offset=*/0 + sizeof(void *)),
+                       LoadSourceLocation(/*Offset=*/0 + sizeof(void *) +
+                                          sizeof(SourceLocation::UIntTy)));
+  }
+  }
+
+  llvm_unreachable("Invalid NNS Kind!");
+}
+
+// todo [merge:yukino:maybe-revert]
+/// Retrieve the splice specifier stored in this nested name specifier
+const SpliceSpecifier *NestedNameSpecifier::getAsSplice() const {
+  auto [Kind, Ptr] = getStored();
+  if (Kind == StoredKind::SpliceSpecifier ||
+      Kind == StoredKind::SpliceSpecifierWithTemplate) {
+    assert(Ptr != nullptr);
+    return static_cast<const SpliceSpecifier *>(const_cast<void *>(Ptr));
+  }
+  llvm_unreachable("trying to get SpliceSpecifier from an incompatible store.");
+}
+
+// todo [merge:yukino:maybe-revert]
+const SpliceSpecifier *NestedNameSpecifier::getSplice() const {
+  auto Kind = getKind();
+  if (Kind != Kind::Splice && Kind != Kind::SpliceWithTemplate)
     return nullptr;
-  }
+  return getAsSplice();
+}
 
-  /// Retrieve the splice specifier stored in this nested name specifier.
-  const SpliceSpecifier *getAsSplice() const {
-    if (Prefix.getInt() == StoredSpliceSpecifier ||
-        Prefix.getInt() == StoredSpliceSpecifierWithTemplate)
-      return (const SpliceSpecifier *)Specifier;
+SourceRange NestedNameSpecifierLoc::getSourceRange() const {
+  return SourceRange(getBeginLoc(), getEndLoc());
+}
 
-    return nullptr;
-  }
+SourceLocation NestedNameSpecifierLoc::getEndLoc() const {
+  return getLocalSourceRange().getEnd();
+}
 
-  /// Fully translate this nested name specifier to a type.
-  /// Unlike getAsType, this will convert this entire nested
-  /// name specifier chain into its equivalent type.
-  const Type *translateToType(const ASTContext &Context) const;
+/// Retrieve the location of the beginning of this
+/// component of the nested-name-specifier.
+SourceLocation NestedNameSpecifierLoc::getLocalBeginLoc() const {
+  return getLocalSourceRange().getBegin();
+}
 
-  NestedNameSpecifierDependence getDependence() const;
-
-  /// Whether this nested name specifier refers to a dependent
-  /// type or not.
-  bool isDependent() const;
-
-  /// Whether this nested name specifier involves a template
-  /// parameter.
-  bool isInstantiationDependent() const;
-
-  /// Whether this nested-name-specifier contains an unexpanded
-  /// parameter pack (for C++11 variadic templates).
-  bool containsUnexpandedParameterPack() const;
-
-  /// Whether this nested name specifier contains an error.
-  bool containsErrors() const;
-
-  /// Print this nested name specifier to the given output stream. If
-  /// `ResolveTemplateArguments` is true, we'll print actual types, e.g.
-  /// `ns::SomeTemplate<int, MyClass>` instead of
-  /// `ns::SomeTemplate<Container::value_type, T>`.
-  void print(raw_ostream &OS, const PrintingPolicy &Policy,
-             bool ResolveTemplateArguments = false,
-             bool PrintFinalScopeResOp = true) const;
-
-  void Profile(llvm::FoldingSetNodeID &ID) const {
-    ID.AddPointer(Prefix.getOpaqueValue());
-    ID.AddPointer(Specifier);
-  }
-
-  /// Dump the nested name specifier to standard output to aid
-  /// in debugging.
-  void dump(const LangOptions &LO) const;
-  void dump() const;
-  void dump(llvm::raw_ostream &OS) const;
-  void dump(llvm::raw_ostream &OS, const LangOptions &LO) const;
-};
-
-/// A C++ nested-name-specifier augmented with source location
-/// information.
-class NestedNameSpecifierLoc {
-  NestedNameSpecifier *Qualifier = nullptr;
-  void *Data = nullptr;
-
-  /// Determines the data length for the last component in the
-  /// given nested-name-specifier.
-  static unsigned getLocalDataLength(NestedNameSpecifier *Qualifier);
-
-  /// Determines the data length for the entire
-  /// nested-name-specifier.
-  static unsigned getDataLength(NestedNameSpecifier *Qualifier);
-
-public:
-  /// Construct an empty nested-name-specifier.
-  NestedNameSpecifierLoc() = default;
-
-  /// Construct a nested-name-specifier with source location information
-  /// from
-  NestedNameSpecifierLoc(NestedNameSpecifier *Qualifier, void *Data)
-      : Qualifier(Qualifier), Data(Data) {}
-
-  /// Evaluates true when this nested-name-specifier location is
-  /// non-empty.
-  explicit operator bool() const { return Qualifier; }
-
-  /// Evaluates true when this nested-name-specifier location is
-  /// non-empty.
-  bool hasQualifier() const { return Qualifier; }
-
-  /// Retrieve the nested-name-specifier to which this instance
-  /// refers.
-  NestedNameSpecifier *getNestedNameSpecifier() const {
-    return Qualifier;
-  }
-
-  /// Retrieve the opaque pointer that refers to source-location data.
-  void *getOpaqueData() const { return Data; }
-
-  /// Retrieve the source range covering the entirety of this
-  /// nested-name-specifier.
-  ///
-  /// For example, if this instance refers to a nested-name-specifier
-  /// \c \::std::vector<int>::, the returned source range would cover
-  /// from the initial '::' to the last '::'.
-  SourceRange getSourceRange() const LLVM_READONLY {
-    return SourceRange(getBeginLoc(), getEndLoc());
-  }
-
-  /// Retrieve the source range covering just the last part of
-  /// this nested-name-specifier, not including the prefix.
-  ///
-  /// For example, if this instance refers to a nested-name-specifier
-  /// \c \::std::vector<int>::, the returned source range would cover
-  /// from "vector" to the last '::'.
-  SourceRange getLocalSourceRange() const;
-
-  /// Retrieve the location of the beginning of this
-  /// nested-name-specifier.
-  SourceLocation getBeginLoc() const {
-    if (!Qualifier)
-      return SourceLocation();
-
-    NestedNameSpecifierLoc First = *this;
-    while (NestedNameSpecifierLoc Prefix = First.getPrefix())
-      First = Prefix;
-    return First.getLocalSourceRange().getBegin();
-  }
-
-  /// Retrieve the location of the end of this
-  /// nested-name-specifier.
-  SourceLocation getEndLoc() const { return getLocalSourceRange().getEnd(); }
-
-  /// Retrieve the location of the beginning of this
-  /// component of the nested-name-specifier.
-  SourceLocation getLocalBeginLoc() const {
-    return getLocalSourceRange().getBegin();
-  }
-
-  /// Retrieve the location of the end of this component of the
-  /// nested-name-specifier.
-  SourceLocation getLocalEndLoc() const {
-    return getLocalSourceRange().getEnd();
-  }
-
-  /// Return the prefix of this nested-name-specifier.
-  ///
-  /// For example, if this instance refers to a nested-name-specifier
-  /// \c \::std::vector<int>::, the prefix is \c \::std::. Note that the
-  /// returned prefix may be empty, if this is the first component of
-  /// the nested-name-specifier.
-  NestedNameSpecifierLoc getPrefix() const {
-    if (!Qualifier)
-      return *this;
-
-    return NestedNameSpecifierLoc(Qualifier->getPrefix(), Data);
-  }
-
-  /// For a nested-name-specifier that refers to a type,
-  /// retrieve the type with source-location information.
-  TypeLoc getTypeLoc() const;
-
-  /// For a nested-name-specifier that refers to a splice specifier, retrive
-  /// the splice specifier.
-  const SpliceSpecifier *getSplice() const;
-
-  /// Determines the data length for the entire
-  /// nested-name-specifier.
-  unsigned getDataLength() const { return getDataLength(Qualifier); }
-
-  friend bool operator==(NestedNameSpecifierLoc X,
-                         NestedNameSpecifierLoc Y) {
-    return X.Qualifier == Y.Qualifier && X.Data == Y.Data;
-  }
-
-  friend bool operator!=(NestedNameSpecifierLoc X,
-                         NestedNameSpecifierLoc Y) {
-    return !(X == Y);
-  }
-};
-
-/// Class that aids in the construction of nested-name-specifiers along
-/// with source-location information for all of the components of the
+/// Retrieve the location of the end of this component of the
 /// nested-name-specifier.
-class NestedNameSpecifierLocBuilder {
-  /// The current representation of the nested-name-specifier we're
-  /// building.
-  NestedNameSpecifier *Representation = nullptr;
+SourceLocation NestedNameSpecifierLoc::getLocalEndLoc() const {
+  return getLocalSourceRange().getEnd();
+}
 
-  /// Buffer used to store source-location information for the
-  /// nested-name-specifier.
-  ///
-  /// Note that we explicitly manage the buffer (rather than using a
-  /// SmallVector) because \c Declarator expects it to be possible to memcpy()
-  /// a \c CXXScopeSpec, and CXXScopeSpec uses a NestedNameSpecifierLocBuilder.
-  char *Buffer = nullptr;
-
-  /// The size of the buffer used to store source-location information
-  /// for the nested-name-specifier.
-  unsigned BufferSize = 0;
-
-  /// The capacity of the buffer used to store source-location
-  /// information for the nested-name-specifier.
-  unsigned BufferCapacity = 0;
-
-public:
-  NestedNameSpecifierLocBuilder() = default;
-  NestedNameSpecifierLocBuilder(const NestedNameSpecifierLocBuilder &Other);
-
-  NestedNameSpecifierLocBuilder &
-  operator=(const NestedNameSpecifierLocBuilder &Other);
-
-  ~NestedNameSpecifierLocBuilder() {
-    if (BufferCapacity)
-      free(Buffer);
-  }
-
-  /// Retrieve the representation of the nested-name-specifier.
-  NestedNameSpecifier *getRepresentation() const { return Representation; }
-
-  /// Extend the current nested-name-specifier by another
-  /// nested-name-specifier component of the form 'type::'.
-  ///
-  /// \param Context The AST context in which this nested-name-specifier
-  /// resides.
-  ///
-  /// \param TL The TypeLoc that describes the type preceding the '::'.
-  ///
-  /// \param ColonColonLoc The location of the trailing '::'.
-  void Extend(ASTContext &Context, TypeLoc TL, SourceLocation ColonColonLoc);
-
-  /// Extend the current nested-name-specifier by another
-  /// nested-name-specifier component of the form 'identifier::'.
-  ///
-  /// \param Context The AST context in which this nested-name-specifier
-  /// resides.
-  ///
-  /// \param Identifier The identifier.
-  ///
-  /// \param IdentifierLoc The location of the identifier.
-  ///
-  /// \param ColonColonLoc The location of the trailing '::'.
-  void Extend(ASTContext &Context, IdentifierInfo *Identifier,
-              SourceLocation IdentifierLoc, SourceLocation ColonColonLoc);
-
-  /// Extend the current nested-name-specifier by another
-  /// nested-name-specifier component of the form 'namespace::'.
-  ///
-  /// \param Context The AST context in which this nested-name-specifier
-  /// resides.
-  ///
-  /// \param Namespace The namespace.
-  ///
-  /// \param NamespaceLoc The location of the namespace name.
-  ///
-  /// \param ColonColonLoc The location of the trailing '::'.
-  void Extend(ASTContext &Context, NamespaceDecl *Namespace,
-              SourceLocation NamespaceLoc, SourceLocation ColonColonLoc);
-
-  /// Extend the current nested-name-specifier by another
-  /// nested-name-specifier component of the form 'namespace-alias::'.
-  ///
-  /// \param Context The AST context in which this nested-name-specifier
-  /// resides.
-  ///
-  /// \param Alias The namespace alias.
-  ///
-  /// \param AliasLoc The location of the namespace alias
-  /// name.
-  ///
-  /// \param ColonColonLoc The location of the trailing '::'.
-  void Extend(ASTContext &Context, NamespaceAliasDecl *Alias,
-              SourceLocation AliasLoc, SourceLocation ColonColonLoc);
-
-  /// Turn this (empty) nested-name-specifier into the global
-  /// nested-name-specifier '::'.
-  void MakeGlobal(ASTContext &Context, SourceLocation ColonColonLoc);
-
-  /// Turns this (empty) nested-name-specifier into '__super'
-  /// nested-name-specifier.
-  ///
-  /// \param Context The AST context in which this nested-name-specifier
-  /// resides.
-  ///
-  /// \param RD The declaration of the class in which nested-name-specifier
-  /// appeared.
-  ///
-  /// \param SuperLoc The location of the '__super' keyword.
-  /// name.
-  ///
-  /// \param ColonColonLoc The location of the trailing '::'.
-  void MakeSuper(ASTContext &Context, CXXRecordDecl *RD,
-                 SourceLocation SuperLoc, SourceLocation ColonColonLoc);
-
-  /// Turns this (empty) nested-name-specifier into a specifier having a single
-  /// component of splice specialization specifier kind.
-  ///
-  /// \param Context The AST context in which this nested-name-specifier
-  /// resides.
-  ///
-  /// \param TemplateKWLoc The location of the 'template' keyword, if present.
-  ///
-  /// \param Expr The splice specifier.
-  ///
-  /// \param ColonColonLoc The location of the trailing '::'.
-  void MakeSpliceScopeSpecifier(ASTContext &Context,
-                                SourceLocation TemplateKWLoc,
-                                const SpliceSpecifier *Splice,
-                                SourceLocation ColonColonLoc);
-
-  /// Make a new nested-name-specifier from incomplete source-location
-  /// information.
-  ///
-  /// This routine should be used very, very rarely, in cases where we
-  /// need to synthesize a nested-name-specifier. Most code should instead use
-  /// \c Adopt() with a proper \c NestedNameSpecifierLoc.
-  void MakeTrivial(ASTContext &Context, NestedNameSpecifier *Qualifier,
-                   SourceRange R);
-
-  /// Adopt an existing nested-name-specifier (with source-range
-  /// information).
-  void Adopt(NestedNameSpecifierLoc Other);
-
-  /// Retrieve the source range covered by this nested-name-specifier.
-  SourceRange getSourceRange() const LLVM_READONLY {
-    return NestedNameSpecifierLoc(Representation, Buffer).getSourceRange();
-  }
-
-  /// Retrieve a nested-name-specifier with location information,
-  /// copied into the given AST context.
-  ///
-  /// \param Context The context into which this nested-name-specifier will be
-  /// copied.
-  NestedNameSpecifierLoc getWithLocInContext(ASTContext &Context) const;
-
-  /// Retrieve a nested-name-specifier with location
-  /// information based on the information in this builder.
-  ///
-  /// This loc will contain references to the builder's internal data and may
-  /// be invalidated by any change to the builder.
-  NestedNameSpecifierLoc getTemporary() const {
-    return NestedNameSpecifierLoc(Representation, Buffer);
-  }
-
-  /// Clear out this builder, and prepare it to build another
-  /// nested-name-specifier with source-location information.
-  void Clear() {
-    Representation = nullptr;
-    BufferSize = 0;
-  }
-
-  /// Retrieve the underlying buffer.
-  ///
-  /// \returns A pair containing a pointer to the buffer of source-location
-  /// data and the size of the source-location data that resides in that
-  /// buffer.
-  std::pair<char *, unsigned> getBuffer() const {
-    return std::make_pair(Buffer, BufferSize);
-  }
-};
-
-/// Insertion operator for diagnostics.  This allows sending
-/// NestedNameSpecifiers into a diagnostic with <<.
-inline const StreamingDiagnostic &operator<<(const StreamingDiagnostic &DB,
-                                             NestedNameSpecifier *NNS) {
-  DB.AddTaggedVal(reinterpret_cast<uint64_t>(NNS),
-                  DiagnosticsEngine::ak_nestednamespec);
-  return DB;
+SourceRange NestedNameSpecifierLocBuilder::getSourceRange() const {
+  return NestedNameSpecifierLoc(Representation, Buffer).getSourceRange();
 }
 
 } // namespace clang
 
 namespace llvm {
 
+template <> struct DenseMapInfo<clang::NestedNameSpecifier> {
+  static clang::NestedNameSpecifier getEmptyKey() { return std::nullopt; }
+
+  static clang::NestedNameSpecifier getTombstoneKey() {
+    return clang::NestedNameSpecifier::getInvalid();
+  }
+
+  static unsigned getHashValue(const clang::NestedNameSpecifier &V) {
+    return hash_combine(V.getAsVoidPointer());
+  }
+};
+
 template <> struct DenseMapInfo<clang::NestedNameSpecifierLoc> {
-  using FirstInfo = DenseMapInfo<clang::NestedNameSpecifier *>;
+  using FirstInfo = DenseMapInfo<clang::NestedNameSpecifier>;
   using SecondInfo = DenseMapInfo<void *>;
 
   static clang::NestedNameSpecifierLoc getEmptyKey() {

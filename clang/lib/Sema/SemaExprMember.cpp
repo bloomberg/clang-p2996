@@ -503,13 +503,14 @@ CheckExtVectorComponent(Sema &S, QualType baseType, ExprValueKind &VK,
 
   QualType VT = S.Context.getExtVectorType(vecType->getElementType(), CompSize);
   // Now look up the TypeDefDecl from the vector type. Without this,
-  // diagostics look bad. We want extended vector types to appear built-in.
+  // diagnostics look bad. We want extended vector types to appear built-in.
   for (Sema::ExtVectorDeclsType::iterator
          I = S.ExtVectorDecls.begin(S.getExternalSource()),
          E = S.ExtVectorDecls.end();
        I != E; ++I) {
     if ((*I)->getUnderlyingType() == VT)
-      return S.Context.getTypedefType(*I);
+      return S.Context.getTypedefType(ElaboratedTypeKeyword::None,
+                                      /*Qualifier=*/std::nullopt, *I);
   }
 
   return VT; // should never get here (a typedef type should always be found).
@@ -901,7 +902,7 @@ Sema::BuildMemberReferenceExpr(Expr *BaseExpr, QualType BaseExprType,
   // build a CXXDependentScopeMemberExpr.
   if (R.wasNotFoundInCurrentInstantiation() ||
       (R.getLookupName().getCXXOverloadedOperator() == OO_Equal &&
-       (SS.isSet() ? SS.getScopeRep()->isDependent()
+       (SS.isSet() ? SS.getScopeRep().isDependent()
                    : BaseExprType->isDependentType())))
     return ActOnDependentMemberExpr(BaseExpr, BaseExprType, IsArrow, OpLoc, SS,
                                     TemplateKWLoc, FirstQualifierInScope,
@@ -1187,6 +1188,14 @@ Sema::BuildMemberReferenceExpr(Scope *S, Expr *Base, SourceLocation OpLoc,
   bool IsRHSDependent = (RHS->isValueDependent() || RHS->isTypeDependent());
   bool IsArrow = (OpKind == tok::arrow);
   if (Base) {
+    // todo [merge:yukino:impl,"fix implicit L->PR member pointer conversion
+    //   not handled"]
+    if (IsArrow) {
+      ExprResult Converted = DefaultFunctionArrayLvalueConversion(Base);
+      if (Converted.isInvalid())
+        return ExprError();
+      Base = Converted.get();
+    }
     const PointerType *PT = Base->getType()->getAs<PointerType>();
     bool IsPtr = (PT != nullptr);
     bool IsRecord = isRecordType(PT ? PT->getPointeeType() : Base->getType());
@@ -1991,11 +2000,13 @@ Sema::BuildImplicitMemberExpr(const CXXScopeSpec &SS,
 
   SourceLocation loc = R.getNameLoc();
 
-  if (auto *NNS = SS.getScopeRep()) {
-    if (auto *Prefix = NNS->getPrefix())
-      NNS = Prefix;
 
-    if (NNS->getAsSplice()) {
+  if (auto NNS = SS.getScopeRep()) {
+    // todo [merge:yukino:maybe-revert]
+    if (NNS.getKind() == NestedNameSpecifier::Kind::Namespace)
+      NNS = NNS.getAsNamespaceAndPrefix().Prefix;
+
+    if (NNS.getSplice()) {
       Diag(SS.getBeginLoc(),
            diag::err_dependent_splice_implicit_member_reference)
           << SourceRange(SS.getBeginLoc(), R.getNameLoc());

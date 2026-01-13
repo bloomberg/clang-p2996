@@ -34,6 +34,7 @@ SpliceSpecifier::SpliceSpecifier(
 SpliceSpecifier *SpliceSpecifier::Create(
     ASTContext &C, SourceLocation LSplice, Expr *Operand,
     SourceLocation RSplice, const ASTTemplateArgumentListInfo *TemplateArgs) {
+  // todo [merge:yukino:maybe-revert,"8-byte alignment with StoredKind"]
   return new (C) SpliceSpecifier(LSplice, Operand, RSplice, TemplateArgs);
 }
 
