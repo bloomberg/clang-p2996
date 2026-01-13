@@ -56,7 +56,7 @@ IdentifierInfo *Parser::getSEHExceptKeyword() {
 }
 
 Parser::Parser(Preprocessor &pp, Sema &actions, bool skipFunctionBodies)
-    :  PP(pp),
+    : PP(pp),
       PreferredType(&actions.getASTContext(), pp.isCodeCompletionEnabled()),
       Actions(actions), Diags(PP.getDiagnostics()), StackHandler(Diags),
       InUsingDeclaration(false), GreaterThanIsOperator(true), ColonIsSacred(false),

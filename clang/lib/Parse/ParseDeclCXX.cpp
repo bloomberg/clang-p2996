@@ -673,10 +673,6 @@ Parser::DeclGroupPtrTy Parser::ParseUsingDeclaration(
     SourceLocation UsingLoc, SourceLocation &DeclEnd,
     ParsedAttributes &PrefixAttrs, AccessSpecifier AS) {
   SourceLocation UELoc;
-  // Flag to the parser we are parsing a using declaration, among others we
-  // wanto to disallow annotations as valid here.
-  llvm::SaveAndRestore<bool> InInitStatementGuard(InUsingDeclaration, true);
-
   bool InInitStatement = Context == DeclaratorContext::SelectionInit ||
                          Context == DeclaratorContext::ForInit;
 
@@ -835,6 +831,10 @@ Parser::DeclGroupPtrTy Parser::ParseUsingDeclaration(
         << FixItHint::CreateRemoval(Range);
     Attrs.takeAllFrom(MisplacedAttrs);
   }
+
+  // Flag to the parser we are parsing a using declaration, among others we
+  // wanto to disallow parsing annotations as valid here.
+  llvm::SaveAndRestore<bool> InInitStatementGuard(InUsingDeclaration, true);
 
   // Maybe this is an alias-declaration.
   if (Tok.is(tok::equal) || InInitStatement) {
