@@ -1804,6 +1804,8 @@ def err_expansion_statements_disabled : Error<
   "'template for' statements are not enabled; use '-fexpansion-statements'">;
 def err_annotation_with_using : Error<
   "annotations are not permitted following an attribute-using-prefix">;
+def err_annotation_used_on : Error<
+  "annotations are not permitted on %select{defining-type-id}0">;
 def err_mixed_attributes_and_annotations : Error<
   "attribute specifier cannot contain both attributes and annotations">;
 def warn_meant_parenthesize_reflection : Warning<
