@@ -8,7 +8,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// RUN: %clang_cc1 %s -std=c++26 -fexpansion-statements
+// RUN: %clang_cc1 %s -std=c++26 -fexpansion-statements -Wno-unused-value -verify
 
 
                           // ================
@@ -331,7 +331,7 @@ namespace destructurable_by_reference {
 
 consteval int fn() {
   struct S { int a; int b; int c; };
-  
+
   S s = {1, 2, 3};
   template for (auto m : s) m *= 2;
   template for (auto &m : s) m *= 2;
@@ -373,3 +373,34 @@ constexpr bool testIssue209() {
 }
 
 static_assert(testIssue209());
+
+// classes inside of expansion statements are still local
+auto some_function() -> void {
+  template for (constexpr int I : {0}) {
+    struct S {
+      static constexpr int value = 42; // expected-error {{not allowed in local struct}}
+    };
+  }
+}
+
+// Issue handling captures within expansion statements
+constexpr auto lambda_capture_in_expansion1(int i) -> int {
+    template for (constexpr int I : {0, 1, 2}) {
+        [&]{ i += I; }();
+        [&](int v){ i += I * v; }(I);
+        [&](auto v){ i += I * v; }(I);
+    }
+    return i;
+}
+
+constexpr auto lambda_capture_in_expansion2(auto i) -> int {
+    template for (constexpr int I : {0, 1, 2}) {
+        [&]{ i += I; }();
+        [&](int v){ i += I * v; }(I);
+        [&](auto v){ i += I * v; }(I);
+    }
+    return i;
+}
+
+static_assert(lambda_capture_in_expansion1(1) == 14);
+static_assert(lambda_capture_in_expansion2(1) == 14);

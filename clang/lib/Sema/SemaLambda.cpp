@@ -74,6 +74,15 @@ static DeclContext *ignoreExpansionStmts(DeclContext *DC) {
   return DC;
 }
 
+static bool isInExpansionStmt(DeclContext *DC) {
+  while (DC && !DC->isTranslationUnit()) {
+    if (isa<ExpansionStmtDecl>(DC))
+      return true;
+    DC = DC->getParent();
+  }
+  return false;
+}
+
 static inline UnsignedOrNone getStackIndexOfNearestEnclosingCaptureReadyLambda(
     ArrayRef<const clang::sema::FunctionScopeInfo *> FunctionScopes,
     ValueDecl *VarToCapture) {
@@ -200,9 +209,10 @@ UnsignedOrNone clang::getStackIndexOfNearestEnclosingCaptureCapableLambda(
 
   const unsigned IndexOfCaptureReadyLambda = *OptionalStackIndex;
   assert(((IndexOfCaptureReadyLambda != (FunctionScopes.size() - 1)) ||
-          S.getCurGenericLambda()) &&
+          S.getCurGenericLambda() ||
+          isInExpansionStmt(S.CurContext)) &&
          "The capture ready lambda for a potential capture can only be the "
-         "current lambda if it is a generic lambda");
+         "current lambda if it is a generic lambda or inside an expansion statement");
 
   const sema::LambdaScopeInfo *const CaptureReadyLambdaLSI =
       cast<sema::LambdaScopeInfo>(FunctionScopes[IndexOfCaptureReadyLambda]);

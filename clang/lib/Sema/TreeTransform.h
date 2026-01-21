@@ -13511,12 +13511,24 @@ TreeTransform<Derived>::TransformDeclRefExpr(DeclRefExpr *E) {
       return ExprError();
   }
 
+  auto NeedsRebuildForExpansion = [&]() {
+    if (!SemaRef.isSynthesizingExpansionStmt())
+      return false;
+    auto *VD = dyn_cast<VarDecl>(ND);
+    if (!VD || !VD->hasLocalStorage())
+      return false;
+    for (auto *DC = VD->getDeclContext(); DC; DC = DC->getParent())
+      if (isa<ExpansionStmtDecl>(DC))
+        return false;
+    return true;
+  };
   if (!getDerived().AlwaysRebuild() &&
       !E->isCapturedByCopyInLambdaWithExplicitObjectParameter() &&
       QualifierLoc == E->getQualifierLoc() && ND == E->getDecl() &&
       Found == E->getFoundDecl() &&
       NameInfo.getName() == E->getDecl()->getDeclName() &&
-      !E->hasExplicitTemplateArgs()) {
+      !E->hasExplicitTemplateArgs() &&
+      !NeedsRebuildForExpansion()) {
     // Mark it referenced in the new context regardless.
     // FIXME: this is a bit instantiation-specific.
     SemaRef.MarkDeclRefReferenced(E);

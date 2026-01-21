@@ -2087,6 +2087,7 @@ Decl *TemplateDeclInstantiator::VisitExpansionStmtDecl(ExpansionStmtDecl *D) {
   // Enter the scope of this instantiation. We don't use
   // PushDeclContext because we don't have a scope.
   Sema::ContextRAII savedContext(SemaRef, Result, /*NewThis=*/false);
+  Sema::ExpansionStmtSynthesisRAII ExpansionGuard(SemaRef);
 
   StmtResult SR = SemaRef.SubstStmt(OldStmt, TemplateArgs);
   if (SR.isInvalid())
