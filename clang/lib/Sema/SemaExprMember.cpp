@@ -884,6 +884,31 @@ static bool isPointerToRecordType(QualType T) {
   return false;
 }
 
+static IndirectFieldDecl *findInjectedIndirectField(CXXRecordDecl *Outer,
+                                                    FieldDecl *FD) {
+  if (!Outer || !FD)
+    return nullptr;
+
+  DeclarationName N = FD->getDeclName();
+  if (!N)
+    return nullptr;
+
+  DeclContext::lookup_result R = Outer->lookup(N);
+  for (NamedDecl *ND : R) {
+    auto *IFD = dyn_cast<IndirectFieldDecl>(ND);
+    if (!IFD)
+      continue;
+
+    // The injected decl’s chain ends with the actual field inside the anonymous
+    // record.
+    auto Chain = IFD->chain();
+    if (!Chain.empty() && Chain.back() == FD)
+      return IFD;
+  }
+
+  return nullptr;
+}
+
 ExprResult
 Sema::BuildMemberReferenceExpr(Expr *BaseExpr, QualType BaseExprType,
                                SourceLocation OpLoc, bool IsArrow,
@@ -1009,6 +1034,22 @@ Sema::BuildMemberReferenceExpr(Expr *BaseExpr, QualType BaseExprType,
   DeclAccessPair FoundDecl = R.begin().getPair();
   NamedDecl *MemberDecl = R.getFoundDecl();
 
+  // Normalize a FieldDecl to the injected IndirectFieldDecl in the parent
+  // record when the base object is that parent record.
+  if (auto *FD = dyn_cast<FieldDecl>(MemberDecl)) {
+    auto *InnerRD = dyn_cast<RecordDecl>(FD->getDeclContext());
+    if (InnerRD && InnerRD->isAnonymousStructOrUnion()) {
+      auto *OuterRD = dyn_cast<CXXRecordDecl>(InnerRD->getDeclContext());
+      auto *BaseRD = BaseType->getAsCXXRecordDecl();
+      if (OuterRD && BaseRD &&
+          OuterRD->getCanonicalDecl() == BaseRD->getCanonicalDecl()) {
+        if (IndirectFieldDecl *IFD = findInjectedIndirectField(OuterRD, FD)) {
+          MemberDecl = IFD;
+          FoundDecl = DeclAccessPair::make(IFD, IFD->getAccess());
+        }
+      }
+    }
+  }
   // FIXME: diagnose the presence of template arguments now.
 
   // If the decl being referenced had an error, return an error for this
@@ -1234,6 +1275,21 @@ Sema::BuildMemberReferenceExpr(Scope *S, Expr *Base, SourceLocation OpLoc,
 
   DeclarationNameInfo NameInfo(cast<NamedDecl>(ND)->getDeclName(),
                                ND->getLocation());
+  if (auto *FD = dyn_cast<FieldDecl>(ND)) {
+    auto *InnerRD = dyn_cast<RecordDecl>(FD->getDeclContext());
+    if (InnerRD && InnerRD->isAnonymousStructOrUnion()) {
+      if (auto *OuterRD = dyn_cast<CXXRecordDecl>(InnerRD->getDeclContext())) {
+        if (IndirectFieldDecl *IFD = findInjectedIndirectField(OuterRD, FD)) {
+          ND = IFD;
+          NameInfo = DeclarationNameInfo(IFD->getDeclName(), IFD->getLocation());
+        }
+      }
+    }
+  }
+  LookupResult LR(*this, NameInfo, LookupMemberName);
+  if (LR.empty())
+    LR.addDecl(ND);
+  LR.resolveKind();
   {
     CXXRecordDecl *DerivedRecord = [](QualType QT) {
       if (QualType PT = QT->getPointeeType(); !PT.isNull())
@@ -1257,10 +1313,6 @@ Sema::BuildMemberReferenceExpr(Scope *S, Expr *Base, SourceLocation OpLoc,
     }
   }
 
-  LookupResult LR(*this, NameInfo, LookupMemberName);
-  if (LR.empty())
-    LR.addDecl(ND);
-  LR.resolveKind();
 
   // Obnoxious translating of TemplateArgumentList to TemplateArgumentListInfo..
   if (auto *FD = dyn_cast<FunctionDecl>(ND);
