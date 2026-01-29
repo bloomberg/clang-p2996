@@ -19261,6 +19261,12 @@ bool Sema::tryCaptureVariable(
   if (VD) {
     if (VD->isInitCapture())
       VarDC = VarDC->getParent();
+    // Constexpr expansion variables (including reflections) don't need to be
+    // captured during synthesis - they're compile-time constants specific to
+    // each expansion iteration. Return early to avoid capture analysis.
+    if (VD->isConstexpr() && VD->isUsableInConstantExpressions(Context) &&
+        IsSynthesizingExpansionStmt)
+      return true;
   } else {
     VD = Var->getPotentiallyDecomposedVarDecl();
   }
@@ -19314,6 +19320,7 @@ bool Sema::tryCaptureVariable(
   bool Nested = false;
   bool Explicit = (Kind != TryCaptureKind::Implicit);
   unsigned FunctionScopesIndex = MaxFunctionScopesIndex;
+  bool TraversedExpansionStmt = false;
   do {
 
     LambdaScopeInfo *LSI = nullptr;
@@ -19361,6 +19368,7 @@ bool Sema::tryCaptureVariable(
     // Expansion statements are DeclContexts but don't have FunctionScopeInfo
     // entries. Just traverse through them.
     if (isa<ExpansionStmtDecl>(DC)) {
+      TraversedExpansionStmt = true;
       DC = ParentDC;
       continue;
     }
@@ -19489,6 +19497,31 @@ bool Sema::tryCaptureVariable(
     if (CSI->ImpCaptureStyle == CapturingScopeInfo::ImpCap_None && !Explicit) {
       // No capture-default, and this is not an explicit capture
       // so cannot capture this variable.
+      // Exception: Non-type template parameters and constexpr expansion variables
+      // don't need to be captured - they're compile-time constants.
+      if (isa<NonTypeTemplateParmDecl>(Var)) {
+        // Successfully "captured" (no actual capture needed)
+        FunctionScopesIndex = MaxFunctionScopesIndex - 1;
+        break;
+      }
+      // Only skip capture for constexpr variables usable in constant expressions.
+      // This includes expansion variables (scalars and reflections) but we need to
+      // be careful not to include regular constexpr struct variables.
+      // During expansion synthesis or when we've traversed an expansion statement,
+      // allow skipping capture. Otherwise, require the variable to have scalar or
+      // consteval-only type (not regular structs).
+      bool InExpansionStmt = IsSynthesizingExpansionStmt || TraversedExpansionStmt;
+      if (VD && VD->isConstexpr() && VD->isUsableInConstantExpressions(Context)) {
+        bool AllowSkipCapture = InExpansionStmt ||
+                                 Var->getType()->isScalarType() ||
+                                 Var->getType()->isConstevalOnly();
+        if (AllowSkipCapture) {
+          // Constexpr expansion variables (or other compile-time constants)
+          // don't need to be captured.
+          FunctionScopesIndex = MaxFunctionScopesIndex - 1;
+          break;
+        }
+      }
       if (BuildAndDiagnose) {
         Diag(ExprLoc, diag::err_lambda_impcap) << Var;
         Diag(Var->getLocation(), diag::note_previous_decl) << Var;
