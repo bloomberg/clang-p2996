@@ -1536,6 +1536,32 @@ QualType Sema::BuildReflectionSpliceTypeLoc(TypeLocBuilder &TLB,
   return SpliceTy;
 }
 
+static ValueDecl *normalizeSplicedMemberDecl(ValueDecl *VD) {
+  auto *FD = dyn_cast_or_null<FieldDecl>(VD);
+  if (!FD)
+    return VD;
+
+  auto *InnerRD = dyn_cast<RecordDecl>(FD->getDeclContext());
+  if (!InnerRD || !InnerRD->isAnonymousStructOrUnion())
+    return VD;
+
+  // Walk up through anonymous records; the injected decl we want lives in the
+  // first non-anonymous containing record.
+  DeclContext *DC = InnerRD->getDeclContext();
+  auto *OuterRD = dyn_cast<CXXRecordDecl>(DC);
+  while (OuterRD && OuterRD->isAnonymousStructOrUnion()) {
+    DC = OuterRD->getDeclContext();
+    OuterRD = dyn_cast<CXXRecordDecl>(DC);
+  }
+  if (!OuterRD)
+    return VD;
+
+  if (IndirectFieldDecl *IFD = Sema::findInjectedIndirectField(OuterRD, FD))
+    return IFD;
+
+  return VD;
+}
+
 ExprResult Sema::BuildReflectionSpliceExpr(SourceLocation TemplateKWLoc,
                                            SpliceSpecifier *Splice,
                                            bool AllowMemberReference) {
@@ -1593,12 +1619,12 @@ ExprResult Sema::BuildReflectionSpliceExpr(SourceLocation TemplateKWLoc,
       if (auto *VD = dyn_cast<VarDecl>(TheDecl);
           VD && CheckSpliceVar(*this, VD, Splice->getSourceRange()))
         return ExprError();
+      auto * VD = normalizeSplicedMemberDecl(cast<ValueDecl>(TheDecl));
 
       // Create a new DeclRefExpr, since the operand of the reflect expression
       // was parsed in an unevaluated context (but a splice expression is not
       // necessarily, and frequently not, in such a context).
-      Result = CreateRefToDecl(*this, cast<ValueDecl>(TheDecl),
-                               Splice->getBeginLoc());
+      Result = CreateRefToDecl(*this, VD, Splice->getBeginLoc());
       MarkDeclRefReferenced(cast<DeclRefExpr>(Result), nullptr);
       Result = CXXSpliceExpr::Create(Context, Result->getValueKind(),
                                      TemplateKWLoc, Splice, Result,

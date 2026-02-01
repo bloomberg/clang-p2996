@@ -15689,6 +15689,31 @@ public:
 
   const CXXMetafunctionExpr::ImplFn &getMetafunctionCb(unsigned FnID);
 
+  static IndirectFieldDecl *findInjectedIndirectField(CXXRecordDecl *Outer,
+                                                      FieldDecl *FD) {
+    if (!Outer || !FD)
+      return nullptr;
+
+    DeclarationName N = FD->getDeclName();
+    if (!N)
+      return nullptr;
+
+    DeclContext::lookup_result R = Outer->lookup(N);
+    for (NamedDecl *ND : R) {
+      auto *IFD = dyn_cast<IndirectFieldDecl>(ND);
+      if (!IFD)
+        continue;
+
+      // The injected decl’s chain ends with the actual field inside the anonymous
+      // record.
+      auto Chain = IFD->chain();
+      if (!Chain.empty() && Chain.back() == FD)
+        return IFD;
+    }
+
+    return nullptr;
+  }
+
 private:
   // Lambdas having bound references to this Sema object, used to evaluate
   // metafunction (C++26, P2996) at constant evaluation time.
