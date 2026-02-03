@@ -8,7 +8,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// RUN: %clang_cc1 %s -std=c++26 -fexpansion-statements -Wno-unused-value -verify
+// RUN: %clang_cc1 %s -std=c++26 -freflection -fexpansion-statements -Wno-unused-value -verify
 
 
                           // ================
@@ -389,6 +389,7 @@ constexpr auto lambda_capture_in_expansion1(int i) -> int {
         [&]{ i += I; }();
         [&](int v){ i += I * v; }(I);
         [&](auto v){ i += I * v; }(I);
+        i += []{ return I; }();
     }
     return i;
 }
@@ -398,9 +399,26 @@ constexpr auto lambda_capture_in_expansion2(auto i) -> int {
         [&]{ i += I; }();
         [&](int v){ i += I * v; }(I);
         [&](auto v){ i += I * v; }(I);
+        i += []{ return I; }();
     }
     return i;
 }
 
-static_assert(lambda_capture_in_expansion1(1) == 14);
-static_assert(lambda_capture_in_expansion2(1) == 14);
+static_assert(lambda_capture_in_expansion1(1) == 17);
+static_assert(lambda_capture_in_expansion2(1) == 17);
+
+using info = decltype(^^::);
+
+consteval auto process(info) -> int {
+  return 42;
+}
+
+auto parse_options() -> void {
+  template for (constexpr auto dm : {^^int}) {
+    auto lam = [](int x){
+      constexpr int p = process(dm);
+      return x + p;
+    };
+    (void)lam;
+  }
+}
