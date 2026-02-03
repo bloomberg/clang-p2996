@@ -26,3 +26,7 @@ struct foo {
 constexpr foo bar { .i = 11, .a = 1 };
 static_assert(bar.[:^^foo::a:] == 1);
 static_assert(bar.*&[:^^foo::a:] == 1);
+
+int main() {
+  return 0;
+}
