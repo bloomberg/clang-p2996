@@ -2170,23 +2170,6 @@ consteval auto alignment_of(info r) -> size_t {
   return __metafunction(detail::__metafn_alignment_of, r);
 }
 
-/*
-// We need an incomplete enum
-enum class E : int;
-
-consteval {
-  define_enum(
-  ^^E,
-  {
-    enum_member_spec{.name="a", .value=meta::reflect_constant(1)},
-    enum_member_spec{.name="b"},
-     ...
-  });
-}
-
-// static_assert(E::b  == 2);
-
-*/
 struct enum_member_properties {
   string name;
   info value = info{};

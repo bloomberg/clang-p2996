@@ -17,8 +17,6 @@
 #ifndef LLVM_CLANG_AST_METAACTIONS_H
 #define LLVM_CLANG_AST_METAACTIONS_H
 
-#include "clang/AST/Decl.h"
-#include "clang/AST/Reflection.h"
 #include <clang/AST/TemplateBase.h>
 #include <clang/AST/Type.h>
 #include <clang/Basic/SourceLocation.h>
