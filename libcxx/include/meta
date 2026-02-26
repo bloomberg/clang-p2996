@@ -522,7 +522,9 @@ enum : unsigned {
   __metafn_is_user_declared,
   __metafn_reflect_result,
   __metafn_data_member_spec,
+  __metafn_enum_member_spec,
   __metafn_define_aggregate,
+  __metafn_define_enum,
   __metafn_offset_of,
   __metafn_size_of,
   __metafn_bit_offset_of,
@@ -2166,6 +2168,48 @@ struct data_member_options {
 // Returns the alignment of the reflected entity.
 consteval auto alignment_of(info r) -> size_t {
   return __metafunction(detail::__metafn_alignment_of, r);
+}
+
+/*
+// We need an incomplete enum
+enum class E : int;
+
+consteval {
+  define_enum(
+  ^^E,
+  {
+    enum_member_spec{.name="a", .value=meta::reflect_constant(1)},
+    enum_member_spec{.name="b"},
+     ...
+  });
+}
+
+// static_assert(E::b  == 2);
+
+*/
+struct enum_member_properties {
+  string name;
+  info value = info{};
+  vector<info> annotations = {};
+  vector<info> attributes = {};
+};
+
+consteval info enum_member_spec(enum_member_properties props) {
+  return __metafunction(detail::__metafn_enum_member_spec,
+                         ^^const char, props.name.size(), props.name.data(), // TODO support utf8 ?
+                        props.value,
+                        props.annotations.size(), props.annotations.begin(),
+                        props.attributes.size(), props.attributes.begin());
+}
+
+template <reflection_range R = initializer_list<info>>
+consteval auto define_enum(info targetEnum, R&& members) {
+  return __metafunction(
+    detail::__metafn_define_enum,
+    targetEnum,
+    ranges::size(members),
+    ranges::data(members)
+  );
 }
 
 // Returns a reflection representing a description of a data member, which may

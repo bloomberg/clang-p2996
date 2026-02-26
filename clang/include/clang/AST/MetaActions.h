@@ -17,6 +17,8 @@
 #ifndef LLVM_CLANG_AST_METAACTIONS_H
 #define LLVM_CLANG_AST_METAACTIONS_H
 
+#include "clang/AST/Decl.h"
+#include "clang/AST/Reflection.h"
 #include <clang/AST/TemplateBase.h>
 #include <clang/AST/Type.h>
 #include <clang/Basic/SourceLocation.h>
@@ -32,6 +34,7 @@ class CXXRecordDecl;
 class Decl;
 class DeclContext;
 class DeclRefExpr;
+class EnumeratorSpec;
 class Expr;
 class FunctionDecl;
 class FunctionTemplateDecl;
@@ -146,9 +149,15 @@ public:
                                         Decl *ContainingDecl,
                                         SourceLocation DefinitionLoc) = 0;
 
-                        // ============================
-                        // Annotation Synthesis Support
-                        // ============================
+  // Synthesize an enumerator using description from 'Spec' and augment 'ED' with it.
+  virtual EnumConstantDecl *
+  SynthesizeEnumerator(EnumDecl *ED, EnumConstantDecl *prevEnum,
+                       const EnumeratorSpec *Spec, Decl *ContainingDecl,
+                       SourceLocation DefinitionLoc) = 0;
+
+  // ============================
+  // Annotation Synthesis Support
+  // ============================
 
   virtual AttributeCommonInfo *SynthesizeAnnotation(Expr *CE,
                                                     SourceLocation Loc) = 0;

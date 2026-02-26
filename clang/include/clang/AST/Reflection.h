@@ -48,7 +48,7 @@ enum class ReflectionKind {
   ///
   /// Corresponds to an APValue (plus a QualType).
   Object,
-  
+
   /// \brief A reflection of a value (i.e., the result of a prvalue).
   ///
   /// Corresponds to an APValue (plus a QualType).
@@ -112,6 +112,9 @@ enum class ReflectionKind {
 
   /// \brief A reflection of an annotation (P2996 ext).
   Annotation,
+
+  /// \brief A reflection of an enumerator for define_enum.
+  EnumeratorSpec,
 };
 
 
@@ -129,6 +132,17 @@ struct TagDataMemberSpec {
   bool operator==(TagDataMemberSpec const& Rhs) const;
   bool operator!=(TagDataMemberSpec const& Rhs) const;
 };
+
+
+// Hold definition of an enumerator for define_enum
+struct EnumeratorSpec {
+  std::string name;
+  bool hasValue;
+  int64_t val;
+  std::vector<APValue> annotations;
+  std::vector<APValue> attributes;
+};
+
 } // namespace clang
 
 #endif

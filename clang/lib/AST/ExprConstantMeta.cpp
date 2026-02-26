@@ -15,6 +15,7 @@
 #include "clang/AST/APValue.h"
 #include "clang/AST/Attr.h"
 #include "clang/AST/CXXInheritance.h"
+#include "clang/AST/Decl.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclGroup.h"
 #include "clang/AST/DeclTemplate.h"
@@ -23,12 +24,14 @@
 #include "clang/AST/RecordLayout.h"
 #include "clang/AST/Reflection.h"
 #include "clang/Basic/DiagnosticMetafn.h"
+#include "clang/Basic/IdentifierTable.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Lex/Lexer.h"
 #include "clang/Lex/Preprocessor.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/Format.h"
 #include "llvm/Support/raw_ostream.h"
+#include <optional>
 
 
 namespace clang {
@@ -587,7 +590,20 @@ static bool data_member_spec(APValue &Result, ASTContext &C, MetaActions &Meta,
                              SourceRange Range, ArrayRef<Expr *> Args,
                              Decl *ContainingDecl);
 
+// TODO
+static bool enum_member_spec(APValue &Result, ASTContext &C, MetaActions &Meta,
+                             EvalFn Evaluator, DiagFn Diagnoser,
+                             bool AllowInjection, QualType ResultTy,
+                             SourceRange Range, ArrayRef<Expr *> Args,
+                             Decl *ContainingDecl);
+
 static bool define_aggregate(APValue &Result, ASTContext &C, MetaActions &Meta,
+                             EvalFn Evaluator, DiagFn Diagnoser,
+                             bool AllowInjection, QualType ResultTy,
+                             SourceRange Range, ArrayRef<Expr *> Args,
+                             Decl *ContainingDecl);
+
+static bool define_enum(APValue &Result, ASTContext &C, MetaActions &Meta,
                              EvalFn Evaluator, DiagFn Diagnoser,
                              bool AllowInjection, QualType ResultTy,
                              SourceRange Range, ArrayRef<Expr *> Args,
@@ -823,7 +839,9 @@ static constexpr Metafunction Metafunctions[] = {
   { Metafunction::MFRK_bool, 1, 1, is_user_declared },
   { Metafunction::MFRK_metaInfo, 2, 2, reflect_result },
   { Metafunction::MFRK_metaInfo, 10, 10, data_member_spec },
+  { Metafunction::MFRK_metaInfo, 8, 8, enum_member_spec },
   { Metafunction::MFRK_metaInfo, 3, 3, define_aggregate },
+  { Metafunction::MFRK_metaInfo, 3, 3, define_enum },
   { Metafunction::MFRK_spliceFromArg, 2, 2, offset_of },
   { Metafunction::MFRK_sizeT, 1, 1, size_of },
   { Metafunction::MFRK_spliceFromArg, 2, 2, bit_offset_of },
@@ -918,6 +936,10 @@ static APValue makeReflection(CXXBaseSpecifier *Base) {
 
 static APValue makeReflection(TagDataMemberSpec *TDMS) {
   return APValue(ReflectionKind::DataMemberSpec, TDMS);
+}
+
+static APValue makeReflection(EnumeratorSpec *EMS) {
+  return APValue(ReflectionKind::EnumeratorSpec, EMS);
 }
 
 static APValue makeReflection(CXX26AnnotationAttr *A) {
@@ -5159,6 +5181,151 @@ bool data_member_spec(APValue &Result, ASTContext &C, MetaActions &Meta,
     MemberTy, Name, Alignment, BitWidth, NoUniqueAddress
   };
   return SetAndSucceed(Result, makeReflection(TDMS));
+}
+
+bool enum_member_spec(APValue &Result, ASTContext &C, MetaActions &Meta,
+                      EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
+                      QualType ResultTy, SourceRange Range,
+                      ArrayRef<Expr *> Args, Decl *ContainingDecl) {
+
+  // TODO diagnostic
+  // TODO annotations
+  // TODO attributes
+  // TODO utf8
+
+  // ARGS:
+  //
+  // ^^const char, s.size(), s.data(),
+  // val,
+  // annotations.size(), annotations.begin(),
+  // attributes.size(), attributes.begin());
+  APValue Scratch;
+  int ArgIdx = 0;
+
+  // Evaluate the character type.
+  if (!Evaluator(Scratch, Args[ArgIdx++], true))
+    return true;
+  QualType CharTy = Scratch.getReflectedType();
+
+  std::string Name;
+  if (!Evaluator(Scratch, Args[ArgIdx++], true))
+    return true;
+  size_t nameLen = Scratch.getInt().getExtValue();
+  Name.resize(nameLen);
+  Name[nameLen]='\0';
+  // Why cant i make EvaluateCharRangeAsString work ?...
+  for (uint64_t k = 0; k < nameLen; ++k) {
+    llvm::APInt Idx(C.getTypeSize(C.getSizeType()), k, false);
+    Expr *Synthesized = IntegerLiteral::Create(C, Idx, C.getSizeType(),
+                                                Args[ArgIdx]->getExprLoc());
+
+    Synthesized = new (C) ArraySubscriptExpr(Args[ArgIdx], Synthesized,
+                                              CharTy, VK_LValue, OK_Ordinary,
+                                              Range.getBegin());
+    if (Synthesized->isValueDependent() || Synthesized->isTypeDependent())
+      return true;
+
+    if (!Evaluator(Scratch, Synthesized, true))
+      return true;
+
+    Name[k] = static_cast<char>(Scratch.getInt().getExtValue());
+  }
+  ArgIdx++;
+  // Value of the enumerator
+  APValue Val;
+  if (!Evaluator(Val, Args[ArgIdx++], true))
+    return true;
+
+  EnumeratorSpec * ES = new (C) EnumeratorSpec{
+    Name,
+    !Val.isNullReflection(),
+    Val.isNullReflection() ? 0: Val.getInt().getExtValue(),
+    {},
+    {}
+  };
+  return SetAndSucceed(Result, makeReflection(ES));
+}
+
+bool define_enum(APValue &Result, ASTContext &C, MetaActions &Meta,
+                 EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
+                 QualType ResultTy, SourceRange Range, ArrayRef<Expr *> Args,
+                 Decl *ContainingDecl) {
+  if (!AllowInjection) {
+    return Diagnoser(Range.getBegin(),
+                     diag::metafn_injected_decl_non_plainly_consteval);
+  }
+  assert(Args[0]->getType()->isReflectionType());
+  APValue Scratch;
+  if (!Evaluator(Scratch, Args[0], true)) {
+    return true;
+  }
+
+  // Checking we have the reflection of an enum type as first arg.
+  if (!Scratch.isReflectedType()) {
+    return DiagnoseReflectionKind(Diagnoser, Range, "an enum type",
+                                  DescriptionOf(Scratch));
+  }
+  QualType TargetEnum = Scratch.getReflectedType();
+  EnumDecl *foundDecl = llvm::dyn_cast<EnumDecl>(findTypeDecl(TargetEnum));
+  if (!foundDecl) {
+    return DiagnoseReflectionKind(Diagnoser, Range, "an enum type",
+                                  DescriptionOf(Scratch));
+  }
+
+  // Need to check we havent seen enumerators for this enum yet...
+  if (!foundDecl->enumerators().empty()) {
+    // Diagnostic on found enumerators
+    return Diagnoser(Range.getBegin(), diag::metafn_enum_already_complete)
+           << TargetEnum.getAsString();
+  }
+
+  // Get nb of enumerators spec.
+  if (!Evaluator(Scratch, Args[1], true))
+    return true;
+  size_t NumEnumerators = static_cast<size_t>(Scratch.getInt().getExtValue());
+  SmallVector<EnumeratorSpec *, 4> EnumSpecs;
+  llvm::FoldingSetNodeID ID;
+  llvm::StringSet<> MemberNames;
+  for (size_t k = 0; k < NumEnumerators; ++k) {
+    // Extract the reflection from the list of member specs.
+    llvm::APInt Idx(C.getTypeSize(C.getSizeType()), k, false);
+    Expr *Synthesized =
+        IntegerLiteral::Create(C, Idx, C.getSizeType(), Args[2]->getExprLoc());
+
+    Synthesized =
+        new (C) ArraySubscriptExpr(Args[2], Synthesized, C.MetaInfoTy,
+                                   VK_LValue, OK_Ordinary, Range.getBegin());
+    if (Synthesized->isValueDependent() || Synthesized->isTypeDependent())
+      return true;
+
+    if (!Evaluator(Scratch, Synthesized, true))
+      return true;
+    if (!Scratch.isReflectedEnumeratorSpec())
+      return DiagnoseReflectionKind(
+          Diagnoser, Range, "a description of an enumerator for 'define_enum'",
+          DescriptionOf(Scratch));
+    EnumSpecs.push_back(Scratch.getReflectedEnumeratorSpec());
+  }
+
+  EnumConstantDecl *runningEnum = nullptr;
+  for (const auto &enumSpec : EnumSpecs) {
+    runningEnum =
+        Meta.SynthesizeEnumerator(foundDecl, runningEnum, enumSpec,
+                                  ContainingDecl, Args[0]->getExprLoc());
+    foundDecl->addDecl(runningEnum);
+  }
+  // TODO complete the enumDecl definition...
+  unsigned NumNegativeBits = 0, NumPositiveBits = 0;
+  (void)C.computeEnumBits(foundDecl->enumerators(), NumNegativeBits, NumPositiveBits);
+  QualType BestType, BestPromotionType;
+  QualType NewType =
+      foundDecl->isFixed() ? foundDecl->getIntegerType() : BestType;
+  // For scoped enums, “promotion” isn’t used for implicit integral promotions;
+  // keeping it equal to the underlying type is a safe default.
+
+  foundDecl->completeDefinition(NewType, NewType, NumNegativeBits,
+                                NumPositiveBits);
+  return SetAndSucceed(Result, makeReflection(foundDecl));
 }
 
 bool define_aggregate(APValue &Result, ASTContext &C, MetaActions &Meta,

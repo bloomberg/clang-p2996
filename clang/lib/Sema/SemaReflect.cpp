@@ -15,16 +15,19 @@
 #include "TypeLocBuilder.h"
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/Attr.h"
+#include "clang/AST/Decl.h"
 #include "clang/AST/DeclBase.h"
 #include "clang/AST/MetaActions.h"
 #include "clang/AST/Metafunction.h"
 #include "clang/Basic/DiagnosticSema.h"
+#include "clang/Basic/SourceLocation.h"
 #include "clang/Sema/EnterExpressionEvaluationContext.h"
 #include "clang/Sema/Lookup.h"
 #include "clang/Sema/ParsedTemplate.h"
 #include "clang/Sema/Sema.h"
 #include "clang/Sema/Template.h"
 #include "clang/Sema/TemplateDeduction.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
 
 using namespace clang;
@@ -485,6 +488,25 @@ public:
     ExprResult Result = S.ActOnCallExpr(S.getCurScope(), Fn, Fn->getExprLoc(),
                                         Args, Range.getEnd(), nullptr);
     return Result.get();
+  }
+
+  EnumConstantDecl *
+  SynthesizeEnumerator(EnumDecl *ED, EnumConstantDecl *prevEnum,
+                       const EnumeratorSpec *enumSpec, Decl *ContainingDecl,
+                       SourceLocation DefinitionLoc) override {
+    IdentifierInfo *II = &(S.Context.Idents.get(enumSpec->name));
+    Expr *Val = enumSpec->hasValue
+                    ? IntegerLiteral::Create(
+                          S.Context, llvm::APSInt::get(enumSpec->val),
+                          S.Context.getSizeType(), DefinitionLoc)
+                    : nullptr;
+    return S.CheckEnumConstant(ED, prevEnum, DefinitionLoc, II, Val);
+
+    // We should use
+    //
+    // return llvm::dyn_cast<EnumConstantDecl>(
+    //     S.ActOnEnumConstant(S.getCurScope(), ED, prevEnum, DefinitionLoc, II,
+    //                         {}, DefinitionLoc, Val));
   }
 
   CXXRecordDecl *DefineAggregate(CXXRecordDecl *IncompleteDecl,

@@ -21,6 +21,7 @@
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/LocInfoType.h"
+#include "clang/AST/Reflection.h"
 #include "clang/AST/Type.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
@@ -964,6 +965,13 @@ TagDataMemberSpec *APValue::getReflectedDataMemberSpec() const {
           const_cast<void *>(getOpaqueReflectionData()));
 }
 
+EnumeratorSpec *APValue::getReflectedEnumeratorSpec() const {
+  assert(getReflectionKind() == ReflectionKind::EnumeratorSpec &&
+         "not a reflection of a description of an enum for define");
+  return reinterpret_cast<EnumeratorSpec *>(
+          const_cast<void *>(getOpaqueReflectionData()));
+}
+
 CXX26AnnotationAttr *APValue::getReflectedAnnotation() const {
   assert(getReflectionKind() == ReflectionKind::Annotation &&
          "not a reflection of an annotation");
@@ -1327,6 +1335,9 @@ void APValue::printPretty(raw_ostream &Out, const PrintingPolicy &Policy,
     case ReflectionKind::DataMemberSpec:
       Repr = "data-member-spec";
       break;
+    case ReflectionKind::EnumeratorSpec:
+      Repr = "enum-for-define-spec";
+      break;
     case ReflectionKind::Annotation:
       Repr = "annotation";
       break;
@@ -1667,6 +1678,7 @@ void APValue::setReflection(ReflectionKind RK, const void *Ptr) {
   case ReflectionKind::Parameter:
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
+  case ReflectionKind::EnumeratorSpec:
   case ReflectionKind::Annotation:
     SelfData.Kind = RK;
     SelfData.Data = Ptr;
