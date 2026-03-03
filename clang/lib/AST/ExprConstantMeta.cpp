@@ -5321,6 +5321,11 @@ bool define_enum(APValue &Result, ASTContext &C, MetaActions &Meta,
   // For scoped enums, “promotion” isn’t used for implicit integral promotions;
   // keeping it equal to the underlying type is a safe default.
 
+  for (auto *ECD : foundDecl->enumerators()) {
+    // C++ [dcl.enum]p4: Following the closing brace of an enum-specifier,
+    // each enumerator has the type of its enumeration.
+    ECD->setType(TargetEnum);
+  }
   foundDecl->completeDefinition(NewType, NewType, NumNegativeBits,
                                 NumPositiveBits);
   return SetAndSucceed(Result, makeReflection(foundDecl));

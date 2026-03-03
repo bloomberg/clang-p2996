@@ -499,7 +499,7 @@ public:
                     : nullptr;
     return S.CheckEnumConstant(ED, prevEnum, DefinitionLoc, II, Val);
 
-    // We should use
+    // We need this really...
     //
     // return llvm::dyn_cast<EnumConstantDecl>(
     //     S.ActOnEnumConstant(S.getCurScope(), ED, prevEnum, DefinitionLoc, II,
