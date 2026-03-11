@@ -367,6 +367,9 @@ struct access_context {
   static consteval auto unchecked() noexcept -> access_context;
 
   consteval auto via(info) const -> access_context;
+
+  // define_enum
+  // ...
 };
 
 consteval auto is_accessible(info r, access_context ctx) -> bool;
@@ -523,6 +526,7 @@ enum : unsigned {
   __metafn_reflect_result,
   __metafn_data_member_spec,
   __metafn_enum_member_spec,
+  __metafn_is_enum_member_spec,
   __metafn_define_aggregate,
   __metafn_define_enum,
   __metafn_offset_of,
@@ -2183,6 +2187,10 @@ consteval info enum_member_spec(enum_member_properties props) {
                         props.value,
                         props.annotations.size(), props.annotations.begin(),
                         props.attributes.size(), props.attributes.begin());
+}
+
+consteval bool is_enum_member_spec(info r) {
+  return __metafunction(detail::__metafn_is_enum_member_spec, r);
 }
 
 template <reflection_range R = initializer_list<info>>

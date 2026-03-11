@@ -576,7 +576,7 @@ public:
     return isReflection() &&
            getReflectionKind() == ReflectionKind::DataMemberSpec;
   }
-  bool isReflectedEnumeratorSpec() const {
+  bool isReflectedEnumMemberSpec() const {
     return isReflection() &&
           getReflectionKind() == ReflectionKind::EnumeratorSpec;
   }

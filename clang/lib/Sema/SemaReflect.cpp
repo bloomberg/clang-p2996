@@ -18,10 +18,12 @@
 #include "clang/AST/DeclBase.h"
 #include "clang/AST/MetaActions.h"
 #include "clang/AST/Metafunction.h"
+#include "clang/AST/Type.h"
 #include "clang/Basic/DiagnosticSema.h"
 #include "clang/Sema/EnterExpressionEvaluationContext.h"
 #include "clang/Sema/Lookup.h"
 #include "clang/Sema/ParsedTemplate.h"
+#include "clang/Sema/ParsedAttr.h"
 #include "clang/Sema/Sema.h"
 #include "clang/Sema/Template.h"
 #include "clang/Sema/TemplateDeduction.h"
@@ -487,23 +489,56 @@ public:
     return Result.get();
   }
 
-  EnumConstantDecl *
-  SynthesizeEnumerator(EnumDecl *ED, EnumConstantDecl *prevEnum,
-                       const EnumeratorSpec *enumSpec, Decl *ContainingDecl,
+  EnumDecl *DefineEnum(EnumDecl *ED, SmallVector<EnumeratorSpec *, 8> EnumSpecs,
+                       Decl *ContainingDecl, QualType TargetEnumType,
+                       const ParsedAttributesView *Attrs,
                        SourceLocation DefinitionLoc) override {
-    IdentifierInfo *II = &(S.Context.Idents.get(enumSpec->name));
-    Expr *Val = enumSpec->hasValue
-                    ? IntegerLiteral::Create(
-                          S.Context, llvm::APSInt::get(enumSpec->val),
-                          S.Context.getSizeType(), DefinitionLoc)
-                    : nullptr;
-    return S.CheckEnumConstant(ED, prevEnum, DefinitionLoc, II, Val);
+    // Copypasta from define_aggregate, seems aplicable enough
+    class RestoreDeclContextTy {
+      Sema &S;
+      DeclContext *DC;
+    public:
+      RestoreDeclContextTy(Sema &S) : S(S), DC(S.CurContext) {}
+      ~RestoreDeclContextTy() { S.CurContext = DC; }
+    } RestoreDC(S);
 
-    // We need this really...
-    //
-    // return llvm::dyn_cast<EnumConstantDecl>(
-    //     S.ActOnEnumConstant(S.getCurScope(), ED, prevEnum, DefinitionLoc, II,
-    //                         {}, DefinitionLoc, Val));
+    // We set the context (Sema) to be the one where the enum was declared
+    S.CurContext = ED->getDeclContext();
+
+    Scope EnumScope(S.getCurScope(), Scope::EnumScope | Scope::DeclScope, S.Diags);
+    ED->startDefinition();
+    S.ActOnTagStartDefinition(&EnumScope, ED);
+
+    Decl* LastEnumConstDecl = nullptr;
+    SmallVector<Decl *, 32> EnumConstantDecls;
+    for (const auto &enumSpec : EnumSpecs) {
+      IdentifierInfo *II = &(S.Context.Idents.get(enumSpec->name));
+      Expr *Val = enumSpec->hasValue
+                      ? IntegerLiteral::Create(
+                            S.Context, llvm::APSInt::get(enumSpec->val),
+                            S.Context.getSizeType(), DefinitionLoc)
+                      : nullptr;
+
+      Decl *EnumConstDecl =
+          S.ActOnEnumConstant(&EnumScope, ED, LastEnumConstDecl, DefinitionLoc,
+                              II, {}, DefinitionLoc, Val);
+      EnumConstantDecls.push_back(EnumConstDecl);
+      LastEnumConstDecl = EnumConstDecl;
+    }
+
+    S.ActOnEnumBody(DefinitionLoc, SourceRange{}, ED, EnumConstantDecls,
+                    &EnumScope, {});
+
+
+    S.ActOnPopScope(DefinitionLoc, &EnumScope);
+    S.ActOnTagFinishDefinition(S.getCurScope(), ED, DefinitionLoc);
+
+    // If this enum is a member of a template instantiation, mark it as explicitly specialized
+    // define_enum provides its own definition rather than inheriting one from the template pattern
+    if (ED->getMemberSpecializationInfo()) {
+      ED->setTemplateSpecializationKind(TSK_ExplicitSpecialization, DefinitionLoc);
+    }
+    return ED;
   }
 
   CXXRecordDecl *DefineAggregate(CXXRecordDecl *IncompleteDecl,

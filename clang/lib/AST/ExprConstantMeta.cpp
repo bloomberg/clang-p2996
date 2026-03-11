@@ -588,12 +588,17 @@ static bool data_member_spec(APValue &Result, ASTContext &C, MetaActions &Meta,
                              SourceRange Range, ArrayRef<Expr *> Args,
                              Decl *ContainingDecl);
 
-// TODO
 static bool enum_member_spec(APValue &Result, ASTContext &C, MetaActions &Meta,
                              EvalFn Evaluator, DiagFn Diagnoser,
                              bool AllowInjection, QualType ResultTy,
                              SourceRange Range, ArrayRef<Expr *> Args,
                              Decl *ContainingDecl);
+
+static bool is_enum_member_spec(APValue &Result, ASTContext &C,
+                                MetaActions &Meta, EvalFn Evaluator,
+                                DiagFn Diagnoser, bool AllowInjection,
+                                QualType ResultTy, SourceRange Range,
+                                ArrayRef<Expr *> Args, Decl *ContainingDecl);
 
 static bool define_aggregate(APValue &Result, ASTContext &C, MetaActions &Meta,
                              EvalFn Evaluator, DiagFn Diagnoser,
@@ -838,6 +843,7 @@ static constexpr Metafunction Metafunctions[] = {
   { Metafunction::MFRK_metaInfo, 2, 2, reflect_result },
   { Metafunction::MFRK_metaInfo, 10, 10, data_member_spec },
   { Metafunction::MFRK_metaInfo, 8, 8, enum_member_spec },
+  { Metafunction::MFRK_bool, 1, 1, is_enum_member_spec },
   { Metafunction::MFRK_metaInfo, 3, 3, define_aggregate },
   { Metafunction::MFRK_metaInfo, 3, 3, define_enum },
   { Metafunction::MFRK_spliceFromArg, 2, 2, offset_of },
@@ -5244,6 +5250,22 @@ bool enum_member_spec(APValue &Result, ASTContext &C, MetaActions &Meta,
   return SetAndSucceed(Result, makeReflection(ES));
 }
 
+bool is_enum_member_spec(APValue &Result, ASTContext &C,
+                         MetaActions &Meta, EvalFn Evaluator,
+                         DiagFn Diagnoser, bool AllowInjection,
+                         QualType ResultTy, SourceRange Range,
+                         ArrayRef<Expr *> Args, Decl *ContainingDecl)
+{
+  assert(Args[0]->getType()->isReflectionType());
+  assert(ResultTy == C.BoolTy);
+
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
+    return true;
+
+  return SetAndSucceed(Result, makeBool(C, RV.isReflectedEnumMemberSpec()));
+}
+
 bool define_enum(APValue &Result, ASTContext &C, MetaActions &Meta,
                  EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
                  QualType ResultTy, SourceRange Range, ArrayRef<Expr *> Args,
@@ -5270,7 +5292,7 @@ bool define_enum(APValue &Result, ASTContext &C, MetaActions &Meta,
                                   DescriptionOf(Scratch));
   }
 
-  // Need to check we havent seen enumerators for this enum yet...
+  // Need to check we only have a fwd declare enum
   if (!foundDecl->enumerators().empty()) {
     // Diagnostic on found enumerators
     return Diagnoser(Range.getBegin(), diag::metafn_enum_already_complete)
@@ -5281,7 +5303,7 @@ bool define_enum(APValue &Result, ASTContext &C, MetaActions &Meta,
   if (!Evaluator(Scratch, Args[1], true))
     return true;
   size_t NumEnumerators = static_cast<size_t>(Scratch.getInt().getExtValue());
-  SmallVector<EnumeratorSpec *, 4> EnumSpecs;
+  SmallVector<EnumeratorSpec *, 8> EnumSpecs;
   llvm::FoldingSetNodeID ID;
   llvm::StringSet<> MemberNames;
   for (size_t k = 0; k < NumEnumerators; ++k) {
@@ -5298,37 +5320,17 @@ bool define_enum(APValue &Result, ASTContext &C, MetaActions &Meta,
 
     if (!Evaluator(Scratch, Synthesized, true))
       return true;
-    if (!Scratch.isReflectedEnumeratorSpec())
+    if (!Scratch.isReflectedEnumMemberSpec())
       return DiagnoseReflectionKind(
           Diagnoser, Range, "a description of an enumerator for 'define_enum'",
           DescriptionOf(Scratch));
     EnumSpecs.push_back(Scratch.getReflectedEnumeratorSpec());
   }
 
-  EnumConstantDecl *runningEnum = nullptr;
-  for (const auto &enumSpec : EnumSpecs) {
-    runningEnum =
-        Meta.SynthesizeEnumerator(foundDecl, runningEnum, enumSpec,
-                                  ContainingDecl, Args[0]->getExprLoc());
-    foundDecl->addDecl(runningEnum);
-  }
-  // TODO complete the enumDecl definition...
-  unsigned NumNegativeBits = 0, NumPositiveBits = 0;
-  (void)C.computeEnumBits(foundDecl->enumerators(), NumNegativeBits, NumPositiveBits);
-  QualType BestType, BestPromotionType;
-  QualType NewType =
-      foundDecl->isFixed() ? foundDecl->getIntegerType() : BestType;
-  // For scoped enums, “promotion” isn’t used for implicit integral promotions;
-  // keeping it equal to the underlying type is a safe default.
-
-  for (auto *ECD : foundDecl->enumerators()) {
-    // C++ [dcl.enum]p4: Following the closing brace of an enum-specifier,
-    // each enumerator has the type of its enumeration.
-    ECD->setType(TargetEnum);
-  }
-  foundDecl->completeDefinition(NewType, NewType, NumNegativeBits,
-                                NumPositiveBits);
-  return SetAndSucceed(Result, makeReflection(foundDecl));
+  EnumDecl *completedEnum =
+      Meta.DefineEnum(foundDecl, EnumSpecs, ContainingDecl,
+                                TargetEnum, nullptr, Args[0]->getExprLoc());
+  return SetAndSucceed(Result, makeReflection(completedEnum));
 }
 
 bool define_aggregate(APValue &Result, ASTContext &C, MetaActions &Meta,
