@@ -149,6 +149,10 @@ AttributeCommonInfo::getNormalizedAttrName(StringRef ScopeName) const {
   return normalizeAttrName(getAttrName()->getName(), ScopeName, getSyntax());
 }
 
+bool AttributeCommonInfo::isMsvcScope() const {
+  return AttrScope.isValid() && AttrScope.getName()->isStr("msvc");
+}
+
 bool AttributeCommonInfo::isGNUScope() const {
   return AttrScope.isValid() && (AttrScope.getName()->isStr("gnu") ||
                                  AttrScope.getName()->isStr("__gnu__"));
