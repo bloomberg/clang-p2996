@@ -27,6 +27,7 @@ class APValue;
 class ASTContext;
 class CXXBaseSpecifier;
 class NamespaceDecl;
+class ParsedAttr;
 class ValueDecl;
 
 struct TagDataMemberSpec;
@@ -115,8 +116,10 @@ enum class ReflectionKind {
 
   /// \brief A reflection of an enumerator for define_enum.
   EnumeratorSpec,
-};
 
+  /// \brief A reflection of an attribute (P3385).
+  Attribute,
+};
 
 /// \brief Representation of a hypothetical data member, which could be used to
 /// complete an incomplete class definition using the 'std::meta::define_class'
@@ -128,6 +131,7 @@ struct TagDataMemberSpec {
   std::optional<size_t> Alignment;
   std::optional<size_t> BitWidth;
   bool NoUniqueAddress;
+  llvm::SmallVector<ParsedAttr *, 2> Attributes;
 
   bool operator==(TagDataMemberSpec const& Rhs) const;
   bool operator!=(TagDataMemberSpec const& Rhs) const;

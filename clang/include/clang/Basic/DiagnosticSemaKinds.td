@@ -3265,6 +3265,12 @@ def err_compute_expansion_size_index : Error<
 def err_expanded_identifier_label : Error<
   "identifier labels are not allowed in expansion statements">;
 
+// P3385
+def p3385_sema_trace_execution_checkpoint : Warning<
+  "(p3385-Sema) trace_execution_checkpoint %0">;
+def p3385_warn_unsupported_attribute : Error<
+  "reflecting over the unsupported '%0' attribute is ill-formed">;
+
 // C++11 char16_t/char32_t
 def warn_cxx98_compat_unicode_type : Warning<
   "'%0' type specifier is incompatible with C++98">,

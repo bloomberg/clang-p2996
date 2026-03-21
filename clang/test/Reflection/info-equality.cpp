@@ -141,6 +141,13 @@ static_assert(^^:: != ^^::myns);
 static_assert(^^::myns != ^^NsAlias);
 static_assert(^^::myns != ^^::myns::inner);
 
+// Check equality of attributes
+static_assert(^^[[nodiscard]] == ^^[[nodiscard]]);
+static_assert(^^[[nodiscard("test")]] != ^^[[nodiscard]]);
+static_assert(^^[[nodiscard("test")]] == ^^[[nodiscard("test")]]);
+static_assert(^^[[nodiscard("test")]] != ^^[[nodiscard("another test")]]);
+static_assert(^^[[nodiscard]] != ^^[[deprecated]]);
+
 constexpr int i = 42;
 constexpr auto i_refl = ^^i;
 constexpr auto i_refl_copy = i_refl;
