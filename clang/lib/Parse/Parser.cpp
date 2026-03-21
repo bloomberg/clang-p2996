@@ -60,8 +60,8 @@ Parser::Parser(Preprocessor &pp, Sema &actions, bool skipFunctionBodies)
       PreferredType(&actions.getASTContext(), pp.isCodeCompletionEnabled()),
       Actions(actions), Diags(PP.getDiagnostics()), StackHandler(Diags),
       InUsingDeclaration(false), GreaterThanIsOperator(true), ColonIsSacred(false),
-      InMessageExpression(false), ParsingInObjCContainer(false),
-      TemplateParameterDepth(0) {
+      InMessageExpression(false), Attrs(AttrFactory),
+      TemplateParameterDepth(0), ParsingInObjCContainer(false) {
   SkipFunctionBodies = pp.isCodeCompletionEnabled() || skipFunctionBodies;
   Tok.startToken();
   Tok.setKind(tok::eof);

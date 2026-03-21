@@ -18,9 +18,11 @@
 #include "clang/AST/DeclBase.h"
 #include "clang/AST/MetaActions.h"
 #include "clang/AST/Metafunction.h"
+#include "clang/AST/Reflection.h"
 #include "clang/Basic/DiagnosticSema.h"
 #include "clang/Sema/EnterExpressionEvaluationContext.h"
 #include "clang/Sema/Lookup.h"
+#include "clang/Sema/ParsedAttr.h"
 #include "clang/Sema/ParsedTemplate.h"
 #include "clang/Sema/Sema.h"
 #include "clang/Sema/Template.h"
@@ -682,6 +684,10 @@ public:
                                              ParsedAttr::Form::CXX11()));
       }
 
+      for (ParsedAttr *PA : MemberSpec->Attributes) {
+        MemberAttrs.addAtEnd(PA);
+      }
+
       // Create declarator for the member.
       Declarator MemberDeclarator(DS, MemberAttrs, DeclaratorContext::Member);
 
@@ -979,6 +985,11 @@ ExprResult Sema::ActOnCXXReflectExpr(SourceLocation OpLoc,
 ExprResult Sema::ActOnCXXReflectExpr(SourceLocation OperatorLoc,
                                      CXXSpliceExpr *E) {
   return BuildCXXReflectExpr(OperatorLoc, E);
+}
+
+ExprResult Sema::ActOnCXXReflectExpr(SourceLocation OperatorLoc,
+                                     ParsedAttr *A) {
+  return BuildCXXReflectExpr(OperatorLoc, A);
 }
 
 /// Returns an expression representing the result of a metafunction operating
@@ -1336,6 +1347,13 @@ ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
 
   return CXXReflectExpr::Create(Context, OperatorLoc, E->getSourceRange(),
                                 ER.Val);
+}
+
+ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
+                                     ParsedAttr *A) {
+  return CXXReflectExpr::Create(
+      Context, OperatorLoc, A->getRange(),
+      APValue{ReflectionKind::Attribute, static_cast<void *>(A)});
 }
 
 ExprResult Sema::BuildCXXMetafunctionExpr(
@@ -1738,6 +1756,7 @@ ExprResult Sema::BuildReflectionSpliceExpr(SourceLocation TemplateKWLoc,
     case ReflectionKind::Parameter:
     case ReflectionKind::DataMemberSpec:
     case ReflectionKind::Annotation:
+    case ReflectionKind::Attribute:
       Diag(Splice->getBeginLoc(),
            diag::err_unexpected_reflection_kind_in_splice)
           << 1 << Splice->getSourceRange();
@@ -1874,6 +1893,7 @@ DeclContext *Sema::TryFindDeclContextOf(SpliceSpecifier *Splice) {
   case ReflectionKind::Parameter:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
     Diag(Splice->getBeginLoc(), diag::err_expected_class_or_namespace)
         << "spliced entity" << getLangOpts().CPlusPlus;
     return nullptr;

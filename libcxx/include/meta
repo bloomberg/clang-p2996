@@ -26,6 +26,14 @@ inline namespace reflection_v2
 // std::meta::info
 using info = decltype(^^int);
 
+// attribute namespace
+enum class AttributeNamespace {
+  None,
+  Clang,
+  GCC,
+  MSVC,
+};
+
 // concept reflection_range
 template <typename R>
 concept reflection_range = see below;
@@ -355,6 +363,10 @@ template <typename T>
 consteval auto is_annotation(info) -> bool;
 consteval auto annotate(info) -> info;
 
+// Attributes reflection (P3385)
+consteval auto is_attribute(info) -> bool;
+consteval auto attributes_of(info r) -> vector<info>;
+
 // modeling access control (P3547)
 struct access_context {
   access_context() = delete;
@@ -392,7 +404,7 @@ template <reflection_range R1 = initializer_list<info>,
 } // namespace meta
 } // namespace std
 
- */
+*/
 
 #include <__config>
 #include <bit>
@@ -424,6 +436,13 @@ concept reflection_range =
   same_as<ranges::range_value_t<R>, info> &&
   same_as<remove_cvref_t<ranges::range_reference_t<R>>, info>;
 
+enum class AttributeNamespace {
+  None,
+  Clang, // Exposition only
+  GCC,   // Exposition only
+  MSVC,  // Exposition only
+};
+
 namespace detail {
 enum : unsigned {
 
@@ -436,6 +455,10 @@ enum : unsigned {
   __metafn_get_next_member_decl_of,
   __metafn_is_structural_type,
   __metafn_map_decl_to_entity,
+  __metafn_is_unscoped_attribute,
+  __metafn_is_clang_attribute,
+  __metafn_is_msvc_attribute,
+  __metafn_is_gcc_attribute,
 
   // P2996 metafunctions
   __metafn_identifier_of,
@@ -542,6 +565,11 @@ enum : unsigned {
   __metafn_get_ith_annotation_of,
   __metafn_is_annotation,
   __metafn_annotate,
+
+  // P3385 attributes reflection
+  __metafn_get_ith_attribute_of,
+  __metafn_is_attribute,
+  __metafn_has_attribute,
 
   // P3493 accessibility metafunctions
   __metafn_access_context,
@@ -768,6 +796,25 @@ struct front_annotation_of {
                           reflectedEntity, ^^sentinel, 0);
   }
 };
+
+#if __has_feature(attribute_reflection)
+
+struct front_attribute_of {
+  consteval info operator()(info reflectedEntity) const {
+    return __metafunction(detail::__metafn_get_ith_attribute_of,
+                          reflectedEntity, ^^sentinel, 0);
+  }
+};
+
+struct next_attribute_of {
+  consteval info operator()(auto /*currItrInfo */, info reflectedEntity,
+                            size_t idx) const {
+    return __metafunction(detail::__metafn_get_ith_attribute_of,
+                          reflectedEntity, ^^sentinel, idx);
+  }
+};
+
+#endif // __has_feature(attribute_reflection)
 
 }  // namespace __range_of_infos
 
@@ -2063,6 +2110,118 @@ consteval auto annotate(info entity, info val) -> info {
 
 #endif  // __has_feature(annotation_attributes)
 
+#if __has_feature(attribute_reflection)
+
+// Returns whether the reflected entity is an attribute.
+consteval auto is_attribute(info r) -> bool {
+  return __metafunction(detail::__metafn_is_attribute, r);
+}
+
+
+enum class attribute_comparison : int64_t {
+  /* 0 is default constructed */
+  ignore_namespace = 1 << 1, // Namespace is ignored during the comparison
+  ignore_argument  = 1 << 2, // The argument is ignored during the comparison
+};
+
+constexpr attribute_comparison operator|(attribute_comparison a, attribute_comparison b) noexcept {
+  return static_cast<attribute_comparison>(
+    static_cast<int64_t>(a) | static_cast<int64_t>(b));
+}
+
+// Return true if the given 'entity' has the given 'attribute' appertained
+// to it
+consteval auto has_attribute(
+  info entity,
+  info attribute
+) -> bool {
+  return __metafunction(detail::__metafn_has_attribute, entity, attribute, attribute_comparison{});
+}
+
+// Return true if the given 'entity' has the given 'attribute' appertained
+// to it. The given 'policy' dictates what participates to the comparisons
+consteval auto has_attribute(
+  info entity,
+  info attribute,
+  attribute_comparison policy
+) -> bool {
+  return __metafunction(detail::__metafn_has_attribute, entity, attribute, policy);
+}
+
+// Returns whether the reflected entity is a clang scoped attribute.
+consteval auto is_unscoped_attribute(info r) -> bool {
+  return __metafunction(detail::__metafn_is_unscoped_attribute, r);
+}
+
+// Returns whether the reflected entity is a clang scoped attribute.
+consteval auto is_clang_attribute(info r) -> bool {
+  return __metafunction(detail::__metafn_is_clang_attribute, r);
+}
+
+// Returns whether the reflected entity is a gcc scoped attribute.
+consteval auto is_gcc_attribute(info r) -> bool {
+  return __metafunction(detail::__metafn_is_gcc_attribute, r);
+}
+
+// Returns whether the reflected entity is a msvc scoped attribute.
+consteval auto is_msvc_attribute(info r) -> bool {
+  return __metafunction(detail::__metafn_is_msvc_attribute, r);
+}
+
+// Return list of attribtes appertaining to r
+consteval auto attributes_of(info r) -> vector<info> {
+  using iterator =
+  __range_of_infos::iterator<__range_of_infos::front_attribute_of,
+                             __range_of_infos::next_attribute_of,
+                             __range_of_infos::map_identity_fn>;
+  using range = __range_of_infos::range<iterator>;
+  auto rng = range{r};
+  return vector<info>{rng.begin(), rng.end()};
+}
+
+// Return list of attribtes appertaining to r, filtering on namespace and identifier
+consteval auto attributes_of(info r,
+                             std::string_view    name,
+                             AttributeNamespace ns = AttributeNamespace::None) -> vector<info> {
+  using namespace std::literals;
+
+  // For demo purpose, it's ok enough
+  // Alternative is to pass it up to the metafunction but we'd have to break our stateless iterator
+  // model.... For now, it s just not worth it (again, it's a demo).
+  auto getIdPart = [](std::string_view token) {
+    if (auto sep = token.find("::"sv); sep != std::string_view::npos && sep + 2 < token.size() ) {
+      return token.substr(sep + 2);
+    }
+    return std::string_view{};
+  };
+
+  auto all = attributes_of(r);
+  vector<info> result;
+  for (auto attribute : all) {
+    bool match = false;
+    switch (ns) {
+      case AttributeNamespace::None:
+        match = is_unscoped_attribute(attribute) && identifier_of(attribute) == name;
+        break;
+      case AttributeNamespace::Clang:
+        match = is_clang_attribute(attribute) && getIdPart(identifier_of(attribute)) == name;
+        break;
+      case AttributeNamespace::GCC:
+        match = is_gcc_attribute(attribute) && getIdPart(identifier_of(attribute)) == name;
+        break;
+      case AttributeNamespace::MSVC:
+        match = is_msvc_attribute(attribute) && getIdPart(identifier_of(attribute)) == name;
+        break;
+      default: break;
+    }
+    if (match)
+      result.push_back(attribute);
+  }
+  return result;
+}
+
+#endif
+
 consteval auto __any_inaccessible(vector<info> const& r, access_context ctx) -> bool {
   for (info i : r) {
     if (!is_accessible(i, ctx)) {
@@ -2160,7 +2319,8 @@ struct data_member_options {
   optional<name_type> name = nullopt;
   optional<int> alignment = nullopt;
   optional<int> width = nullopt;
-  bool no_unique_address = false;
+  [[deprecated("Use .attributes = { ^^[[no_unique_address]] }")]] bool no_unique_address = false;
+  initializer_list<meta::info> attributes = {};
 };
 
 // Returns the alignment of the reflected entity.
@@ -2179,6 +2339,8 @@ consteval auto data_member_spec(info member_type,
   int alignment = options.alignment.value_or(0);
   int width = options.width.value_or(0);
   bool no_unique_address = options.no_unique_address;
+
+  initializer_list<meta::info> attributes = options.attributes;
 
   if (width) {
     if (alignment)
@@ -2209,7 +2371,7 @@ consteval auto data_member_spec(info member_type,
                             !s.empty(), s.size(), ^^const char8_t, s.data(),
                             options.alignment.has_value(), alignment,
                             options.width.has_value(), width,
-                            no_unique_address);
+                            no_unique_address, ranges::size(attributes), ranges::data(attributes));
     } else {
       const string &s = options.name->s;
       return __metafunction(detail::__metafn_data_member_spec,
@@ -2217,7 +2379,7 @@ consteval auto data_member_spec(info member_type,
                             !s.empty(), s.size(), ^^const char, s.data(),
                             options.alignment.has_value(), alignment,
                             options.width.has_value(), width,
-                            no_unique_address);
+                            no_unique_address, ranges::size(attributes), ranges::data(attributes));
     }
   } else {
     return __metafunction(detail::__metafn_data_member_spec,
@@ -2225,7 +2387,7 @@ consteval auto data_member_spec(info member_type,
       false, 0, ^^const char, "",
       options.alignment.has_value(), alignment,
       options.width.has_value(), width,
-      no_unique_address);
+      no_unique_address, ranges::size(attributes), ranges::data(attributes));
   }
 }
 

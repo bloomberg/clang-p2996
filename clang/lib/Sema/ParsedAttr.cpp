@@ -12,10 +12,12 @@
 
 #include "clang/Sema/ParsedAttr.h"
 #include "clang/AST/ASTContext.h"
+#include "clang/AST/Expr.h"
 #include "clang/Basic/AttrSubjectMatchRules.h"
 #include "clang/Basic/IdentifierTable.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Sema/SemaInternal.h"
+#include "llvm/ADT/FoldingSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include <cassert>
 #include <cstddef>
@@ -290,6 +292,104 @@ static bool checkAttributeNumArgsImpl(Sema &S, const ParsedAttr &AL,
     return false;
   }
   return true;
+}
+
+// Bootleg profile when we don't have access to an AST context
+static void ProfileExpr(llvm::FoldingSetNodeID& ID, const Expr* E) {
+  switch (E->getStmtClass()) {
+    case Expr::ImplicitCastExprClass: {
+      auto *ICE = cast<ImplicitCastExpr>(E);
+      ProfileExpr(ID, ICE->getSubExpr());
+      break;
+    }
+    case Expr::StringLiteralClass: {
+      auto *strLiteral = dyn_cast<StringLiteral>(E->IgnoreParenCasts());
+      StringRef stringArgValue = strLiteral->getString();
+      if (!stringArgValue.empty()) {
+        ID.AddInteger(stringArgValue.size());
+        ID.AddString(stringArgValue);
+      }
+      break;
+    }
+    case Expr::IntegerLiteralClass: {
+      auto *intLiteral = dyn_cast<IntegerLiteral>(E->IgnoreParenCasts());
+      auto intArgValue = intLiteral->getValue();
+      ID.AddInteger(intArgValue.getLimitedValue());
+      break;
+    }
+    case Expr::UnaryOperatorClass: {
+      auto *UO = cast<UnaryOperator>(E);
+      ID.AddInteger(UO->getOpcode());
+      ProfileExpr(ID, UO->getSubExpr());
+      break;
+    }
+    case Expr::CXXBoolLiteralExprClass: {
+      auto *boolLiteral = dyn_cast<CXXBoolLiteralExpr>(E->IgnoreParenCasts());
+      ID.AddBoolean(boolLiteral->getValue());
+      break;
+    }
+    case Expr::BinaryOperatorClass: {
+      auto *BO = cast<BinaryOperator>(E);
+      ID.AddInteger(BO->getOpcode());
+      ProfileExpr(ID, BO->getLHS());
+      ProfileExpr(ID, BO->getRHS());
+      break;
+    }
+    case Expr::DeclRefExprClass: {
+      auto *DRE = cast<DeclRefExpr>(E);
+      ID.AddPointer(DRE->getDecl());
+      break;
+    }
+    case Expr::CStyleCastExprClass: {
+      auto *Cast = cast<CStyleCastExpr>(E);
+      ProfileExpr(ID, Cast->getSubExpr());
+      break;
+    }
+    // Roughly 250+ cases missing but sure...
+    default: ID.AddPointer(E);
+  }
+}
+
+void ParsedAttr::profile(llvm::FoldingSetNodeID& ID,
+                         bool isContributingNamespace,
+                         bool isContributingArgument) const
+{
+  // Add syntax form
+  ID.AddInteger(getSyntax());
+
+  // Add the attribute kind
+  ID.AddInteger(getKind());
+
+  // Add the scope name if present
+  if (isContributingNamespace && hasScope()) {
+    StringRef scopeName = getScopeName()->getName();
+    ID.AddInteger(scopeName.size());
+    ID.AddString(scopeName);
+  } else {
+    ID.AddInteger(0);
+    ID.AddString("");
+  }
+
+  // Add the attribute name
+  StringRef attrName = getAttrName()->getName();
+  ID.AddInteger(attrName.size());
+  ID.AddString(attrName);
+
+  if (!isContributingArgument) {
+    return;
+  }
+  // Add attribute arguments
+  ID.AddInteger(getNumArgs());
+  for (unsigned i = 0; i < getNumArgs(); ++i) {
+    auto Arg = getArg(i);
+    if(auto* iloc = Arg.dyn_cast<IdentifierLoc*>()) {
+      auto identName = iloc->getIdentifierInfo()->getName();
+      ID.AddInteger(identName.size());
+      ID.AddString(identName);
+    } else if (auto* expr = Arg.dyn_cast<Expr*>()) {
+      ProfileExpr(ID, expr);
+    }
+  }
 }
 
 bool ParsedAttr::checkExactlyNumArgs(Sema &S, unsigned Num) const {

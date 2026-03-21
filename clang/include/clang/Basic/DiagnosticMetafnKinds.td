@@ -18,7 +18,7 @@ def metafn_no_associated_property : Note<
   "%0 has no %select{type|parent}1">;
 def metafn_cannot_query_property : Note<"cannot query the "
   "%select{type|object|value|size|alignment|parameters|return type|"
-           "annotations}0 of %1">;
+           "annotations|attributes}0 of %1">;
 
 // Ranges of entities.
 def metafn_cannot_introspect_type : Note<
@@ -100,6 +100,13 @@ def metafn_value_not_structural_type : Note<
   "values of non-structural type %0 cannot be represented as reflections">;
 def metafn_result_not_representable : Note<
   "provided %select{value|object}0 cannot be represented by a reflection">;
+
+def metafn_p3385_non_standard_attribute : Warning<
+  "non-standard attribute %0 found when expanding attributes">;
+def metafn_p3385_attributes_of_null: Note<
+  "the null reflection has no associated attributes">;
+def metafn_p3385_no_declaration_for_type : Error<
+  "can not locate declaration for reflected type: %0">;
 
 // Class definition.
 def metafn_name_invalid_identifier : Note<
