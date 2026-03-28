@@ -593,13 +593,13 @@ static bool data_member_spec(APValue &Result, ASTContext &C, MetaActions &Meta,
                              SourceRange Range, ArrayRef<Expr *> Args,
                              Decl *ContainingDecl);
 
-static bool enum_member_spec(APValue &Result, ASTContext &C, MetaActions &Meta,
+static bool enumerator_spec(APValue &Result, ASTContext &C, MetaActions &Meta,
                              EvalFn Evaluator, DiagFn Diagnoser,
                              bool AllowInjection, QualType ResultTy,
                              SourceRange Range, ArrayRef<Expr *> Args,
                              Decl *ContainingDecl);
 
-static bool is_enum_member_spec(APValue &Result, ASTContext &C,
+static bool is_enumerator_spec(APValue &Result, ASTContext &C,
                                 MetaActions &Meta, EvalFn Evaluator,
                                 DiagFn Diagnoser, bool AllowInjection,
                                 QualType ResultTy, SourceRange Range,
@@ -892,8 +892,8 @@ static constexpr Metafunction Metafunctions[] = {
   { Metafunction::MFRK_bool, 1, 1, is_user_declared },
   { Metafunction::MFRK_metaInfo, 2, 2, reflect_result },
   { Metafunction::MFRK_metaInfo, 12, 12, data_member_spec },
-  { Metafunction::MFRK_metaInfo, 8, 8, enum_member_spec },
-  { Metafunction::MFRK_bool, 1, 1, is_enum_member_spec },
+  { Metafunction::MFRK_metaInfo, 8, 8, enumerator_spec },
+  { Metafunction::MFRK_bool, 1, 1, is_enumerator_spec },
   { Metafunction::MFRK_metaInfo, 3, 3, define_aggregate },
   { Metafunction::MFRK_metaInfo, 3, 3, define_enum },
   { Metafunction::MFRK_spliceFromArg, 2, 2, offset_of },
@@ -5673,22 +5673,16 @@ bool data_member_spec(APValue &Result, ASTContext &C, MetaActions &Meta,
   return SetAndSucceed(Result, makeReflection(TDMS));
 }
 
-bool enum_member_spec(APValue &Result, ASTContext &C, MetaActions &Meta,
+bool enumerator_spec(APValue &Result, ASTContext &C, MetaActions &Meta,
                       EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
                       QualType ResultTy, SourceRange Range,
                       ArrayRef<Expr *> Args, Decl *ContainingDecl) {
-
-  // TODO diagnostic
-  // TODO annotations
-  // TODO attributes
-  // TODO utf8
-
-  // ARGS:
-  //
-  // ^^const char, s.size(), s.data(),
-  // val,
-  // annotations.size(), annotations.begin(),
-  // attributes.size(), attributes.begin());
+  // ARGS: {
+  //   ^^const char, s.size(), s.data(),
+  //   val,
+  //   annotations.size(), annotations.begin(),
+  //   attributes.size(), attributes.begin());
+  // }
   APValue Scratch;
   int ArgIdx = 0;
 
@@ -5726,6 +5720,52 @@ bool enum_member_spec(APValue &Result, ASTContext &C, MetaActions &Meta,
   if (!Evaluator(Val, Args[ArgIdx++], true))
     return true;
 
+  // annotations.size(), annotations.begin()
+  if (!Evaluator(Scratch, Args[ArgIdx++], true))
+    return true;
+  size_t nbAnnotReflections = Scratch.getInt().getExtValue();
+  SmallVector<APValue*, 2> annot;
+  for (uint64_t k = 0; k < nbAnnotReflections; ++k) {
+    llvm::APInt Idx(C.getTypeSize(C.getSizeType()), k, false);
+    Expr *Synthesized = IntegerLiteral::Create(C, Idx, C.getSizeType(), Args[ArgIdx]->getExprLoc());
+
+    Synthesized = new (C) ArraySubscriptExpr(Args[ArgIdx], Synthesized,
+                                              C.getUnsignedWCharType(), VK_LValue, OK_Ordinary,
+                                              Range.getBegin());
+    if (Synthesized->isValueDependent() || Synthesized->isTypeDependent())
+      return true;
+    if (!Evaluator(Scratch, Synthesized, true))
+      return true;
+    if (!Scratch.isReflectedValue() && !Scratch.isReflectedObject()) {
+      return DiagnoseReflectionKind(Diagnoser, Range, "a reflected constant", DescriptionOf(Scratch));
+    }
+    annot.push_back(new (C) APValue(Scratch));
+  }
+  ArgIdx++;
+
+  // attributes.size(), // attributes.begin()
+  if (!Evaluator(Scratch, Args[ArgIdx++], true))
+    return true;
+  size_t nbAttrReflections = Scratch.getInt().getExtValue();
+  SmallVector<APValue*, 2> attrs;
+  for (uint64_t k = 0; k < nbAttrReflections; ++k) {
+    llvm::APInt Idx(C.getTypeSize(C.getSizeType()), k, false);
+    Expr *Synthesized = IntegerLiteral::Create(C, Idx, C.getSizeType(), Args[ArgIdx]->getExprLoc());
+
+    Synthesized = new (C) ArraySubscriptExpr(Args[ArgIdx], Synthesized,
+                                              C.MetaInfoTy, VK_LValue, OK_Ordinary,
+                                              Range.getBegin());
+    if (Synthesized->isValueDependent() || Synthesized->isTypeDependent())
+      return true;
+    if (!Evaluator(Scratch, Synthesized, true))
+      return true;
+    if (!Scratch.isReflectedAttribute()) {
+      return DiagnoseReflectionKind(Diagnoser, Range, "a reflection of an attribute", DescriptionOf(Scratch));
+    }
+    attrs.push_back(new (C) APValue(ReflectionKind::Attribute, Scratch.getReflectedAttribute()));
+  }
+  ArgIdx++; // = end()
+
   EnumeratorSpec * ES = new (C) EnumeratorSpec{
     Name,
     !Val.isNullReflection(),
@@ -5736,7 +5776,7 @@ bool enum_member_spec(APValue &Result, ASTContext &C, MetaActions &Meta,
   return SetAndSucceed(Result, makeReflection(ES));
 }
 
-bool is_enum_member_spec(APValue &Result, ASTContext &C,
+bool is_enumerator_spec(APValue &Result, ASTContext &C,
                          MetaActions &Meta, EvalFn Evaluator,
                          DiagFn Diagnoser, bool AllowInjection,
                          QualType ResultTy, SourceRange Range,

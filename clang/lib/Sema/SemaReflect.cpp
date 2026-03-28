@@ -13,6 +13,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "TypeLocBuilder.h"
+#include "clang/lex/Preprocessor.h"
+#include "clang/AST/APValue.h"
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/Attr.h"
 #include "clang/AST/DeclBase.h"
@@ -20,6 +22,7 @@
 #include "clang/AST/Metafunction.h"
 #include "clang/AST/Reflection.h"
 #include "clang/AST/Type.h"
+#include "clang/Basic/AttributeCommonInfo.h"
 #include "clang/Basic/DiagnosticSema.h"
 #include "clang/Sema/EnterExpressionEvaluationContext.h"
 #include "clang/Sema/Lookup.h"
@@ -520,10 +523,37 @@ public:
                             S.Context, llvm::APSInt::get(enumSpec->val),
                             S.Context.getSizeType(), DefinitionLoc)
                       : nullptr;
-
+      ParsedAttributesView attrs;
+      for (APValue * attr: enumSpec->attributes) {
+        attrs.addAtEnd(attr->getReflectedAttribute());
+      }
       Decl *EnumConstDecl =
           S.ActOnEnumConstant(&EnumScope, ED, LastEnumConstDecl, DefinitionLoc,
-                              II, {}, DefinitionLoc, Val);
+                              II, attrs, DefinitionLoc, Val);
+
+      // Attach annotations as CXX26AnnotationAttr directly on the decl.
+      for (APValue *annotVal : enumSpec->annotations) {
+        Expr *OVE = new (S.Context) OpaqueValueExpr(
+            DefinitionLoc,
+            annotVal->getTypeOfReflectedResult(S.Context),
+            VK_PRValue);
+        Expr *CE = ConstantExpr::Create(S.Context, OVE,
+                                        annotVal->getReflectedValue());
+
+        AttributeFactory AttrFactory;
+        ParsedAttributes ParsedAttrs(AttrFactory);
+        SourceRange Range(DefinitionLoc, DefinitionLoc);
+        IdentifierInfo &AnnotII = S.Context.Idents.get("__annotation_placeholder");
+        AttributeCommonInfo *ACI = ParsedAttrs.addNew(
+            &AnnotII, Range, {}, nullptr, 0,
+            ParsedAttr::Form::Annotation(), DefinitionLoc);
+
+        auto *Annot = CXX26AnnotationAttr::Create(S.Context, CE, *ACI);
+        Annot->setValue(annotVal->getReflectedValue());
+        Annot->setEqLoc(DefinitionLoc);
+        EnumConstDecl->addAttr(Annot);
+      }
+
       EnumConstantDecls.push_back(EnumConstDecl);
       LastEnumConstDecl = EnumConstDecl;
     }

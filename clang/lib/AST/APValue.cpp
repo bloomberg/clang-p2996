@@ -1350,7 +1350,7 @@ void APValue::printPretty(raw_ostream &Out, const PrintingPolicy &Policy,
       Repr = "data-member-spec";
       break;
     case ReflectionKind::EnumeratorSpec:
-      Repr = "enum-for-define-spec";
+      Repr = "enumerator-spec";
       break;
     case ReflectionKind::Annotation:
       Repr = "annotation";
