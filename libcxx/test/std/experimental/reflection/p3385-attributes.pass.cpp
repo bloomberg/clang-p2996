@@ -16,7 +16,7 @@
 // <experimental/reflection>
 //
 // [reflection]
-#include <experimental/meta>
+#include <meta>
 
 // 'Foo' mix standard and vendor namespaced, supported and unsupported
 struct [[nodiscard("Standard nodiscard"), deprecated("Standard deprecated")]]
@@ -131,7 +131,7 @@ consteval bool testAttributesofFunction() {
 consteval bool testAttributesOfType() {
   // This should not return the unsupported 'availability'
   static_assert(std::meta::attributes_of(^^Foo).size() == 3);
-  
+
   static_assert(std::meta::has_attribute(^^Foo, stdAttr));
   static_assert(std::meta::has_attribute(^^Foo, stdDeprecated));
   static_assert(std::meta::has_attribute(^^Foo, clangAttr));

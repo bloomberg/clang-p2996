@@ -118,6 +118,8 @@ def metafn_injected_decl_non_plainly_consteval : Note<
   "cannot produce an injected declaration from a non-plainly "
   "constant-evaluated context">;
 
+// define_enum
+def metafn_enum_already_complete: Note<"%0 already has enumerators defined">;
 // Annotation injection.
 def metafn_cannot_annotate : Note<"cannot attach an annotation to %1">;
 

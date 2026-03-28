@@ -114,6 +114,9 @@ enum class ReflectionKind {
   /// \brief A reflection of an annotation (P2996 ext).
   Annotation,
 
+  /// \brief A reflection of an enumerator spec (P4033).
+  EnumeratorSpec,
+
   /// \brief A reflection of an attribute (P3385).
   Attribute,
 };
@@ -133,6 +136,17 @@ struct TagDataMemberSpec {
   bool operator==(TagDataMemberSpec const& Rhs) const;
   bool operator!=(TagDataMemberSpec const& Rhs) const;
 };
+
+
+// Hold definition of an enumerator for define_enum
+struct EnumeratorSpec {
+  std::string name;
+  bool hasValue;
+  int64_t val;
+  SmallVector<APValue*, 2> annotations;
+  SmallVector<APValue*, 2> attributes;
+};
+
 } // namespace clang
 
 #endif

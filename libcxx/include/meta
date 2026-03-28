@@ -379,6 +379,9 @@ struct access_context {
   static consteval auto unchecked() noexcept -> access_context;
 
   consteval auto via(info) const -> access_context;
+
+  // define_enum
+  // ...
 };
 
 consteval auto is_accessible(info r, access_context ctx) -> bool;
@@ -545,7 +548,10 @@ enum : unsigned {
   __metafn_is_user_declared,
   __metafn_reflect_result,
   __metafn_data_member_spec,
+  __metafn_enumerator_spec,
+  __metafn_is_enumerator_spec,
   __metafn_define_aggregate,
+  __metafn_define_enum,
   __metafn_offset_of,
   __metafn_size_of,
   __metafn_bit_offset_of,
@@ -2326,6 +2332,35 @@ struct data_member_options {
 // Returns the alignment of the reflected entity.
 consteval auto alignment_of(info r) -> size_t {
   return __metafunction(detail::__metafn_alignment_of, r);
+}
+
+struct enumerator_options {
+  string name;
+  info value = info{};
+  vector<info> annotations = {};
+  vector<info> attributes = {};
+};
+
+consteval info enumerator_spec(enumerator_options props) {
+  return __metafunction(detail::__metafn_enumerator_spec,
+                         ^^const char, props.name.size(), props.name.data(), // TODO support utf8 ?
+                        props.value,
+                        props.annotations.size(), props.annotations.data(),
+                        props.attributes.size(), props.attributes.data());
+}
+
+consteval bool is_enumerator_spec(info r) {
+  return __metafunction(detail::__metafn_is_enumerator_spec, r);
+}
+
+template <reflection_range R = initializer_list<info>>
+consteval auto define_enum(info targetEnum, R&& members) {
+  return __metafunction(
+    detail::__metafn_define_enum,
+    targetEnum,
+    ranges::size(members),
+    ranges::data(members)
+  );
 }
 
 // Returns a reflection representing a description of a data member, which may
