@@ -211,6 +211,23 @@ consteval bool testAssumeAttribute() {
   return true;
 }
 
+namespace Issue267 {
+  struct X;
+  struct Y;
+  consteval void broken() {
+      const auto options = std::meta::data_member_options{.attributes = {^^[[no_unique_address]]}};
+      std::meta::define_aggregate(^^X, {std::meta::data_member_spec(^^int, options)});
+  };
+  consteval void working() {
+      std::meta::define_aggregate(
+          ^^Y, {std::meta::data_member_spec(^^int, {.attributes = {^^[[no_unique_address]]}})});
+  };
+  consteval {
+      working();
+      broken();
+  }
+}
+
 int main() {
   return 0;
 }
