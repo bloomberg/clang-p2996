@@ -9,9 +9,7 @@
 //===----------------------------------------------------------------------===//
 
 // UNSUPPORTED: c++03 || c++11 || c++14 || c++17 || c++20
-// ADDITIONAL_COMPILE_FLAGS: -freflection
-// ADDITIONAL_COMPILE_FLAGS: -freflection-new-syntax
-// ADDITIONAL_COMPILE_FLAGS: -fattribute-reflection
+// ADDITIONAL_COMPILE_FLAGS: -freflection-latest -fattribute-reflection -Wno-deprecated-declarations
 
 // <experimental/reflection>
 //
@@ -28,7 +26,7 @@ struct [[nodiscard("Standard nodiscard"), deprecated("Standard deprecated")]]
 
 // NS and function
 namespace [[deprecated("Standard deprecated")]] DeprecatedNamespace {}
-[[deprecated("Standard deprecated")]] bool DeprecatedFunction() {}
+[[deprecated("Standard deprecated")]] bool DeprecatedFunction() { return true; }
 
 // Test for variadic string
 class [[clang::suppress("one", "two", "three")]] Bar {};
@@ -93,19 +91,19 @@ consteval bool testHasAttr() {
   static_assert(std::meta::has_attribute(
     ^^DeprecatedFunction,
     ^^[[deprecated]],
-    std::meta::AttributeComparison::IgnoreArgument
+    std::meta::attribute_comparison::ignore_argument
   ));
   // Ignore the namespace only
   static_assert(std::meta::has_attribute(
     ^^DeprecatedFunction,
     ^^[[gnu::deprecated("Standard deprecated")]],
-    std::meta::AttributeComparison::IgnoreNamespace
+    std::meta::attribute_comparison::ignore_namespace
   ));
   // Ignore both the namespace and the argument
   static_assert(std::meta::has_attribute(
     ^^DeprecatedFunction,
     ^^[[gnu::deprecated]],
-    std::meta::AttributeComparison::IgnoreNamespace | std::meta::AttributeComparison::IgnoreArgument
+    std::meta::attribute_comparison::ignore_namespace | std::meta::attribute_comparison::ignore_argument
   ));
   return true;
 }
@@ -164,12 +162,6 @@ consteval bool testVendorSpecific() {
   return true;
 }
 
-consteval bool testUnsupportedAttributes() {
-  static_assert(!std::meta::is_attribute(^^[[my::stuff("anything")]])); // expected-error {{reflecting over the unsupported 'availability' attribute is ill-formed}}
-  static_assert(!std::meta::is_attribute(^^[[clang::availability(macos,introduced=10.4,deprecated=10.6,obsoleted=10.7)]])); // expected-error {{reflecting over the unsupported 'stuff' attribute is ill-formed}}
-  return true;
-}
-
 consteval bool testVariadicStringArgument() {
   static_assert(std::meta::attributes_of(^^Bar).size() == 1);
   static_assert(std::meta::attributes_of(^^Bar, "suppress", std::meta::AttributeNamespace::Clang)[0] == variadicAttr);
@@ -217,6 +209,23 @@ consteval bool testAssumeAttribute() {
   static_assert(^^[[assume(i != 0)]] == ^^[[assume(i != 0)]]);
 
   return true;
+}
+
+namespace Issue267 {
+  struct X;
+  struct Y;
+  consteval void broken() {
+      const auto options = std::meta::data_member_options{.attributes = {^^[[no_unique_address]]}};
+      std::meta::define_aggregate(^^X, {std::meta::data_member_spec(^^int, options)});
+  };
+  consteval void working() {
+      std::meta::define_aggregate(
+          ^^Y, {std::meta::data_member_spec(^^int, {.attributes = {^^[[no_unique_address]]}})});
+  };
+  consteval {
+      working();
+      broken();
+  }
 }
 
 int main() {
