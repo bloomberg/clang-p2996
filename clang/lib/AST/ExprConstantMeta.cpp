@@ -17,6 +17,7 @@
 #include "clang/AST/Attr.h"
 #include "clang/AST/Attrs.inc"
 #include "clang/AST/CXXInheritance.h"
+#include "clang/AST/CharUnits.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclGroup.h"
 #include "clang/AST/DeclTemplate.h"
@@ -3698,8 +3699,18 @@ bool extract(APValue &Result, ASTContext &C, MetaActions &Meta,
       // Only variables may be returned as LValues.
       return Diagnoser(Range.getBegin(), diag::metafn_cannot_extract)
           << 1 << DescriptionOf(RV);
-    } else if (isa<FieldDecl, CXXMethodDecl>(Decl)) {
-      // Extracting a non-static member as a pointer.
+    } else if (isa<FieldDecl, CXXMethodDecl>(Decl)) { // Extracting a non-static member as a pointer.
+      // Branching out for static member function
+      // those would die in later code path otherwise...
+      if (CXXMethodDecl* meth = dyn_cast<CXXMethodDecl>(Decl); meth && meth->isStatic()) {
+        QualType funcPtrType = C.getPointerType(meth->getType());
+        if (funcPtrType.getCanonicalType().getTypePtr() != ResultTy.getCanonicalType().getTypePtr()) {
+          return Diagnoser(Range.getBegin(), diag::metafn_extract_entity_type_mismatch) << ResultTy << DescriptionOf(RV) << funcPtrType << Range;
+        }
+        APValue StaticFuncPtrLV(Decl, CharUnits::Zero(), {}, false, false);
+        return SetAndSucceed(Result, StaticFuncPtrLV);
+      }
+
       if (auto *FD = dyn_cast<FieldDecl>(Decl); FD && FD->isBitField())
         return Diagnoser(Range.getBegin(), diag::metafn_cannot_extract) << 2
             << DescriptionOf(RV) << Range;
