@@ -5735,7 +5735,7 @@ bool enumerator_spec(APValue &Result, ASTContext &C, MetaActions &Meta,
   if (!Evaluator(Scratch, Args[ArgIdx++], true))
     return true;
   size_t nbAnnotReflections = Scratch.getInt().getExtValue();
-  SmallVector<APValue*, 2> annot;
+  SmallVector<APValue*, 2> annotations;
   for (uint64_t k = 0; k < nbAnnotReflections; ++k) {
     llvm::APInt Idx(C.getTypeSize(C.getSizeType()), k, false);
     Expr *Synthesized = IntegerLiteral::Create(C, Idx, C.getSizeType(), Args[ArgIdx]->getExprLoc());
@@ -5750,7 +5750,7 @@ bool enumerator_spec(APValue &Result, ASTContext &C, MetaActions &Meta,
     if (!Scratch.isReflectedValue() && !Scratch.isReflectedObject()) {
       return DiagnoseReflectionKind(Diagnoser, Range, "a reflected constant", DescriptionOf(Scratch));
     }
-    annot.push_back(new (C) APValue(Scratch));
+    annotations.push_back(new (C) APValue(Scratch));
   }
   ArgIdx++;
 
@@ -5758,7 +5758,7 @@ bool enumerator_spec(APValue &Result, ASTContext &C, MetaActions &Meta,
   if (!Evaluator(Scratch, Args[ArgIdx++], true))
     return true;
   size_t nbAttrReflections = Scratch.getInt().getExtValue();
-  SmallVector<APValue*, 2> attrs;
+  SmallVector<APValue*, 2> attributes;
   for (uint64_t k = 0; k < nbAttrReflections; ++k) {
     llvm::APInt Idx(C.getTypeSize(C.getSizeType()), k, false);
     Expr *Synthesized = IntegerLiteral::Create(C, Idx, C.getSizeType(), Args[ArgIdx]->getExprLoc());
@@ -5773,7 +5773,7 @@ bool enumerator_spec(APValue &Result, ASTContext &C, MetaActions &Meta,
     if (!Scratch.isReflectedAttribute()) {
       return DiagnoseReflectionKind(Diagnoser, Range, "a reflection of an attribute", DescriptionOf(Scratch));
     }
-    attrs.push_back(new (C) APValue(ReflectionKind::Attribute, Scratch.getReflectedAttribute()));
+    attributes.push_back(new (C) APValue(ReflectionKind::Attribute, Scratch.getReflectedAttribute()));
   }
   ArgIdx++; // = end()
 
@@ -5781,8 +5781,8 @@ bool enumerator_spec(APValue &Result, ASTContext &C, MetaActions &Meta,
     Name,
     !Val.isNullReflection(),
     Val.isNullReflection() ? 0: Val.getInt().getExtValue(),
-    {},
-    {}
+    annotations,
+    attributes
   };
   return SetAndSucceed(Result, makeReflection(ES));
 }
