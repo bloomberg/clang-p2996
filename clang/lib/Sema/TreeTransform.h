@@ -33,6 +33,7 @@
 #include "clang/AST/StmtOpenACC.h"
 #include "clang/AST/StmtOpenMP.h"
 #include "clang/AST/StmtSYCL.h"
+#include "clang/Basic/UnsignedOrNone.h"
 #include "clang/Basic/DiagnosticParse.h"
 #include "clang/Basic/OpenMPKinds.h"
 #include "clang/Sema/Designator.h"
@@ -9090,9 +9091,9 @@ TreeTransform<Derived>::TransformCXXReflectExpr(CXXReflectExpr *E) {
                                           E->getOperandRange().getBegin(),
                                           Transformed));
   }
+  case ReflectionKind::Attribute:
   case ReflectionKind::Object:
   case ReflectionKind::Value:
-  case ReflectionKind::Attribute:
     return E;
   case ReflectionKind::Null:
   case ReflectionKind::BaseSpecifier:
@@ -9208,23 +9209,16 @@ TreeTransform<Derived>::TransformExplDependentCallExpr(
   return getSema().BuildExplDependentCallExpr(Call.get(), NewDepth);
 }
 
+// Transform only rewrites the size expression and passes the result to
+// Sema::FinishCXXExpansionStmt. Instantiation is deferred until the expansion
+// statement is expanded.
 // Expansions Statements (C++2c, P1306).
 
 template <typename Derived>
 StmtResult
 TreeTransform<Derived>::TransformCXXIndeterminateExpansionStmt(
                                              CXXIndeterminateExpansionStmt *S) {
-  // Transform optional init-statement.
-  Stmt *Init = S->getInit();
-  if (Init) {
-    StmtResult SR = getDerived().TransformStmt(Init,
-                                               StmtDiscardKind::NotDiscarded);
-    if (SR.isInvalid())
-      return StmtError();
-    Init = SR.get();
-  }
-
-  // Transform expansion variable declaration (e.g., could have dependent type).
+  // Transform expansion variable declaration
   StmtResult SR = getDerived().TransformStmt(S->getExpansionVarStmt(),
                                              StmtDiscardKind::NotDiscarded);
   if (SR.isInvalid())
@@ -9237,218 +9231,109 @@ TreeTransform<Derived>::TransformCXXIndeterminateExpansionStmt(
     return StmtError();
   Expr *TParamRef = ER.get();
 
-  // Build a new expansion statement.
+  // Build a new expansion statement - this resolves Indeterminate to
+  // Iterable or Destructurable and computes the size
   SR = SemaRef.BuildCXXExpansionStmt(S->getTemplateKWLoc(), S->getForLoc(),
-                                     S->getLParenLoc(), Init, ExpansionVarStmt,
+                                     S->getLParenLoc(), S->getInit(),
+                                     ExpansionVarStmt,
                                      S->getColonLoc(), S->getRParenLoc(),
                                      TParamRef);
   if (SR.isInvalid())
     return StmtError();
-  Stmt *Rebuilt = SR.get();
 
-  // Transform the body.
-  SR = getDerived().TransformStmt(S->getBody());
-  if (SR.isInvalid())
-    return StmtError();
-  Stmt *Body = SR.get();
+  CXXExpansionStmt *Rebuilt = cast<CXXExpansionStmt>(SR.get());
 
-  // Finish expanding the statement.
-  SR = SemaRef.FinishCXXExpansionStmt(Rebuilt, Body);
-  if (SR.isInvalid())
-    return StmtError();
-
-  return SR.get();
+  // Now we can get the size from the rebuilt (concrete) statement
+  UnsignedOrNone Size = std::nullopt;
+  if (!Rebuilt->hasDependentSize()) {
+    Size = Rebuilt->getNumInstantiations();
+  }
+  return SemaRef.FinishCXXExpansionStmt(S, Size);
 }
 
 template <typename Derived>
 StmtResult
 TreeTransform<Derived>::TransformCXXIterableExpansionStmt(
                                                   CXXIterableExpansionStmt *S) {
-  // Transform optional init-statement.
-  Stmt *Init = S->getInit();
-  if (Init) {
-    StmtResult SR = getDerived().TransformStmt(Init,
-                                               StmtDiscardKind::NotDiscarded);
-    if (SR.isInvalid())
-      return StmtError();
-    Init = SR.get();
-  }
-
-  StmtResult SR;
+  // Transform the range expression (size depends on the range).
   {
-    auto Ctx = Sema::ExpressionEvaluationContext::PotentiallyEvaluated;
-    if (S->getExpansionVariable()->isConstexpr())
-      Ctx = Sema::ExpressionEvaluationContext::ImmediateFunctionContext;
-    EnterExpressionEvaluationContext ExprEvalCtx(getSema(), Ctx);
+    const Expr *Init = S->getExpansionVariable()->getInit();
+    while (const auto *WithCleanups = dyn_cast<ExprWithCleanups>(Init))
+      Init = WithCleanups->getSubExpr();
 
-    // Transform the range variable.
-    // This must be done only once per expansion-statement, so we do it here
-    // rather than in the select-expression.
-    {
-      const Expr *Init = S->getExpansionVariable()->getInit();
-      while (const auto *WithCleanups = dyn_cast<ExprWithCleanups>(Init))
-        Init = WithCleanups->getSubExpr();
+    auto *Select = cast<CXXIterableExpansionSelectExpr>(Init);
+    auto *New = getDerived().TransformDefinition(Select->getBeginLoc(),
+                                                 Select->getRangeVar());
+    if (!New || New->isInvalidDecl())
+      return StmtError();
+  } // No need to keep the new RangeVar; it is already in the current context.
 
-      if (auto *Select = cast<CXXIterableExpansionSelectExpr>(Init)) {
-        auto *New = getDerived().TransformDefinition(Select->getBeginLoc(),
-                                                     Select->getRangeVar());
-        if (!New || New->isInvalidDecl())
-          return StmtError();
+  // Transform size expression (end - begin).
+  ExprResult SizeResult = getDerived().TransformExpr(S->getSizeExpr());
+  if (SizeResult.isInvalid())
+    return StmtError();
+
+  UnsignedOrNone Size = std::nullopt;
+
+  if (Expr *SizeExpr = SizeResult.get()) {
+    if (!SizeExpr->isValueDependent()) {
+      Expr::EvalResult Result;
+      if (SizeExpr->EvaluateAsInt(Result, SemaRef.Context)) {
+        Size = static_cast<unsigned>(Result.Val.getInt().getZExtValue());
       }
     }
-
-    SR = getDerived().TransformStmt(S->getExpansionVarStmt(),
-                                    StmtDiscardKind::NotDiscarded);
-    if (SR.isInvalid())
-      return StmtError();
-    DeclStmt *ExpansionVarStmt = cast<DeclStmt>(SR.get());
-
-    ExprResult TParamRef =
-        getDerived().TransformExpr(cast<Expr>(S->getTParamRef()));
-    ExprResult Size = getDerived().TransformExpr(cast<Expr>(S->getSizeExpr()));
-    if (TParamRef.isInvalid() || Size.isInvalid())
-      return StmtError();
-
-    SR = SemaRef.BuildCXXIterableExpansionStmt(S->getTemplateKWLoc(),
-                                               S->getForLoc(),
-                                               S->getLParenLoc(),
-                                               Init, ExpansionVarStmt,
-                                               S->getColonLoc(),
-                                               S->getRParenLoc(),
-                                               TParamRef.get(),
-                                               Size.get());
   }
-  if (SR.isInvalid())
-    return StmtError();
-  Stmt *Rebuilt = SR.get();
-
-  // Transform the body.
-  SR = getDerived().TransformStmt(S->getBody());
-  if (SR.isInvalid())
-    return StmtError();
-  Stmt *Body = SR.get();
 
   // Finish expanding the statement.
-  return SemaRef.FinishCXXExpansionStmt(Rebuilt, Body);
+  return SemaRef.FinishCXXExpansionStmt(S, Size);
 }
 
 template <typename Derived>
 StmtResult
 TreeTransform<Derived>::TransformCXXDestructurableExpansionStmt(
                                             CXXDestructurableExpansionStmt *S) {
-  // Transform optional init-statement.
-  Stmt *Init = S->getInit();
-  if (Init) {
-    StmtResult SR = getDerived().TransformStmt(Init,
-                                               StmtDiscardKind::NotDiscarded);
-    if (SR.isInvalid())
-      return StmtError();
-    Init = SR.get();
-  }
-
-  // Transform the structured bindings variable.
-  // This must be done only once per expansion-statement, so we do it here
-  // rather than in the select-expression.
+  // Transform the decomposition decl (size depends on it).
   {
     const Expr *Init = S->getExpansionVariable()->getInit();
     while (const auto *WithCleanups = dyn_cast<ExprWithCleanups>(Init))
       Init = WithCleanups->getSubExpr();
-
-    if (auto *Select = cast<CXXDestructurableExpansionSelectExpr>(Init)) {
-      auto *New = getDerived().TransformDefinition(
-          Select->getBeginLoc(), Select->getDecompositionDecl());
-      if (!New || New->isInvalidDecl())
-        return StmtError();
-    }
+    auto *Select = cast<CXXDestructurableExpansionSelectExpr>(Init);
+    auto *New = getDerived().TransformDefinition(
+        Select->getBeginLoc(), Select->getDecompositionDecl());
+    if (!New || New->isInvalidDecl())
+      return StmtError();
   }
 
-  // Transform expansion variable declaration (e.g., could have dependent type).
-  StmtResult SR = getDerived().TransformStmt(S->getExpansionVarStmt(),
-                                             StmtDiscardKind::NotDiscarded);
-  if (SR.isInvalid())
-    return StmtError();
-  DeclStmt *ExpansionVarStmt = cast<DeclStmt>(SR.get());
-
-  // Transform the expression referencing the template parameter.
-  SR = getDerived().TransformStmt(S->getTParamRef());
-  if (SR.isInvalid())
-    return StmtError();
-  DeclRefExpr *TParamRef = cast<DeclRefExpr>(SR.get());
-
-  // Build a new expansion statement.
-  SR = SemaRef.BuildCXXDestructurableExpansionStmt(S->getTemplateKWLoc(),
-                                                   S->getForLoc(),
-                                                   S->getLParenLoc(), Init,
-                                                   ExpansionVarStmt,
-                                                   S->getColonLoc(),
-                                                   S->getRParenLoc(),
-                                                   TParamRef);
-  if (SR.isInvalid())
-    return StmtError();
-  Stmt *Rebuilt = SR.get();
-
-  // Transform the body.
-  SR = getDerived().TransformStmt(S->getBody());
-  if (SR.isInvalid())
-    return StmtError();
-  Stmt *Body = SR.get();
-
-  // Finish expanding the statement.
-  SR = SemaRef.FinishCXXExpansionStmt(Rebuilt, Body);
-  if (SR.isInvalid())
+  // Transform size expression (tuple_size or binding count).
+  ExprResult SizeResult = getDerived().TransformExpr(S->getSizeExpr());
+  if (SizeResult.isInvalid())
     return StmtError();
 
-  return SR.get();
+  // Compute Size.
+  UnsignedOrNone Size = std::nullopt;
+  if (Expr *SizeExpr = SizeResult.get()) {
+    if (!SizeExpr->isValueDependent()) {
+      Expr::EvalResult Result;
+      if (SizeExpr->EvaluateAsInt(Result, SemaRef.Context)) {
+        Size = static_cast<unsigned>(Result.Val.getInt().getZExtValue());
+      }
+    }
+  }
+  return SemaRef.FinishCXXExpansionStmt(S, Size);
 }
 
 template <typename Derived>
 StmtResult
 TreeTransform<Derived>::TransformCXXInitListExpansionStmt(
                                                   CXXInitListExpansionStmt *S) {
-  // Transform optional init-statement.
-  Stmt *Init = S->getInit();
-  if (Init) {
-    StmtResult SR = getDerived().TransformStmt(Init);
-    if (SR.isInvalid())
-      return StmtError();
-    Init = SR.get();
+  // Size comes directly from CXXExpansionInitListExpr.
+  // No transform is needed because it does not depend on outer variables.
+  UnsignedOrNone Size = std::nullopt;
+
+  if (!S->hasDependentSize()) {
+    Size = S->getNumInstantiations();
   }
-
-  // Transform expansion variable declaration (e.g., could have dependent type).
-  StmtResult SR = getDerived().TransformStmt(S->getExpansionVarStmt());
-  if (SR.isInvalid())
-    return StmtError();
-  DeclStmt *ExpansionVarStmt = cast<DeclStmt>(SR.get());
-
-  // Transform the expression referencing the template parameter.
-  SR = getDerived().TransformStmt(S->getTParamRef(),
-                                  StmtDiscardKind::NotDiscarded);
-  if (SR.isInvalid())
-    return StmtError();
-  Expr *TParamRef = cast<Expr>(SR.get());
-
-  // Build a new expansion statement.
-  SR = SemaRef.BuildCXXInitListExpansionStmt(S->getTemplateKWLoc(),
-                                             S->getForLoc(), S->getLParenLoc(),
-                                             Init, ExpansionVarStmt,
-                                             S->getColonLoc(),
-                                             S->getRParenLoc(), TParamRef);
-  if (SR.isInvalid())
-    return StmtError();
-  Stmt *Rebuilt = SR.get();
-
-  // Transform the body.
-  SR = getDerived().TransformStmt(S->getBody());
-  if (SR.isInvalid())
-    return StmtError();
-  Stmt *Body = SR.get();
-
-  // Finish expanding the statement.
-  SR = SemaRef.FinishCXXExpansionStmt(Rebuilt, Body);
-  if (SR.isInvalid())
-    return StmtError();
-
-  return SR.get();
+  return SemaRef.FinishCXXExpansionStmt(S, Size);
 }
 
 template <typename Derived>

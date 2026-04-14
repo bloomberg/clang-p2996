@@ -422,3 +422,38 @@ auto parse_options() -> void {
     (void)lam;
   }
 }
+
+                           // ============================
+                           // non_constant_expansion_size
+                           // ============================
+
+namespace non_constant_expansion_size {
+
+struct range_t { int *b; int *e; };
+int *begin(range_t r);
+int *end(range_t r);
+
+template <typename T>
+void fn(T t) {
+  template for (auto e : t) // expected-error {{could not compute size of expansion}}
+    (void)e;
+}
+
+void run(range_t r) { fn(r); }
+
+}  // namespace non_constant_expansion_size
+
+                           // ====================
+                           // label_diagnostics
+                           // ====================
+
+namespace label_diagnostics {
+
+void fn() {
+  template for (auto e : {1, 2}) {
+    label:; // expected-error {{identifier labels are not allowed in expansion statements}}
+    (void)e;
+  }
+}
+
+}  // namespace label_diagnostics
