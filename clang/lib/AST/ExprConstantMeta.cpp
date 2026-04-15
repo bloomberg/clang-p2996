@@ -783,6 +783,12 @@ static bool reflect_invoke(APValue &Result, ASTContext &C, MetaActions &Meta,
                            SourceRange Range, ArrayRef<Expr *> Args,
                            Decl *ContainingDecl);
 
+static bool reflect_enumerator(APValue &Result, ASTContext &C, MetaActions &Meta,
+                           EvalFn Evaluator, DiagFn Diagnoser,
+                           bool AllowInjection, QualType ResultTy,
+                           SourceRange Range, ArrayRef<Expr *> Args,
+                           Decl *ContainingDecl);
+
 // -----------------------------------------------------------------------------
 // Metafunction table
 //
@@ -893,10 +899,7 @@ static constexpr Metafunction Metafunctions[] = {
   { Metafunction::MFRK_bool, 1, 1, is_user_declared },
   { Metafunction::MFRK_metaInfo, 2, 2, reflect_result },
   { Metafunction::MFRK_metaInfo, 12, 12, data_member_spec },
-  { Metafunction::MFRK_metaInfo, 8, 8, enumerator_spec },
-  { Metafunction::MFRK_bool, 1, 1, is_enumerator_spec },
   { Metafunction::MFRK_metaInfo, 3, 3, define_aggregate },
-  { Metafunction::MFRK_metaInfo, 3, 3, define_enum },
   { Metafunction::MFRK_spliceFromArg, 2, 2, offset_of },
   { Metafunction::MFRK_sizeT, 1, 1, size_of },
   { Metafunction::MFRK_spliceFromArg, 2, 2, bit_offset_of },
@@ -926,10 +929,17 @@ static constexpr Metafunction Metafunctions[] = {
   { Metafunction::MFRK_metaInfo, 0, 0, current_access_context },
   { Metafunction::MFRK_bool, 3, 3, is_accessible },
 
+  // P4033
+  { Metafunction::MFRK_metaInfo, 8, 8, enumerator_spec },
+  { Metafunction::MFRK_bool, 1, 1, is_enumerator_spec },
+  { Metafunction::MFRK_metaInfo, 3, 3, define_enum },
+  { Metafunction::MFRK_metaInfo, 1, 1, reflect_enumerator },
+
   // Other bespoke functions (not proposed at this time)
   { Metafunction::MFRK_bool, 1, 1, is_access_specified },
   { Metafunction::MFRK_metaInfo, 5, 5, reflect_invoke },
 };
+
 constexpr const unsigned NumMetafunctions = sizeof(Metafunctions) /
                                             sizeof(Metafunction);
 
@@ -5868,6 +5878,37 @@ bool define_enum(APValue &Result, ASTContext &C, MetaActions &Meta,
       Meta.DefineEnum(foundDecl, EnumSpecs, ContainingDecl,
                                 TargetEnum, nullptr, Args[0]->getExprLoc());
   return SetAndSucceed(Result, makeReflection(completedEnum));
+}
+
+bool reflect_enumerator(APValue &Result, ASTContext &C, MetaActions &Meta,
+                   EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
+                   QualType ResultTy, SourceRange Range,
+                   ArrayRef<Expr *> Args, Decl *ContainingDecl) {
+  assert(Args[0]->getType()->isReflectionType());
+
+  APValue Scratch;
+  if (!Evaluator(Scratch, Args[0], true))
+    return true;
+  if (!Scratch.isReflectedDecl()) {
+    return DiagnoseReflectionKind(Diagnoser, Range, "a variable of enumeration type",
+                                  DescriptionOf(Scratch));
+  }
+  // enum class C { RED };
+  // C c = C::RED;
+  // enumerator_of(^^c) == ^^C::RED;
+  Decl *D = Scratch.getReflectedDecl();
+  if (auto *VD = llvm::dyn_cast<VarDecl>(D)) {
+    if (VD->hasInit()) {
+      Expr *Init = VD->getInit();
+      Init = Init->IgnoreImplicit(); // skip ghost ast wrapper stuff
+      if (auto *DRE = llvm::dyn_cast<DeclRefExpr>(Init)) {
+        if (auto *ECD = llvm::dyn_cast<EnumConstantDecl>(DRE->getDecl())) {
+          return SetAndSucceed(Result, makeReflection(ECD));
+        }
+      }
+    }
+  }
+  return true;
 }
 
 bool define_aggregate(APValue &Result, ASTContext &C, MetaActions &Meta,

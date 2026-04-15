@@ -402,6 +402,7 @@ template <reflection_range R1 = initializer_list<info>,
   consteval auto reflect_invoke(info target,
                                 R1 &&tmpl_args, R2 &&args) -> info;
 
+consteval info reflect_enumerator(info r);
 
 } // namespace reflection_v2
 } // namespace meta
@@ -548,10 +549,7 @@ enum : unsigned {
   __metafn_is_user_declared,
   __metafn_reflect_result,
   __metafn_data_member_spec,
-  __metafn_enumerator_spec,
-  __metafn_is_enumerator_spec,
   __metafn_define_aggregate,
-  __metafn_define_enum,
   __metafn_offset_of,
   __metafn_size_of,
   __metafn_bit_offset_of,
@@ -580,6 +578,12 @@ enum : unsigned {
   // P3493 accessibility metafunctions
   __metafn_access_context,
   __metafn_is_accessible,
+
+  // P4033
+  __metafn_enumerator_spec,
+  __metafn_is_enumerator_spec,
+  __metafn_define_enum,
+  __metafn_reflect_enumerator,
 
   // Other bespoke functions (not proposed at this time)
   __metafn_is_access_specified,
@@ -2152,6 +2156,10 @@ consteval auto has_attribute(
   attribute_comparison policy
 ) -> bool {
   return __metafunction(detail::__metafn_has_attribute, entity, attribute, policy);
+}
+
+consteval info reflect_enumerator(info r) {
+  return __metafunction(detail::__metafn_reflect_enumerator, r);
 }
 
 // Returns whether the reflected entity is a clang scoped attribute.
