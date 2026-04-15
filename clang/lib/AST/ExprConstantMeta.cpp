@@ -5893,9 +5893,6 @@ bool reflect_enumerator(APValue &Result, ASTContext &C, MetaActions &Meta,
     return DiagnoseReflectionKind(Diagnoser, Range, "a variable of enumeration type",
                                   DescriptionOf(Scratch));
   }
-  // enum class C { RED };
-  // C c = C::RED;
-  // enumerator_of(^^c) == ^^C::RED;
   Decl *D = Scratch.getReflectedDecl();
   if (auto *VD = llvm::dyn_cast<VarDecl>(D)) {
     if (VD->hasInit()) {
