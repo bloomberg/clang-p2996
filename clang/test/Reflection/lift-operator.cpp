@@ -270,3 +270,24 @@ constexpr auto h = ^^:: != ^^int() && true;
   //expected-warning@-1 {{'&&' binds to reflection operand}}
 
 }  // namespace bb_clang_p2996_issue_11_regression_test
+
+                   // ========================================
+                   // bb_clang_p2996_issue_dependent_member_fn
+                   // ========================================
+
+namespace bb_clang_p2996_issue_dependent_member_fn {
+struct A {
+  void f(auto);
+};
+
+static_assert(requires { ^^A::f; });
+
+template <typename T>
+concept C = requires { ^^T::f; };
+
+template <typename T>
+constexpr bool V = requires { ^^T::f; };
+
+static_assert(C<A>);
+static_assert(V<A>);
+}  // namespace bb_clang_p2996_issue_dependent_member_fn
