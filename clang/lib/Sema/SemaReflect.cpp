@@ -532,12 +532,14 @@ public:
 
       // Attach annotations as CXX26AnnotationAttr directly on the decl.
       for (APValue *annotVal : enumSpec->annotations) {
+        APValue LoweredVal = annotVal->isReflectedValue()
+                                 ? annotVal->getReflectedValue()
+                                 : annotVal->getReflectedObject();
         Expr *OVE = new (S.Context) OpaqueValueExpr(
             DefinitionLoc,
             annotVal->getTypeOfReflectedResult(S.Context),
             VK_PRValue);
-        Expr *CE = ConstantExpr::Create(S.Context, OVE,
-                                        annotVal->getReflectedValue());
+        Expr *CE = ConstantExpr::Create(S.Context, OVE, LoweredVal);
 
         AttributeFactory AttrFactory;
         ParsedAttributes ParsedAttrs(AttrFactory);
@@ -548,7 +550,7 @@ public:
             ParsedAttr::Form::Annotation(), DefinitionLoc);
 
         auto *Annot = CXX26AnnotationAttr::Create(S.Context, CE, *ACI);
-        Annot->setValue(annotVal->getReflectedValue());
+        Annot->setValue(LoweredVal);
         Annot->setEqLoc(DefinitionLoc);
         EnumConstDecl->addAttr(Annot);
       }
