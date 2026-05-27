@@ -587,6 +587,18 @@ static void profileReflection(llvm::FoldingSetNodeID &ID, APValue V) {
       ID.AddInteger(TDMS->BitWidth.value());
     return;
   }
+  case ReflectionKind::EnumeratorSpec: {
+    EnumeratorSpec *ES = V.getReflectedEnumeratorSpec();
+    ID.AddString(ES->name);
+    ID.AddBoolean(ES->hasValue);
+    if (ES->hasValue)
+      ID.AddInteger(ES->val);
+    for (APValue *Ann : ES->annotations)
+      Ann->Profile(ID);
+    for (APValue *Attr : ES->attributes)
+      Attr->Profile(ID);
+    return;
+  }
   case ReflectionKind::Object:
   case ReflectionKind::Value:
     llvm_unreachable("lowered value should never represent a value or object");
