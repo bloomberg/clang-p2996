@@ -5867,6 +5867,9 @@ bool define_enum(APValue &Result, ASTContext &C, MetaActions &Meta,
   EnumDecl *completedEnum =
       Meta.DefineEnum(foundDecl, EnumSpecs, ContainingDecl,
                                 TargetEnum, nullptr, Args[0]->getExprLoc());
+  if (!completedEnum) {
+    return true;
+  }
   return SetAndSucceed(Result, makeReflection(completedEnum));
 }
 

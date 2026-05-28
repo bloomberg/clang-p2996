@@ -3271,6 +3271,9 @@ def p3385_sema_trace_execution_checkpoint : Warning<
 def p3385_warn_unsupported_attribute : Error<
   "reflecting over the unsupported '%0' attribute is ill-formed">;
 
+// P4033
+def p4033_sema_define_enum_enumerator : Error<"could not create enumerator %0">;
+
 // C++11 char16_t/char32_t
 def warn_cxx98_compat_unicode_type : Warning<
   "'%0' type specifier is incompatible with C++98">,
@@ -12611,7 +12614,7 @@ def warn_zero_as_null_pointer_constant : Warning<
   InGroup<DiagGroup<"zero-as-null-pointer-constant">>, DefaultIgnore;
 
 def warn_not_eliding_copy_on_return : Warning<
-  "not eliding copy on return">, 
+  "not eliding copy on return">,
   InGroup<DiagGroup<"nrvo">>, DefaultIgnore;
 
 def err_nullability_cs_multilevel : Error<
