@@ -529,6 +529,11 @@ public:
       Decl *EnumConstDecl =
           S.ActOnEnumConstant(&EnumScope, ED, LastEnumConstDecl, DefinitionLoc,
                               II, attrs, DefinitionLoc, Val);
+      if (!EnumConstDecl) {
+        // TODO any rollback we need to do ?...
+        S.Diag(DefinitionLoc, diag::p4033_sema_define_enum_enumerator) << enumSpec->name;
+        return nullptr;
+      }
 
       // Attach annotations as CXX26AnnotationAttr directly on the decl.
       for (APValue *annotVal : enumSpec->annotations) {
