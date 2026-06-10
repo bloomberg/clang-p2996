@@ -5023,6 +5023,43 @@ void CXXNameMangler::mangleReflection(const APValue &R) {
     Out << 't';
 
     TemplateDecl *TD = R.getReflectedTemplate().getAsTemplateDecl();
+
+    // A deduction guide's DeclarationName (CXXDeductionGuideName) has no
+    // <unqualified-name> encoding: mangleTemplateName would reach the
+    // llvm_unreachable in mangleUnqualifiedName. members_of over a
+    // namespace enumerates guides like any other member, and lifting that
+    // list into define_static_array makes each one a reflection template
+    // argument, so they MUST mangle. Encode "dg" + the deduced template's
+    // name + the same '$'-bracketed ODR-hash discriminator used for
+    // overloaded function templates below: every guide for one template
+    // shares a single DeclarationName (and implicit/copy guides can be
+    // enumerated alongside explicit ones once CTAD has been used in the TU),
+    // so the hash of the template head + declaration pattern is what keeps
+    // two different guides for the same template distinct. Cross-TU-stable by
+    // design, preserving legitimate linkonce_odr merging.
+    if (auto *FTD = dyn_cast<FunctionTemplateDecl>(TD)) {
+      if (auto *DG = dyn_cast<CXXDeductionGuideDecl>(FTD->getTemplatedDecl())) {
+        Out << "dg";
+        if (TemplateDecl *Deduced = DG->getDeducedTemplate())
+          mangleTemplateName(Deduced, /*Args=*/{});
+        ODRHash Hash;
+        // The structural hash alone cannot separate an EXPLICIT guide from
+        // the IMPLICIT guide Sema declares for the same-signature
+        // constructor, nor a per-constructor guide from the copy guide when
+        // their signatures coincide (X(X<E>)); fold implicitness and the
+        // deduction-candidate kind in as well -- all of these enumerate
+        // side by side and are distinct reflections.
+        Hash.AddBoolean(DG->isImplicit());
+        DeductionCandidate DCK = DG->getDeductionCandidateKind();
+        Hash.AddBoolean(DCK == DeductionCandidate::Copy);
+        Hash.AddBoolean(DCK == DeductionCandidate::Aggregate);
+        Hash.AddTemplateParameterList(FTD->getTemplateParameters());
+        Hash.AddFunctionDecl(DG, /*SkipBody=*/true);
+        Out << '$' << Hash.CalculateHash() << '$';
+        break;
+      }
+    }
+
     ArrayRef<TemplateArgument> Args;
     mangleTemplateName(TD, Args);
     // The name alone identifies class/variable/alias templates, but function
