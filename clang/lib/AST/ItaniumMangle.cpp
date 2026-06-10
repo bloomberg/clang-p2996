@@ -5079,7 +5079,23 @@ void CXXNameMangler::mangleReflection(const APValue &R) {
     if (auto *FTD = dyn_cast<FunctionTemplateDecl>(TD)) {
       ODRHash Hash;
       Hash.AddTemplateParameterList(FTD->getTemplateParameters());
-      Hash.AddFunctionDecl(FTD->getTemplatedDecl(), /*SkipBody=*/true);
+      const FunctionDecl *Pattern = FTD->getTemplatedDecl();
+      Hash.AddFunctionDecl(Pattern, /*SkipBody=*/true);
+      // AddFunctionDecl silently NO-OPS for a declaration in "specialization
+      // context" (a member template of a class template specialization, the
+      // common members_of shape), so siblings sharing one template head
+      // hashed identically there -- tl::expected<T,E>'s four value()
+      // overloads (const&/&/const&&/&&, identical heads) all folded. Hash
+      // the pattern's function type (return type, parameter
+      // types, cv-quals) and its ref-qualifier (which even
+      // VisitFunctionProtoType omits) as well; the ODR type hash handles the
+      // dependent pattern types that a structural MANGLING of the type
+      // cannot (see above).
+      Hash.AddQualType(Pattern->getType());
+      if (const auto *FPT = Pattern->getType()->getAs<FunctionProtoType>()) {
+        Hash.AddBoolean(FPT->getRefQualifier() == RQ_LValue);
+        Hash.AddBoolean(FPT->getRefQualifier() == RQ_RValue);
+      }
       Out << '$' << Hash.CalculateHash() << '$';
     }
     break;
