@@ -1740,7 +1740,13 @@ StringRef DescriptionOf(APValue RV, bool Granular = true) {
     else if (isa<TypeAliasTemplateDecl>(TD)) return "an alias template";
     else if (isa<VarTemplateDecl>(TD)) return "a variable template";
     else if (isa<ConceptDecl>(TD)) return "a concept";
-    llvm_unreachable("unhandled template kind");
+    else if (isa<BuiltinTemplateDecl>(TD)) return "a builtin template";
+    else if (isa<TemplateTemplateParmDecl>(TD)) return "a template template parameter";
+    // DescriptionOf feeds diagnostics; describing an unanticipated kind must
+    // degrade, never crash (the global namespace enumerates builtin templates
+    // like __make_integer_seq, which reached the unreachable above through a
+    // metafunction's error path).
+    return "a template";
   }
   case ReflectionKind::Namespace: {
     Decl *D = RV.getReflectedNamespace();
