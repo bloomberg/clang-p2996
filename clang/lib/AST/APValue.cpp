@@ -563,6 +563,15 @@ static void profileReflection(llvm::FoldingSetNodeID &ID, APValue V) {
     return;
   }
   case ReflectionKind::Namespace:
+    // A namespace may be re-opened, so reflections of it can wrap different
+    // redeclarations (^^ns names the first block; parent_of(^^member) yields
+    // the block that declared the member). They designate the same entity and
+    // must compare equal: profile the canonical declaration, exactly as the
+    // Template case above does. A NamespaceAliasDecl canonicalizes to its own
+    // first declaration, keeping an alias distinct from the aliased namespace
+    // (the dealias distinction).
+    ID.AddPointer(V.getReflectedNamespace()->getCanonicalDecl());
+    return;
   case ReflectionKind::EntityProxy:
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::Annotation:
