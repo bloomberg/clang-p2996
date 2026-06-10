@@ -5002,6 +5002,33 @@ void CXXNameMangler::mangleReflection(const APValue &R) {
     } else if (auto *DD = dyn_cast<CXXDestructorDecl>(D)) {
       GlobalDecl GD(DD, Dtor_Complete);
       mangle(GD);
+    } else if (auto *DG = dyn_cast<CXXDeductionGuideDecl>(D)) {
+      // A deduction-guide SPECIALIZATION reflection (e.g. obtained via
+      // substitute on the guide template) is Declaration-kind: mangle() would
+      // route it through mangleFunctionEncoding -> mangleUnqualifiedName,
+      // whose CXXDeductionGuideName case is unreachable. Encode it like the
+      // Template-kind guides below: "dg" + the deduced template + an ODR-hash
+      // discriminator, with the specialization's own function type folded in
+      // (AddFunctionDecl no-ops in specialization context, so the type is
+      // what separates Box<int>'s guide from Box<float>'s).
+      Out << "dg";
+      if (TemplateDecl *Deduced = DG->getDeducedTemplate())
+        mangleTemplateName(Deduced, /*Args=*/{});
+      ODRHash Hash;
+      Hash.AddBoolean(DG->isImplicit());
+      DeductionCandidate DCK = DG->getDeductionCandidateKind();
+      Hash.AddBoolean(DCK == DeductionCandidate::Copy);
+      Hash.AddBoolean(DCK == DeductionCandidate::Aggregate);
+      if (FunctionTemplateDecl *Primary = DG->getPrimaryTemplate()) {
+        Hash.AddTemplateParameterList(Primary->getTemplateParameters());
+        Hash.AddFunctionDecl(
+            cast<CXXDeductionGuideDecl>(Primary->getTemplatedDecl()),
+            /*SkipBody=*/true);
+      } else {
+        Hash.AddFunctionDecl(DG, /*SkipBody=*/true);
+      }
+      Hash.AddQualType(DG->getType());
+      Out << '$' << Hash.CalculateHash() << '$';
     } else {
       mangle(cast<NamedDecl>(D));
     }
