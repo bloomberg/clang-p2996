@@ -366,9 +366,14 @@ public:
 
   QualType Substitute(TypeAliasTemplateDecl *TD,
                       ArrayRef<TemplateArgument> TArgs,
+                      bool SuppressDiagnostics,
                       SourceLocation InstantiateLoc) override {
     TemplateArgumentListInfo TAListInfo;
     populateTemplateArgumentListInfo(TAListInfo, TArgs, InstantiateLoc);
+
+    std::optional<Sema::SuppressDiagnosticsRAII> NoDiagnostics;
+    if (SuppressDiagnostics)
+      NoDiagnostics.emplace(S);
 
     // TODO(P2996): Calling 'substitute' should substitute without
     // instantiation. Should a lighter weight call be used?
@@ -378,15 +383,27 @@ public:
 
   FunctionDecl *Substitute(FunctionTemplateDecl *TD,
                            ArrayRef<TemplateArgument> TArgs,
+                           bool SuppressDiagnostics,
                            SourceLocation InstantiateLoc) override {
     void *InsertPos;
     FunctionDecl *Spec = TD->findSpecialization(TArgs, InsertPos);
     if (!Spec) {
       auto *TArgsCopy = TemplateArgumentList::CreateCopy(S.Context, TArgs);
 
+      std::optional<Sema::SuppressDiagnosticsRAII> NoDiagnostics;
+      if (SuppressDiagnostics)
+        NoDiagnostics.emplace(S);
+
       // TODO(P2996): Calling 'substitute' should substitute without
       // instantiation. Should a lighter weight call be used?
       Spec = S.InstantiateFunctionDeclaration(TD, TArgsCopy, InstantiateLoc);
+
+      // Substitution into the declaration can fail in the immediate context
+      // even though the arguments themselves validated (e.g., forming a
+      // reference to void inside a template-id); report failure rather than
+      // crashing on the null result.
+      if (!Spec)
+        return nullptr;
 
       // Only instantiate the body if the signature has an undeduced type.
       if (Spec->getType()->isUndeducedType())
@@ -396,12 +413,17 @@ public:
   }
 
   VarDecl *Substitute(VarTemplateDecl *TD, ArrayRef<TemplateArgument> TArgs,
+                      bool SuppressDiagnostics,
                       SourceLocation InstantiateLoc) override {
     void *InsertPos;
     VarDecl *Spec = TD->findSpecialization(TArgs, InsertPos);
     if (!Spec) {
       TemplateArgumentListInfo TAListInfo;
       populateTemplateArgumentListInfo(TAListInfo, TArgs, InstantiateLoc);
+
+      std::optional<Sema::SuppressDiagnosticsRAII> NoDiagnostics;
+      if (SuppressDiagnostics)
+        NoDiagnostics.emplace(S);
 
       DeclResult Result = S.CheckVarTemplateId(TD, InstantiateLoc,
                                                InstantiateLoc, TAListInfo);
@@ -416,12 +438,17 @@ public:
   }
 
   Expr *Substitute(ConceptDecl *TD, ArrayRef<TemplateArgument> TArgs,
+                   bool SuppressDiagnostics,
                    SourceLocation InstantiateLoc) override {
     TemplateArgumentListInfo TAListInfo;
     populateTemplateArgumentListInfo(TAListInfo, TArgs, InstantiateLoc);
 
     CXXScopeSpec SS;
     DeclarationNameInfo DNI(TD->getDeclName(), InstantiateLoc);
+
+    std::optional<Sema::SuppressDiagnosticsRAII> NoDiagnostics;
+    if (SuppressDiagnostics)
+      NoDiagnostics.emplace(S);
 
     ExprResult Result = S.CheckConceptTemplateId(SS, InstantiateLoc, DNI, TD,
                                                  TD, &TAListInfo);

@@ -79,17 +79,25 @@ public:
                             SourceLocation InstantiateLoc) = 0;
 
   // Returns the specialization 'TD<TArgs...>'. The template arguments are
-  // assumed to be valid for the specialization, as a precondition.
+  // assumed to be valid for the specialization, as a precondition; substitution
+  // into the DECLARATION can still fail (e.g., the substituted declaration
+  // forms a reference to void inside a template-id), in which case a null
+  // result is returned. When 'SuppressDiagnostics' is true, no diagnostics
+  // leak from a failed substitution.
   virtual QualType Substitute(TypeAliasTemplateDecl *TD,
                               ArrayRef<TemplateArgument> TArgs,
+                              bool SuppressDiagnostics,
                               SourceLocation InstantiateLoc) = 0;
   virtual FunctionDecl *Substitute(FunctionTemplateDecl *TD,
                                    ArrayRef<TemplateArgument> TArgs,
+                                   bool SuppressDiagnostics,
                                    SourceLocation InstantiationLoc) = 0;
   virtual VarDecl *Substitute(VarTemplateDecl *TD,
                               ArrayRef<TemplateArgument> TArgs,
+                              bool SuppressDiagnostics,
                               SourceLocation InstantiateLoc) = 0;
   virtual Expr *Substitute(ConceptDecl *TD, ArrayRef<TemplateArgument> TArgs,
+                           bool SuppressDiagnostics,
                            SourceLocation InstantiateLoc) = 0;
 
                           // ========================
