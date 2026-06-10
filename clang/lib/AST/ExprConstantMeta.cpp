@@ -1520,6 +1520,18 @@ static Decl *findIterableMember(MetaActions &Meta, ASTContext &C, Decl *D,
         D->getLexicalDeclContext()->isFileContext())
       DC = D->getLexicalDeclContext();
 
+    // The implicit tag from `extern "C" { typedef struct X X; }` is
+    // semantically injected into the enclosing (file) scope but sits
+    // lexically inside the linkage-spec block. Stepping it via the semantic
+    // chain (getPrevMultDCDeclInSemaContext below) walks BACKWARD out of the
+    // block and silently ENDS the enumeration, dropping every member
+    // declared after the block -- Python.h's pytypedefs.h shape truncated
+    // members_of(^^::) mid-header. Walk the lexical block instead; the
+    // pop-out logic resumes at the enclosing scope when the block ends.
+    if (DC != D->getLexicalDeclContext() &&
+        isa<LinkageSpecDecl>(D->getLexicalDeclContext()))
+      DC = D->getLexicalDeclContext();
+
     if (D->getLexicalDeclContext() == DC) {
       // Get the next declaration in the DeclContext.
       //
@@ -1543,10 +1555,19 @@ static Decl *findIterableMember(MetaActions &Meta, ASTContext &C, Decl *D,
         if (!D) {
           auto *Canonical = cast<NamespaceDecl>(DC->getPrimaryContext());
           D = Canonical->getLastMultDCSemaDecl();
+          // Skip multi-DC decls that sit lexically inside a linkage-spec
+          // block (the implicit tag from `extern "C" { typedef struct X X; }`
+          // is semantically a namespace member): they are enumerated through
+          // the block itself, and re-entering one here would cycle the walk
+          // forever (the lexical rewrite above would re-walk the block).
+          while (D && isa<LinkageSpecDecl>(D->getLexicalDeclContext()))
+            D = D->getPrevMultDCDeclInSemaContext();
         }
       }
     } else {
       D = D->getPrevMultDCDeclInSemaContext();
+      while (D && isa<LinkageSpecDecl>(D->getLexicalDeclContext()))
+        D = D->getPrevMultDCDeclInSemaContext();
     }
 
     // We need to recursively descend into LinkageSpecDecls to iterate over the
