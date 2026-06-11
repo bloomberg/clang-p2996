@@ -1099,6 +1099,24 @@ static bool getParameterName(ParmVarDecl *PVD, std::string &Out) {
   // a function declaration, since the DeclContext is not the function but the
   // TranslationUnitDecl.
   FunctionDecl *FD = cast<FunctionDecl>(PVD->getDeclContext());
+
+  // For an instantiated member, instantiating the out-of-line definition
+  // REPLACES the parameters on the same FunctionDecl (no redeclaration is
+  // added), so walking the instantiation's chain reads whichever
+  // redeclaration happened to be instantiated last -- the answer would
+  // depend on instantiation state and could differ between translation
+  // units reflecting the same entity. The template pattern carries the
+  // full declaration chain regardless of instantiation state, so walk
+  // that instead. (Skipped when the pattern contains a parameter pack:
+  // its parameter list does not line up index-for-index with the
+  // instantiation's, and pack-substituted parameters were already
+  // filtered above.)
+  if (FunctionDecl *Pattern = FD->getTemplateInstantiationPattern();
+      Pattern && llvm::none_of(Pattern->parameters(), [](const ParmVarDecl *P) {
+        return P->isParameterPack();
+      }))
+    FD = Pattern;
+
   FD = FD->getMostRecentDecl();
   PVD = FD->getParamDecl(ParamIdx);
 
