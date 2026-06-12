@@ -1597,7 +1597,11 @@ static bool isFunctionOrMethodNoexcept(const QualType QT) {
 
 static bool isConstQualifiedType(QualType QT) {
   bool result = QT.isConstQualified();
-  if (auto *FPT = dyn_cast<FunctionProtoType>(QT))
+  // getAs, not dyn_cast: attributes on a function declarator (e.g.
+  // [[clang::lifetimebound]] on the implicit object parameter) wrap the
+  // FunctionProtoType in AttributedType sugar that dyn_cast cannot see
+  // through, silently dropping the method qualifiers.
+  if (const auto *FPT = QT->getAs<FunctionProtoType>())
     result |= FPT->isConst();
 
   return result;
@@ -1605,7 +1609,7 @@ static bool isConstQualifiedType(QualType QT) {
 
 static bool isVolatileQualifiedType(QualType QT) {
   bool result = QT.isVolatileQualified();
-  if (auto *FPT = dyn_cast<FunctionProtoType>(QT))
+  if (const auto *FPT = QT->getAs<FunctionProtoType>())
     result |= FPT->isVolatile();
 
   return result;
@@ -4226,11 +4230,11 @@ bool is_lvalue_reference_qualified(APValue &Result, ASTContext &C,
 
   bool result = false;
   if (RV.isReflectedType()) {
-    if (auto FT = dyn_cast<FunctionProtoType>(RV.getReflectedType()))
+    if (const auto *FT = RV.getReflectedType()->getAs<FunctionProtoType>())
       result = (FT->getRefQualifier() == RQ_LValue);
   } else if (RV.isReflectedDecl()) {
     if (const auto *FD = dyn_cast<FunctionDecl>(RV.getReflectedDecl()))
-      if (auto FT = dyn_cast<FunctionProtoType>(FD->getType()))
+      if (const auto *FT = FD->getType()->getAs<FunctionProtoType>())
         result = (FT->getRefQualifier() == RQ_LValue);
   }
   return SetAndSucceed(Result, makeBool(C, result));
@@ -4251,11 +4255,11 @@ bool is_rvalue_reference_qualified(APValue &Result, ASTContext &C,
 
   bool result = false;
   if (RV.isReflectedType()) {
-    if (auto FT = dyn_cast<FunctionProtoType>(RV.getReflectedType()))
+    if (const auto *FT = RV.getReflectedType()->getAs<FunctionProtoType>())
       result = (FT->getRefQualifier() == RQ_RValue);
   } else if (RV.isReflectedDecl()) {
     if (const auto *FD = dyn_cast<FunctionDecl>(RV.getReflectedDecl()))
-      if (auto FT = dyn_cast<FunctionProtoType>(FD->getType()))
+      if (const auto *FT = FD->getType()->getAs<FunctionProtoType>())
         result = (FT->getRefQualifier() == RQ_RValue);
   }
   return SetAndSucceed(Result, makeBool(C, result));
@@ -6249,7 +6253,7 @@ bool get_ith_parameter_of(APValue &Result, ASTContext &C, MetaActions &Meta,
 
   switch (RV.getReflectionKind()) {
   case ReflectionKind::Type: {
-    if (auto FT = dyn_cast<FunctionProtoType>(RV.getReflectedType())) {
+    if (const auto *FT = RV.getReflectedType()->getAs<FunctionProtoType>()) {
       unsigned numParams = FT->getNumParams();
       if (idx >= numParams)
         return SetAndSucceed(Result, Sentinel);
@@ -6314,7 +6318,7 @@ bool has_ellipsis_parameter(APValue &Result, ASTContext &C, MetaActions &Meta,
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
       << 5 << DescriptionOf(RV) << Range;
   case ReflectionKind::Type:
-    if (auto *FPT = dyn_cast<FunctionProtoType>(RV.getReflectedType())) {
+    if (const auto *FPT = RV.getReflectedType()->getAs<FunctionProtoType>()) {
       bool HasEllipsis = FPT->isVariadic();
       return SetAndSucceed(Result, makeBool(C, HasEllipsis));
     }
@@ -6413,7 +6417,7 @@ bool return_type_of(APValue &Result, ASTContext &C, MetaActions &Meta,
 
   switch (RV.getReflectionKind()) {
   case ReflectionKind::Type: {
-    if (auto *FPT = dyn_cast<FunctionProtoType>(RV.getReflectedType())) {
+    if (const auto *FPT = RV.getReflectedType()->getAs<FunctionProtoType>()) {
       QualType QT =
           desugarType(FPT->getReturnType(), /*UnwrapAliases=*/ true,
                       /*DropCV=*/false, /*DropRefs=*/false);
