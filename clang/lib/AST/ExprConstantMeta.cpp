@@ -1903,19 +1903,22 @@ static const ParsedAttr* toSyntacticForm(const Attr* val, ASTContext * C) {
   auto onArgs = [&](
       IdentifierInfo * attrName,
       SmallVector<llvm::PointerUnion<Expr *, IdentifierLoc *>, 2> argExprs,
+      SmallVector<void *, 2> typeArgs,
       AttributeCommonInfo::Form /* Do we need this fed back to us at all ?...*/
     ) {
       AttributeScopeInfo scope;
       if (val->hasScope())
         scope = AttributeScopeInfo(val->getScopeName(), val->getLoc());
-      recoveredAttr = scratchpad.pool.create(
-        attrName,
-        val->getRange(),
-        scope,
-        argExprs.data(),
-        argExprs.size(),
-        val->getForm()
-      );
+      if (!typeArgs.empty() && argExprs.size() == 1 && argExprs[0].isNull()) {
+        ParsedType pt = ParsedType::getFromOpaquePtr(typeArgs[0]);
+        recoveredAttr = scratchpad.pool.createTypeAttribute(
+          attrName, val->getRange(), scope, pt, val->getForm(),
+          SourceLocation());
+      } else {
+        recoveredAttr = scratchpad.pool.create(
+          attrName, val->getRange(), scope,
+          argExprs.data(), argExprs.size(), val->getForm());
+      }
       return recoveredAttr != nullptr;
     };
     // FIXME why is this not just returning the vector of args...

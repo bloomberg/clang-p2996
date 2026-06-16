@@ -2625,6 +2625,7 @@ static bool isReflectableAttr(const Record* R) {
       || isVariadicStringLiteralArgument(arg)
       || isBoolArgument(arg)
       || isIntArgument(arg)
+      || isTypeArgument(arg)
       || isExprArgument(arg);
   };
   std::vector<const Record *> ArgRecords = R->getValueAsListOfDefs("Args");
@@ -2636,6 +2637,7 @@ static void writeExtractSyntacticArgumentFunction(const Record &R,
                          raw_ostream &OS) {
   OS << "bool " << R.getName() << "Attr::extractSyntacticArguments(ASTContext& C, OnSyntacticArgument onSyntax, SourceLocation srcLocation) const {\n";
   OS << "  SmallVector<llvm::PointerUnion<Expr *, IdentifierLoc *>, 2> args;\n";
+  OS << "  SmallVector<void *, 2> typeArgs;\n";
   OS << "  const AttributeCommonInfo* info = this;\n";
   OS << "  IdentifierInfo &attrName = C.Idents.get(info->getAttrName()->getName());\n\n";
 
@@ -2657,6 +2659,9 @@ static void writeExtractSyntacticArgumentFunction(const Record &R,
 
     if (isIntArgument(Arg)) {
       OS << "    args.push_back(IntegerLiteral::Create(C, llvm::APInt(32, " << Accessor << "), C.IntTy, srcLocation));\n";
+    } else if (isTypeArgument(Arg)) {
+      OS << "    args.push_back(nullptr);\n";
+      OS << "    typeArgs.push_back(" << Accessor << ".getAsOpaquePtr());\n";
     } else if (isBoolArgument(Arg)) {
       OS << "    args.push_back(CXXBoolLiteralExpr::Create(C, " << Accessor << ", C.BoolTy, srcLocation));\n";
     } else if (isIdentifierArgument(Arg, true)) {
@@ -2718,7 +2723,7 @@ static void writeExtractSyntacticArgumentFunction(const Record &R,
     emitExprFromArg(OS, arg);
   }
   OS << "\n";
-  OS << "  return onSyntax(&attrName, args, info->getForm());\n";
+  OS << "  return onSyntax(&attrName, args, typeArgs, info->getForm());\n";
   OS << "}\n";
 }
 
@@ -3293,6 +3298,7 @@ static void emitAttributes(const RecordKeeper &Records, raw_ostream &OS,
         OS << "    = std::function<bool(\n";
         OS << "        IdentifierInfo *,\n"; // Attr name
         OS << "        SmallVector<llvm::PointerUnion<Expr *, IdentifierLoc *>, 2>,\n"; // Args
+        OS << "        SmallVector<void *, 2>,\n"; // Type args as opaque QualType pointers
         OS << "        AttributeCommonInfo::Form\n"; // Form
         OS << "      )>;\n";
         OS << "\n";
