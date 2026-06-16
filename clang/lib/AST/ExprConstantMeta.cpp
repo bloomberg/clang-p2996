@@ -4741,12 +4741,20 @@ bool is_complete_type(APValue &Result, ASTContext &C, MetaActions &Meta,
 
   bool result = false;
   if (RV.isReflectedType()) {
+    // Desugar aliases first (exactly as the members_of family does): on a
+    // TypedefType, findTypeDecl returns the alias declaration, for which
+    // EnsureInstantiated is a no-op -- a never-yet-instantiated (but
+    // perfectly instantiable) specialization named through an alias then
+    // wrongly reported as incomplete.
+    QualType QT = desugarType(RV.getReflectedType(), /*UnwrapAliases=*/true,
+                              /*DropCV=*/false, /*DropRefs=*/false);
+
     // If this is a declared type with a reachable definition, ensure that the
     // type is instantiated.
-    if (Decl *typeDecl = findTypeDecl(RV.getReflectedType()))
+    if (Decl *typeDecl = findTypeDecl(QT))
       (void) Meta.EnsureInstantiated(typeDecl, Range);
 
-    result = !RV.getReflectedType()->isIncompleteType();
+    result = !QT->isIncompleteType();
   }
   return SetAndSucceed(Result, makeBool(C, result));
 }
