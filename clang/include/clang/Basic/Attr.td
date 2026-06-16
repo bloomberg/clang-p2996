@@ -3450,7 +3450,7 @@ def ZeroCallUsedRegs : InheritableAttr {
 def Pascal : DeclOrTypeAttr {
   let Spellings = [Clang<"pascal">, CustomKeyword<"__pascal">,
                    CustomKeyword<"_pascal">];
-//  let Subjects = [Function, ObjCMethod];
+//  let Subjects = [Function, ObjCMethod]; 
   let Documentation = [Undocumented];
 }
 

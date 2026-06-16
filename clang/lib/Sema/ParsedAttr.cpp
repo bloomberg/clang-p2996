@@ -390,6 +390,12 @@ void ParsedAttr::profile(llvm::FoldingSetNodeID& ID,
       ProfileExpr(ID, expr);
     }
   }
+
+  // Profile type argument if present (e.g., [[gsl::Owner(int)]])
+  if (hasParsedType()) {
+    QualType QT = getTypeArg().get();
+    QT.getCanonicalType().Profile(ID);
+  }
 }
 
 bool ParsedAttr::checkExactlyNumArgs(Sema &S, unsigned Num) const {

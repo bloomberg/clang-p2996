@@ -33,6 +33,7 @@
 #include <algorithm>
 #include <cassert>
 
+
 namespace clang {
 class ASTContext;
 class AttributeCommonInfo;
@@ -78,6 +79,7 @@ public:
     = std::function<bool( // Should return false if the operation failed, true if successful
         IdentifierInfo *, // attribute name
         SmallVector<llvm::PointerUnion<Expr *, IdentifierLoc *>, 2>, // arguments
+        SmallVector<void *, 2>, // type args as opaque QualType pointers
         AttributeCommonInfo::Form // attribute form
       )>;
 
