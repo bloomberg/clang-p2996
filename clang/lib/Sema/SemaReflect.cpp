@@ -287,13 +287,37 @@ public:
                                CTSD->getTemplateArgs().asArray()))
         return true;
 
+      // Complete the specialization with ordinary implicit-instantiation
+      // semantics, mirroring Sema::RequireCompleteTypeImpl: member
+      // DECLARATIONS are instantiated, member DEFINITIONS remain subject to
+      // lazy, odr-use-driven instantiation. Completing with
+      // TSK_ExplicitInstantiationDefinition and instantiating every member
+      // definition wrong-rejected specializations whose never-odr-used member
+      // bodies are ill-formed (the "specialized storage base" idiom, e.g.
+      // tl::expected<void, E>), and made the result depend on whether earlier
+      // code happened to have instantiated the class already.
       if (S.InstantiateClassTemplateSpecialization(
-              Range.getBegin(), CTSD, TSK_ExplicitInstantiationDefinition, false,
-              false))
+              Range.getBegin(), CTSD, TSK_ImplicitInstantiation,
+              /*Complain=*/false, CTSD->hasStrictPackMatch()))
         return false;
-
-      S.InstantiateClassTemplateSpecializationMembers(
-              Range.getBegin(), CTSD, TSK_ExplicitInstantiationDefinition);
+    } else if (auto *RD = dyn_cast<CXXRecordDecl>(D);
+               RD && !RD->isCompleteDefinition() && !RD->isBeingDefined() &&
+               !RD->isDependentContext() &&
+               RD->getInstantiatedFromMemberClass()) {
+      // A member class of an instantiated class template: complete it the way
+      // Sema::RequireCompleteTypeImpl would. (The eager path above used to
+      // define nested classes as a side effect of instantiating every member
+      // of the enclosing specialization; completing on demand keeps them
+      // reachable for reflection queries.)
+      MemberSpecializationInfo *MSI = RD->getMemberSpecializationInfo();
+      assert(MSI && "missing member specialization information");
+      if (MSI->getTemplateSpecializationKind() != TSK_ExplicitSpecialization &&
+          S.InstantiateClass(Range.getBegin(), RD,
+                             RD->getInstantiatedFromMemberClass(),
+                             S.getTemplateInstantiationArgs(RD),
+                             TSK_ImplicitInstantiation,
+                             /*Complain=*/false))
+        return false;
     } else if (auto *VTSD = dyn_cast<VarTemplateSpecializationDecl>(D);
         VTSD && !VTSD->isCompleteDefinition()) {
       if (!validateConstraints(VTSD->getSpecializedTemplate(),
