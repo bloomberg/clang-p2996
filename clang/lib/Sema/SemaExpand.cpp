@@ -429,6 +429,14 @@ StmtResult Sema::BuildCXXInitListExpansionStmt(SourceLocation TemplateKWLoc,
 ExprResult Sema::BuildCXXExpansionSelectExpr(
     Expr *Range, Expr *TParamRef, VarDecl *ExpansionVar,
     ArrayRef <MaterializeTemporaryExpr *> LifetimeExtendTemps) {
+
+  if (Range->hasPlaceholderType() && !Range->isTypeDependent()) {
+    ExprResult R = CheckPlaceholderExpr(Range);
+    if (R.isInvalid())
+      return ExprError();
+    Range = R.get();
+  }
+
   if (Range->containsErrors())
     return ExprError();
 
