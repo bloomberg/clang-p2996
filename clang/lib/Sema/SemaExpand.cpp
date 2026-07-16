@@ -441,7 +441,9 @@ ExprResult Sema::BuildCXXExpansionSelectExpr(
 
   if (!Range->isTypeDependent()) {
     QualType RangeTy = Range->getType().getNonReferenceType();
-    if (RangeTy->isFunctionType() || (RangeTy->isPointerType() && RangeTy->getPointeeType()->isFunctionType())) {
+    if (RangeTy->isFunctionType() ||
+       (RangeTy->isPointerType() &&
+        RangeTy->getPointeeType()->isFunctionType())) {
       ExprResult R = Range;
       tryToRecoverWithCall(
           R, PDiag(diag::err_expansion_stmt_range_is_function) << RangeTy,
