@@ -3262,6 +3262,9 @@ def err_injected_decl_outside_cone : Error <
 
 def err_compute_expansion_size_index : Error<
   "could not compute %select{size|index}0 of expansion">;
+def err_expansion_stmt_range_is_function : Error<
+  "cannot expand over a function %0; did you mean to call it "
+  "with no arguments?">;
 def err_expanded_identifier_label : Error<
   "identifier labels are not allowed in expansion statements">;
 
