@@ -2384,7 +2384,13 @@ consteval auto data_member_spec(info member_type,
   bool has_name = options.name.has_value();
   int alignment = options.alignment.value_or(0);
   int width = options.width.value_or(0);
+  // 'no_unique_address' is intentionally deprecated in favor of
+  // '.attributes = { ^^[[no_unique_address]] }', but is still honored here for
+  // backward compatibility; suppress the deprecation warning at this read site.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
   bool no_unique_address = options.no_unique_address;
+#pragma clang diagnostic pop
 
   if (width) {
     if (alignment)
