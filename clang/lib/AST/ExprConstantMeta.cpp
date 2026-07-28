@@ -1112,8 +1112,8 @@ static bool getParameterName(ParmVarDecl *PVD, std::string &Out) {
   // instantiation's, and pack-substituted parameters were already
   // filtered above.)
   if (FunctionDecl *Pattern = FD->getTemplateInstantiationPattern();
-      Pattern && llvm::none_of(Pattern->parameters(), [](const ParmVarDecl *P) {
-        return P->isParameterPack();
+      Pattern && llvm::none_of(Pattern->parameters(), [&](const ParmVarDecl *P) {
+        return P->isParameterPack() && P->getFunctionScopeIndex() <= ParamIdx;
       }))
     FD = Pattern;
 
