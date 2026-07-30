@@ -783,6 +783,15 @@ static bool reflect_invoke(APValue &Result, ASTContext &C, MetaActions &Meta,
                            SourceRange Range, ArrayRef<Expr *> Args,
                            Decl *ContainingDecl);
 
+          // ==========================================================
+          // std::consteval_hash<std::meta::info> specialization helper
+          // ==========================================================
+
+static bool reflection_hash(APValue &Result, ASTContext &C, MetaActions &Meta,
+                            EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
+                            QualType ResultTy, SourceRange Range,
+                            ArrayRef<Expr *> Args, Decl *ContainingDecl);
+
 // -----------------------------------------------------------------------------
 // Metafunction table
 //
@@ -929,6 +938,9 @@ static constexpr Metafunction Metafunctions[] = {
   // Other bespoke functions (not proposed at this time)
   { Metafunction::MFRK_bool, 1, 1, is_access_specified },
   { Metafunction::MFRK_metaInfo, 5, 5, reflect_invoke },
+
+  // std::consteval_hash<std::meta::info> specialization helper
+  { Metafunction::MFRK_sizeT, 1, 1, reflection_hash },
 };
 constexpr const unsigned NumMetafunctions = sizeof(Metafunctions) /
                                             sizeof(Metafunction);
@@ -1790,6 +1802,7 @@ StringRef DescriptionOf(APValue RV, bool Granular = true) {
     return "an attribute";
   }
   }
+  return "unknown reflection";
 }
 
 bool DiagnoseReflectionKind(DiagFn Diagnoser, SourceRange Range,
@@ -7250,6 +7263,31 @@ bool reflect_invoke(APValue &Result, ASTContext &C, MetaActions &Meta,
                   const_cast<ValueDecl *>(LVBase.get<const ValueDecl *>())));
 
   return SetAndSucceed(Result, EvalResult.Val.Lift(CallExpr->getType()));
+}
+
+bool reflection_hash(APValue &Result, ASTContext &C, MetaActions &Meta,
+                    EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
+                    QualType ResultTy, SourceRange Range, ArrayRef<Expr *> Args,
+                    Decl *ContainingDecl) {
+  assert(Args[0]->getType()->isReflectionType());
+  assert(ResultTy == C.getSizeType());
+
+  APValue R;
+  if (!Evaluator(R, Args[0], true)) {
+    return true;
+  }
+  
+  static std::unordered_map<const void*, std::size_t> s_values;
+  static std::size_t s_count = 0;
+  
+  const auto [it, success] = s_values.insert({R.getOpaqueReflectionData(), s_count});
+  if (success) {
+    ++s_count;
+  }
+
+  return SetAndSucceed(
+    Result,
+    APValue(C.MakeIntValue(it->second, C.getSizeType())));
 }
 
 }  // end namespace clang
