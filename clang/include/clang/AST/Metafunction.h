@@ -36,6 +36,7 @@ public:
     MFRK_sizeT,
     MFRK_sourceLoc,
     MFRK_spliceFromArg,
+    MFRK_charPtr,
   };
 
   using EvaluateFn = CXXMetafunctionExpr::EvaluateFn;

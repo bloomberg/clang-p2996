@@ -1493,6 +1493,9 @@ ExprResult Sema::BuildCXXMetafunctionExpr(
     case Metafunction::MFRK_sizeT:
       Result = Context.getSizeType();
       return false;
+    case Metafunction::MFRK_charPtr:
+      Result = Context.getPointerType(Context.CharTy.withConst());
+      return false;
     case Metafunction::MFRK_sourceLoc: {
       RecordDecl *SourceLocDecl = lookupStdSourceLocationImpl(KwLoc);
       if (SourceLocDecl)
