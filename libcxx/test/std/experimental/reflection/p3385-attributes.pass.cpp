@@ -62,11 +62,26 @@ consteval bool testIsAttribute() {
   return true;
 }
 
-consteval bool testIdentifierOf() {
-  static_assert(std::meta::identifier_of(stdAttr) == "nodiscard");
-  static_assert(std::meta::identifier_of(clangAttr) == "clang::warn_unused_result");
-  static_assert(std::meta::identifier_of(msvcAttr) == "msvc::no_unique_address");
-  static_assert(std::meta::identifier_of(gnuAttr) == "gnu::constructor");
+consteval bool testAttributeTokenOf() {
+  static_assert(std::meta::attribute_token_of(stdAttr) == "nodiscard");
+  static_assert(std::meta::attribute_token_of(clangAttr) == "warn_unused_result");
+  static_assert(std::meta::attribute_token_of(msvcAttr) == "no_unique_address");
+  static_assert(std::meta::attribute_token_of(gnuAttr) == "constructor");
+  return true;
+}
+
+consteval bool testHasAttributeNamespace() {
+  static_assert(!std::meta::has_attribute_namespace(stdAttr));
+  static_assert(std::meta::has_attribute_namespace(clangAttr));
+  static_assert(std::meta::has_attribute_namespace(msvcAttr));
+  static_assert(std::meta::has_attribute_namespace(gnuAttr));
+  return true;
+}
+
+consteval bool testAttributeNamespaceOf() {
+  static_assert(std::meta::attribute_namespace_of(clangAttr) == "clang");
+  static_assert(std::meta::attribute_namespace_of(msvcAttr) == "msvc");
+  static_assert(std::meta::attribute_namespace_of(gnuAttr) == "gnu");
   return true;
 }
 
