@@ -584,6 +584,8 @@ enum : unsigned {
   // Other bespoke functions (not proposed at this time)
   __metafn_is_access_specified,
   __metafn_reflect_invoke,
+
+  __metafn_reflection_hash,
 };
 
 consteval auto __workaround_expand_compiler_builtins(info type) -> info;
@@ -3271,6 +3273,27 @@ consteval auto u8display_string_of(info R) -> u8string_view {
 }
 
 _LIBCPP_END_NAMESPACE_REFLECTION_V2
+
+_LIBCPP_BEGIN_NAMESPACE_STD
+
+template <typename T> struct consteval_hash;
+
+template <>
+struct consteval_hash<meta::info>
+{
+  consteval consteval_hash() = default;
+  consteval consteval_hash(const consteval_hash&) = default;
+  consteval consteval_hash(consteval_hash&&) = default;
+  consteval auto operator()(meta::info r) const noexcept -> size_t
+  {
+    return __metafunction(meta::detail::__metafn_reflection_hash, r);
+  }
+
+private:
+  const meta::info unused = ^^::; // required to make type consteval-only
+};
+
+_LIBCPP_END_NAMESPACE_STD
 
 #endif  // __has_feature(reflection)
 

@@ -5719,3 +5719,5 @@ HLSLAttributedResourceType::findHandleTypeOnResource(const Type *RT) {
   }
   return nullptr;
 }
+
+int Type::s_idCounter = 0;
