@@ -23,7 +23,7 @@
 
 consteval bool testAttributesOfFunc() {
   static_assert(attributes_of(^^func).size() == 1);
-  static_assert(identifier_of(attributes_of(^^func)[0]) == "nodiscard");
+  static_assert(attribute_token_of(attributes_of(^^func)[0]) == "nodiscard");
   static_assert(attributes_of(^^func)[0] == ^^[[nodiscard]]);
   return true;
 }

@@ -750,6 +750,24 @@ static bool has_attribute(APValue &Result, ASTContext &C,
                          QualType ResultTy, SourceRange Range,
                          ArrayRef<Expr *> Args, Decl *ContainingDecl);
 
+static bool has_attribute_namespace(APValue &Result, ASTContext &C,
+                         MetaActions &Meta, EvalFn Evaluator,
+                         DiagFn Diagnoser, bool AllowInjection,
+                         QualType ResultTy, SourceRange Range,
+                         ArrayRef<Expr *> Args, Decl *ContainingDecl);
+
+static bool attribute_token_of(APValue &Result, ASTContext &C,
+                         MetaActions &Meta, EvalFn Evaluator,
+                         DiagFn Diagnoser, bool AllowInjection,
+                         QualType ResultTy, SourceRange Range,
+                         ArrayRef<Expr *> Args, Decl *ContainingDecl);
+
+static bool attribute_namespace_of(APValue &Result, ASTContext &C,
+                         MetaActions &Meta, EvalFn Evaluator,
+                         DiagFn Diagnoser, bool AllowInjection,
+                         QualType ResultTy, SourceRange Range,
+                         ArrayRef<Expr *> Args, Decl *ContainingDecl);
+
                           // =========================
                           // Accessibility API (P3493)
                           // =========================
@@ -921,6 +939,9 @@ static constexpr Metafunction Metafunctions[] = {
   { Metafunction::MFRK_metaInfo, 3, 3, get_ith_attribute_of },
   { Metafunction::MFRK_bool, 1, 1, is_attribute },
   { Metafunction::MFRK_bool, 3, 3, has_attribute },
+  { Metafunction::MFRK_bool, 1, 1, has_attribute_namespace },
+  { Metafunction::MFRK_spliceFromArg, 3, 3, attribute_token_of },
+  { Metafunction::MFRK_spliceFromArg, 3, 3, attribute_namespace_of },
 
   // P3493 accessibility extensions
   { Metafunction::MFRK_metaInfo, 0, 0, current_access_context },
@@ -1837,6 +1858,89 @@ struct AttributeScratchpad {
 // Metafunction implementations
 // -----------------------------------------------------------------------------
 
+bool has_attribute_namespace(APValue &Result, ASTContext &C,
+                         MetaActions &Meta, EvalFn Evaluator,
+                         DiagFn Diagnoser, bool AllowInjection,
+                         QualType ResultTy, SourceRange Range,
+                         ArrayRef<Expr *> Args, Decl *ContainingDecl) {
+  assert(Args[0]->getType()->isReflectionType());
+  assert(ResultTy == C.BoolTy);
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
+    return true;
+  if (RV.getReflectionKind() != ReflectionKind::Attribute) {
+    return SetAndSucceed(Result, makeBool(C, false));
+  }
+  ParsedAttr *attr = RV.getReflectedAttribute();
+
+  return SetAndSucceed(
+    Result,
+    makeBool(C, attr->getForm().getSyntax() == AttributeCommonInfo::Syntax::AS_CXX11 && attr->hasScope())
+  );
+}
+
+bool attribute_namespace_of(APValue &Result, ASTContext &C,
+                         MetaActions &Meta, EvalFn Evaluator,
+                         DiagFn Diagnoser, bool AllowInjection,
+                         QualType ResultTy, SourceRange Range,
+                         ArrayRef<Expr *> Args, Decl *ContainingDecl) {
+  assert(Args[0]->getType()->isReflectionType());
+
+  APValue RV;
+  if (!Evaluator(RV, Args[1], true))
+    return true;
+
+  bool IsUtf8;
+  {
+    APValue Scratch;
+    if (!Evaluator(Scratch, Args[2], true))
+      return true;
+    IsUtf8 = Scratch.getInt().getBoolValue();
+  }
+
+  if (RV.getReflectionKind() != ReflectionKind::Attribute)
+    return DiagnoseReflectionKind(Diagnoser, Range, "an attribute", DescriptionOf(RV));
+
+  auto name(RV.getReflectedAttribute()->getNormalizedScopeName());
+  if (name.empty())
+    return Diagnoser(Range.getBegin(), diag::metafn_anonymous_entity) << DescriptionOf(RV) << Range;
+
+  Expr *StrLit = makeStrLiteral(name, C, IsUtf8);
+  APValue::LValuePathEntry Path[1] = {APValue::LValuePathEntry::ArrayIndex(0)};
+  return SetAndSucceed(Result, APValue(StrLit, CharUnits::Zero(), Path, false));
+}
+
+bool attribute_token_of(APValue &Result, ASTContext &C,
+                         MetaActions &Meta, EvalFn Evaluator,
+                         DiagFn Diagnoser, bool AllowInjection,
+                         QualType ResultTy, SourceRange Range,
+                         ArrayRef<Expr *> Args, Decl *ContainingDecl) {
+  assert(Args[0]->getType()->isReflectionType());
+
+  APValue RV;
+  if (!Evaluator(RV, Args[1], true))
+    return true;
+
+  bool IsUtf8;
+  {
+    APValue Scratch;
+    if (!Evaluator(Scratch, Args[2], true))
+      return true;
+    IsUtf8 = Scratch.getInt().getBoolValue();
+  }
+
+  if (RV.getReflectionKind() != ReflectionKind::Attribute)
+    return DiagnoseReflectionKind(Diagnoser, Range, "an attribute", DescriptionOf(RV));
+
+  auto name(RV.getReflectedAttribute()->getAttrName()->getName());
+  if (name.empty())
+    return Diagnoser(Range.getBegin(), diag::metafn_anonymous_entity) << DescriptionOf(RV) << Range;
+
+  Expr *StrLit = makeStrLiteral(name, C, IsUtf8);
+  APValue::LValuePathEntry Path[1] = {APValue::LValuePathEntry::ArrayIndex(0)};
+  return SetAndSucceed(Result, APValue(StrLit, CharUnits::Zero(), Path, false));
+}
+
 bool is_unscoped_attribute(APValue &Result, ASTContext &C,
                          MetaActions &Meta, EvalFn Evaluator,
                          DiagFn Diagnoser, bool AllowInjection,
@@ -2635,19 +2739,6 @@ bool identifier_of(APValue &Result, ASTContext &C, MetaActions &Meta,
     getDeclName(Name, C, RV.getReflectedNamespace());
     break;
   }
-  case ReflectionKind::Attribute: {
-    AttributeCommonInfo *attr = RV.getReflectedAttribute();
-    if (attr->isClangScope()) {
-      Name = "clang::";
-    } else if (attr->isGNUScope()) {
-      Name = "gnu::";
-    } else if (attr->hasScope() &&
-               attr->getScopeName()->getName().compare("msvc") == 0) {
-      Name = "msvc::";
-    }
-    Name += attr->getAttrName()->getName();
-    break;
-  }
   case ReflectionKind::DataMemberSpec: {
     TagDataMemberSpec *TDMS = RV.getReflectedDataMemberSpec();
     if (TDMS->Name)
@@ -2668,6 +2759,7 @@ bool identifier_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::Object:
   case ReflectionKind::Value:
   case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_have_name)
         << DescriptionOf(RV) << Range;
   case ReflectionKind::EntityProxy:

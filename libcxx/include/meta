@@ -366,6 +366,9 @@ consteval auto annotate(info) -> info;
 // Attributes reflection (P3385)
 consteval auto is_attribute(info) -> bool;
 consteval auto attributes_of(info r) -> vector<info>;
+consteval auto attribute_namespace_of(info r) -> string_view;
+consteval auto attribute_token_of(info r) -> string_view;
+consteval auto has_attribute_namespace(info r) -> bool;
 
 // modeling access control (P3547)
 struct access_context {
@@ -576,6 +579,9 @@ enum : unsigned {
   __metafn_get_ith_attribute_of,
   __metafn_is_attribute,
   __metafn_has_attribute,
+  __metafn_has_attribute_namespace,
+  __metafn_attribute_token_of,
+  __metafn_attribute_namespace_of,
 
   // P3493 accessibility metafunctions
   __metafn_access_context,
@@ -2154,6 +2160,30 @@ consteval auto has_attribute(
   return __metafunction(detail::__metafn_has_attribute, entity, attribute, policy);
 }
 
+consteval auto has_attribute_namespace(info entity) -> bool {
+  return __metafunction(detail::__metafn_has_attribute_namespace, entity);
+}
+
+consteval auto attribute_token_of(info entity) -> string_view {
+  return __metafunction(detail::__metafn_attribute_token_of, ^^const char *,
+                        entity, /*UTF8=*/false);
+}
+
+consteval auto attribute_namespace_of(info entity) -> string_view {
+  return __metafunction(detail::__metafn_attribute_namespace_of, ^^const char *,
+                        entity, /*UTF8=*/false);
+}
+
+consteval auto u8attribute_token_of(info entity) -> u8string_view {
+  return __metafunction(detail::__metafn_attribute_token_of, ^^const char8_t *,
+                        entity, /*UTF8=*/true);
+}
+
+consteval auto u8attribute_namespace_of(info entity) -> u8string_view {
+  return __metafunction(detail::__metafn_attribute_namespace_of, ^^const char8_t *,
+                        entity, /*UTF8=*/true);
+}
+
 // Returns whether the reflected entity is a clang scoped attribute.
 consteval auto is_unscoped_attribute(info r) -> bool {
   return __metafunction(detail::__metafn_is_unscoped_attribute, r);
@@ -2189,34 +2219,22 @@ consteval auto attributes_of(info r) -> vector<info> {
 consteval auto attributes_of(info r,
                              std::string_view    name,
                              AttributeNamespace ns = AttributeNamespace::None) -> vector<info> {
-  using namespace std::literals;
-
-  // For demo purpose, it's ok enough
-  // Alternative is to pass it up to the metafunction but we'd have to break our stateless iterator
-  // model.... For now, it s just not worth it (again, it's a demo).
-  auto getIdPart = [](std::string_view token) {
-    if (auto sep = token.find("::"sv); sep != std::string_view::npos && sep + 2 < token.size() ) {
-      return token.substr(sep + 2);
-    }
-    return std::string_view{};
-  };
-
   auto all = attributes_of(r);
   vector<info> result;
   for (auto attribute : all) {
     bool match = false;
     switch (ns) {
       case AttributeNamespace::None:
-        match = is_unscoped_attribute(attribute) && identifier_of(attribute) == name;
+        match = is_unscoped_attribute(attribute) && attribute_token_of(attribute) == name;
         break;
       case AttributeNamespace::Clang:
-        match = is_clang_attribute(attribute) && getIdPart(identifier_of(attribute)) == name;
+        match = is_clang_attribute(attribute) && attribute_token_of(attribute) == name;
         break;
       case AttributeNamespace::GCC:
-        match = is_gcc_attribute(attribute) && getIdPart(identifier_of(attribute)) == name;
+        match = is_gcc_attribute(attribute) && attribute_token_of(attribute) == name;
         break;
       case AttributeNamespace::MSVC:
-        match = is_msvc_attribute(attribute) && getIdPart(identifier_of(attribute)) == name;
+        match = is_msvc_attribute(attribute) && attribute_token_of(attribute) == name;
         break;
       default: break;
     }
