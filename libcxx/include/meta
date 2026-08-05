@@ -590,6 +590,9 @@ enum : unsigned {
   // Other bespoke functions (not proposed at this time)
   __metafn_is_access_specified,
   __metafn_reflect_invoke,
+
+  // P4033 extension: completing unscoped (C-style) enums
+  __metafn_define_unscoped_enum,
 };
 
 consteval auto __workaround_expand_compiler_builtins(info type) -> info;
@@ -2386,6 +2389,19 @@ template <reflection_range R = initializer_list<info>>
 consteval auto define_enum(info targetEnum, R&& members) {
   return __metafunction(
     detail::__metafn_define_enum,
+    targetEnum,
+    ranges::size(members),
+    ranges::data(members)
+  );
+}
+
+// Like 'define_enum', but completes an unscoped (C-style) enum instead of a
+// scoped one. Note that, per ordinary unscoped-enum semantics, the resulting
+// enumerators are visible unqualified in the enclosing scope.
+template <reflection_range R = initializer_list<info>>
+consteval auto define_unscoped_enum(info targetEnum, R&& members) {
+  return __metafunction(
+    detail::__metafn_define_unscoped_enum,
     targetEnum,
     ranges::size(members),
     ranges::data(members)
