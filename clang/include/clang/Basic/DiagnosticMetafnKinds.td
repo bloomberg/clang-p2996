@@ -120,6 +120,8 @@ def metafn_injected_decl_non_plainly_consteval : Note<
 
 // define_enum
 def metafn_enum_already_complete: Note<"%0 already has enumerators defined">;
+def metafn_enum_not_scoped : Note<"%0 is not a scoped enumeration type">;
+def metafn_enum_not_unscoped : Note<"%0 is not an unscoped enumeration type">;
 // Annotation injection.
 def metafn_cannot_annotate : Note<"cannot attach an annotation to %1">;
 

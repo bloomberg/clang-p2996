@@ -618,6 +618,12 @@ static bool define_enum(APValue &Result, ASTContext &C, MetaActions &Meta,
                              SourceRange Range, ArrayRef<Expr *> Args,
                              Decl *ContainingDecl);
 
+static bool define_unscoped_enum(APValue &Result, ASTContext &C,
+                             MetaActions &Meta, EvalFn Evaluator,
+                             DiagFn Diagnoser, bool AllowInjection,
+                             QualType ResultTy, SourceRange Range,
+                             ArrayRef<Expr *> Args, Decl *ContainingDecl);
+
 static bool offset_of(APValue &Result, ASTContext &C, MetaActions &Meta,
                       EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
                       QualType ResultTy, SourceRange Range,
@@ -950,6 +956,9 @@ static constexpr Metafunction Metafunctions[] = {
   // Other bespoke functions (not proposed at this time)
   { Metafunction::MFRK_bool, 1, 1, is_access_specified },
   { Metafunction::MFRK_metaInfo, 5, 5, reflect_invoke },
+
+  // P4033 extension: completing unscoped (C-style) enums
+  { Metafunction::MFRK_metaInfo, 3, 3, define_unscoped_enum },
 };
 constexpr const unsigned NumMetafunctions = sizeof(Metafunctions) /
                                             sizeof(Metafunction);
@@ -5928,10 +5937,11 @@ bool is_enumerator_spec(APValue &Result, ASTContext &C,
   return SetAndSucceed(Result, makeBool(C, RV.isReflectedEnumMemberSpec()));
 }
 
-bool define_enum(APValue &Result, ASTContext &C, MetaActions &Meta,
-                 EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
-                 QualType ResultTy, SourceRange Range, ArrayRef<Expr *> Args,
-                 Decl *ContainingDecl) {
+static bool defineEnumImpl(APValue &Result, ASTContext &C, MetaActions &Meta,
+                           EvalFn Evaluator, DiagFn Diagnoser,
+                           bool AllowInjection, SourceRange Range,
+                           ArrayRef<Expr *> Args, Decl *ContainingDecl,
+                           bool RequireScoped) {
   if (!AllowInjection) {
     return Diagnoser(Range.getBegin(),
                      diag::metafn_injected_decl_non_plainly_consteval);
@@ -5952,6 +5962,15 @@ bool define_enum(APValue &Result, ASTContext &C, MetaActions &Meta,
   if (!foundDecl) {
     return DiagnoseReflectionKind(Diagnoser, Range, "an enum type",
                                   DescriptionOf(Scratch));
+  }
+
+  // define_enum only completes scoped enums; define_unscoped_enum only
+  // completes unscoped (C-style) enums.
+  if (foundDecl->isScoped() != RequireScoped) {
+    return Diagnoser(Range.getBegin(),
+                     RequireScoped ? diag::metafn_enum_not_scoped
+                                   : diag::metafn_enum_not_unscoped)
+           << TargetEnum.getAsString();
   }
 
   // Need to check we only have a fwd declare enum
@@ -5996,6 +6015,23 @@ bool define_enum(APValue &Result, ASTContext &C, MetaActions &Meta,
     return true;
   }
   return SetAndSucceed(Result, makeReflection(completedEnum));
+}
+
+bool define_enum(APValue &Result, ASTContext &C, MetaActions &Meta,
+                 EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
+                 QualType ResultTy, SourceRange Range, ArrayRef<Expr *> Args,
+                 Decl *ContainingDecl) {
+  return defineEnumImpl(Result, C, Meta, Evaluator, Diagnoser, AllowInjection,
+                        Range, Args, ContainingDecl, /*RequireScoped=*/true);
+}
+
+bool define_unscoped_enum(APValue &Result, ASTContext &C, MetaActions &Meta,
+                          EvalFn Evaluator, DiagFn Diagnoser,
+                          bool AllowInjection, QualType ResultTy,
+                          SourceRange Range, ArrayRef<Expr *> Args,
+                          Decl *ContainingDecl) {
+  return defineEnumImpl(Result, C, Meta, Evaluator, Diagnoser, AllowInjection,
+                        Range, Args, ContainingDecl, /*RequireScoped=*/false);
 }
 
 bool define_aggregate(APValue &Result, ASTContext &C, MetaActions &Meta,
