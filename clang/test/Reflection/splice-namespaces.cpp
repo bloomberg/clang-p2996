@@ -13,12 +13,14 @@
 using info = decltype(^^int);
 
 int global_decl;
+struct GlobalS {};
 
 constexpr int x = 1;
 
 namespace myns {
   namespace inner { int y; constexpr int z = 3; }
   constexpr int x = 2;
+  struct S {};
 }  // namespace myns
 
                                  // ===========
@@ -108,3 +110,28 @@ void test3() {
   static_assert(&y == &myns::inner::y);
 }
 }  // namespace in_using_directives
+
+                  // ========================================
+                  // bb_clang_p2996_issue_338_regression_test
+                  // ========================================
+
+namespace bb_clang_p2996_issue_338_regression_test {
+// Issue #338: a using-declaration naming a member through a dependent
+// splice-scope-specifier (one that can resolve to a namespace, not just a
+// class) was incorrectly diagnosed as though it must refer to a class
+// member. This reproduces the reported case where the splice targets the
+// global namespace, as well as a non-global namespace.
+template <auto ns>
+void useGlobalS() {
+  using typename [:ns:]::GlobalS;
+  GlobalS s;
+}
+template void useGlobalS<^^::>();
+
+template <auto ns>
+void useMynsS() {
+  using typename [:ns:]::S;
+  S s;
+}
+template void useMynsS<^^myns>();
+}  // namespace bb_clang_p2996_issue_338_regression_test

@@ -13615,6 +13615,14 @@ bool Sema::CheckUsingDeclQualifier(SourceLocation UsingLoc, bool HasTypename,
   }
 
   if (!CurContext->isRecord()) {
+    // splice-scope-specifier trips the later check
+    // We lift it up here
+    NestedNameSpecifier *NNS = SS.isSet() ? SS.getScopeRep() : nullptr;
+    const bool isDependentSpliceScope =
+      !NamedContext && NNS && NNS->getAsSplice() && NNS->isDependent();
+    if (isDependentSpliceScope) {
+      return false;
+    }
     // C++03 [namespace.udecl]p3:
     // C++0x [namespace.udecl]p8:
     //   A using-declaration for a class member shall be a member-declaration.
