@@ -31,6 +31,7 @@
 #include "clang/Sema/Sema.h"
 #include "clang/Sema/Template.h"
 #include "clang/Sema/TemplateDeduction.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
 
 using namespace clang;
@@ -1367,25 +1368,32 @@ ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc, Expr *E) {
 }
 
 ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
-                                     UnresolvedLookupExpr *E) {
+                                     UnresolvedLookupExpr *ULE) {
+  // In reflection context, we consider a single template lookup
+  // result as "reflectable" even if it is an 'UnresolvedLookupExpr'. This allows
+  // reflection of templates that are overloaded only on their template parameters.
+  if (ULE->getNumDecls() == 1) {
+    if (auto *FTD = dyn_cast<FunctionTemplateDecl>(*ULE->decls_begin()))
+      return BuildCXXReflectExpr(OperatorLoc, ULE->getExprLoc(),
+                                 TemplateName(FTD));
+  }
+
   // If the UnresolvedLookupExpr could refer to multiple candidates, there
   // will be no means of choosing between them. Raise an error indicating
   // lack of support for reflection of overload sets at this time.
-  auto *ULE = cast<UnresolvedLookupExpr>(E);
-
   // On the other hand, a unique candidate Decl might refer to a specialized
   // function template. Begin by inventing a 'VarDecl' for a 'const auto'
   // variable which would be initialized by the operand 'ULE'.
   QualType ConstAutoTy = Context.getAutoDeductType().withConst();
   TypeSourceInfo *TSI = Context.CreateTypeSourceInfo(ConstAutoTy, 0);
   auto *InventedVD = VarDecl::Create(Context, nullptr, SourceLocation(),
-                                     E->getExprLoc(), nullptr, ConstAutoTy,
+                                     ULE->getExprLoc(), nullptr, ConstAutoTy,
                                      TSI, SC_Auto);
 
   // Use the 'auto' deduction machinery to infer the operand type.
   if (DeduceVariableDeclarationType(InventedVD, true, ULE)) {
-    Diag(E->getExprLoc(), diag::err_reflect_overload_set)
-        << E->getSourceRange();
+    Diag(ULE->getExprLoc(), diag::err_reflect_overload_set)
+        << ULE->getSourceRange();
     return ExprError();
   }
 
@@ -1398,10 +1406,10 @@ ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
                                          FoundOverload,
                                          &HadMultipleCandidates);
   if (!FoundDecl) {
-    Diag(E->getExprLoc(), diag::err_reflect_overload_set);
+    Diag(ULE->getExprLoc(), diag::err_reflect_overload_set);
     return ExprError();
   }
-  ExprResult ER = FixOverloadedFunctionReference(E, FoundOverload, FoundDecl);
+  ExprResult ER = FixOverloadedFunctionReference(ULE, FoundOverload, FoundDecl);
   assert(!ER.isInvalid() && "could not fix overloaded function reference");
 
   return BuildCXXReflectExpr(OperatorLoc, ER.get());
