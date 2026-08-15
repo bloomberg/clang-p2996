@@ -6088,16 +6088,30 @@ QualType ASTContext::getPackExpansionType(QualType Pattern,
 QualType ASTContext::getReflectionSpliceType(SourceLocation TypenameKWLoc,
                                              SpliceSpecifier *Splice,
                                              QualType UnderlyingType) const {
-  ReflectionSpliceType *RST;
+  // For dependent reflection splices, we want to canonicalize based on the splice operand,
+  // since that's the only part of the type that contributes to its identity.
+  if (UnderlyingType == DependentTy) {
+    llvm::FoldingSetNodeID ID;
+    DependentReflectionSpliceType::Profile(ID, *this, Splice);
 
-  // Unwrap any LocInfoType introduced by reflection operator.
+    void *InsertPos = nullptr;
+    if (auto *T = DependentReflectionSpliceTypes.FindNodeOrInsertPos(ID, InsertPos))
+      return QualType(T, 0);
+
+    auto *T = new (*this, TypeAlignment)
+        DependentReflectionSpliceType(*this, TypenameKWLoc, Splice);
+    Types.push_back(T);
+    DependentReflectionSpliceTypes.InsertNode(T, InsertPos);
+    return QualType(T, 0);
+  }
+
+  // For non-dependent splices, we want to canonicalize based on the underlying type,
+  // since that's what determines the properties of the splice type.
   const Type *UnderlyingTyPtr = UnderlyingType.getTypePtr();
   if (const LocInfoType *LIT = dyn_cast_or_null<LocInfoType>(UnderlyingTyPtr))
     UnderlyingType = LIT->getType();
-
-  CanQualType Canon = getCanonicalType(UnderlyingType);
-  RST = new (*this, TypeAlignment) ReflectionSpliceType(TypenameKWLoc, Splice,
-                                                        Canon);
+  auto *RST = new (*this, TypeAlignment)
+      ReflectionSpliceType(TypenameKWLoc, Splice, UnderlyingType);
   Types.push_back(RST);
   return QualType(RST, 0);
 }
