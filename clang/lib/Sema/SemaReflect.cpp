@@ -1384,6 +1384,39 @@ ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
 
   // Use the 'auto' deduction machinery to infer the operand type.
   if (DeduceVariableDeclarationType(InventedVD, true, ULE)) {
+    // If auto-deduction failed, it's likely because the ULE refers to a
+    // raw Template (which cannot initialize 'auto'), but IS valid to reflect.
+    // e.g. function template with deduced this.
+    // Also generalize for ANY template type (Function, Var, Class, Alias, etc.)
+
+    TemplateDecl *UniqueTemplate = nullptr;
+    bool IsAmbiguous = false;
+
+    for (NamedDecl *D : ULE->decls()) {
+      D = D->getUnderlyingDecl();
+
+      // Use TemplateDecl to cover Function, Var, Class, Alias, Concepts
+      if (auto *TD = dyn_cast<TemplateDecl>(D)) {
+        if (!UniqueTemplate) {
+          UniqueTemplate = TD;
+        } else if (UniqueTemplate != TD) {
+          IsAmbiguous = true;
+          break;
+        }
+      } else {
+        // Found something that isn't a template (e.g. a regular function).
+        // Mixing templates and non-templates is ambiguous for reflection.
+        IsAmbiguous = true;
+        break;
+      }
+    }
+
+    if (UniqueTemplate && !IsAmbiguous) {
+      // It is a unique Template. Break.
+      return BuildCXXReflectExpr(OperatorLoc, E->getExprLoc(),
+                                 TemplateName(UniqueTemplate));
+    }
+
     Diag(E->getExprLoc(), diag::err_reflect_overload_set)
         << E->getSourceRange();
     return ExprError();
