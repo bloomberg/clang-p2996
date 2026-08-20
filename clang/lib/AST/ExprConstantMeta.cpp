@@ -1481,6 +1481,18 @@ static bool ensureDeclared(ASTContext &C, QualType QT, SourceLocation SpecLoc) {
 static bool isReflectableDecl(MetaActions &Meta, ASTContext &C, Decl *D) {
   assert(D && "null declaration");
 
+  // An out-of-line definition of a class member sits lexically in a namespace
+  // but belongs semantically to its class (Eigen defines most MatrixBase
+  // members this way, in re-opened namespace blocks). It is a pure
+  // redeclaration: the entity is enumerable through its class, never through
+  // the namespace -- and a reflection of the dependent definition PATTERN
+  // (when the class is a template) breaks downstream metafunctions outright.
+  // The redeclaration check below does not catch it: the definition is the
+  // FIRST declaration in its own lexical context.
+  if (D->getDeclContext() != D->getLexicalDeclContext() &&
+      isa<CXXRecordDecl>(D->getDeclContext()))
+    return false;
+
   if (D != D->getCanonicalDecl()) {
     Decl *First = nullptr;
     for (Decl *I = D->getMostRecentDecl(); I; I = I->getPreviousDecl())
@@ -1542,6 +1554,19 @@ static Decl *findIterableMember(MetaActions &Meta, ASTContext &C, Decl *D,
 
   do {
     DeclContext *DC = D->getDeclContext();  // note: SemanticDC
+
+    // Stepping FROM an out-of-line class-member definition must walk the
+    // lexical (namespace) chain it sits in: its semantic context is the
+    // class, and consulting that would leave the enumerated namespace
+    // entirely (the cross-block hop below can land on such a definition when
+    // it is the first declaration of a re-opened namespace block -- silently
+    // dropping every remaining member). Decls whose semantic context is a
+    // NAMESPACE but whose lexical context differs are NOT rewritten: those
+    // are the legitimate getLastMultDCSemaDecl/getPrevMultDCDeclInSemaContext
+    // chain (e.g. `void ns::f() {}` defined at translation-unit scope).
+    if (DC != D->getLexicalDeclContext() && isa<CXXRecordDecl>(DC) &&
+        D->getLexicalDeclContext()->isFileContext())
+      DC = D->getLexicalDeclContext();
 
     if (D->getLexicalDeclContext() == DC) {
       // Get the next declaration in the DeclContext.
