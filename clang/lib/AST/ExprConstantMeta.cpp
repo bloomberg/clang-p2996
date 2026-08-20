@@ -4686,7 +4686,10 @@ bool is_static_member(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::Attribute:
     return SetAndSucceed(Result, makeBool(C, result));
   case ReflectionKind::EntityProxy:
-    llvm_unreachable("proxies should already have been unwrapped");
+    // A using-shadow declaration is never itself one of these; member
+    // enumeration under -fentity-proxy-reflection may legitimately query it
+    // (crashing here turned a valid consteval query into an ICE).
+    return SetAndSucceed(Result, makeBool(C, false));
   }
   llvm_unreachable("unknown reflection kind");
 }
@@ -4918,9 +4921,11 @@ bool has_complete_definition(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
   case ReflectionKind::Attribute:
-    break;
+  // A using-shadow declaration is not itself a definable entity; member
+  // enumeration under -fentity-proxy-reflection may legitimately query it
+  // (crashing here turned a valid consteval query into an ICE).
   case ReflectionKind::EntityProxy:
-    llvm_unreachable("proxies should already have been unwrapped");
+    break;
   }
 
   return SetAndSucceed(Result, makeBool(C, result));
@@ -4959,9 +4964,11 @@ bool is_enumerable_type(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
   case ReflectionKind::Attribute:
-    break;
+  // A using-shadow declaration is not itself an enumerable type; member
+  // enumeration under -fentity-proxy-reflection may legitimately query it
+  // (crashing here turned a valid consteval query into an ICE).
   case ReflectionKind::EntityProxy:
-    llvm_unreachable("proxies should already have been unwrapped");
+    break;
   }
 
   return SetAndSucceed(Result, makeBool(C, result));
@@ -5371,7 +5378,10 @@ bool is_constructor(APValue &Result, ASTContext &C, MetaActions &Meta,
     return SetAndSucceed(Result, makeBool(C, result));
   }
   case ReflectionKind::EntityProxy:
-    llvm_unreachable("proxies should already have been unwrapped");
+    // A using-shadow declaration is never itself a constructor; callers
+    // enumerating members under -fentity-proxy-reflection may legitimately
+    // query it (crashing here turned a valid consteval query into an ICE).
+    return SetAndSucceed(Result, makeBool(C, false));
   }
   llvm_unreachable("invalid reflection type");
 }
@@ -5522,7 +5532,10 @@ bool is_destructor(APValue &Result, ASTContext &C, MetaActions &Meta,
     return SetAndSucceed(Result, makeBool(C, result));
   }
   case ReflectionKind::EntityProxy:
-    llvm_unreachable("proxies should already have been unwrapped");
+    // A using-shadow declaration is never itself one of these; member
+    // enumeration under -fentity-proxy-reflection may legitimately query it
+    // (crashing here turned a valid consteval query into an ICE).
+    return SetAndSucceed(Result, makeBool(C, false));
   }
   llvm_unreachable("invalid reflection type");
 }
@@ -5566,7 +5579,10 @@ bool is_special_member_function(APValue &Result, ASTContext &C,
     return SetAndSucceed(Result, makeBool(C, result));
   }
   case ReflectionKind::EntityProxy:
-    llvm_unreachable("proxies should already have been unwrapped");
+    // A using-shadow declaration is never itself one of these; member
+    // enumeration under -fentity-proxy-reflection may legitimately query it
+    // (crashing here turned a valid consteval query into an ICE).
+    return SetAndSucceed(Result, makeBool(C, false));
   }
   llvm_unreachable("invalid reflection type");
 }
