@@ -560,6 +560,7 @@ enum : unsigned {
   __metafn_bit_offset_of,
   __metafn_bit_size_of,
   __metafn_alignment_of,
+  __metafn_has_c_language_linkage,
 
   // P3096 parameter reflection metafunctions
   __metafn_get_ith_parameter_of,
@@ -2357,6 +2358,11 @@ struct data_member_options {
 // Returns the alignment of the reflected entity.
 consteval auto alignment_of(info r) -> size_t {
   return __metafunction(detail::__metafn_alignment_of, r);
+}
+
+// Returns whether the reflected entity (either a function or a variable) has C language linkage.
+consteval auto has_c_language_linkage(info r) -> bool {
+  return __metafunction(detail::__metafn_has_c_language_linkage, r);
 }
 
 struct enumerator_options {
