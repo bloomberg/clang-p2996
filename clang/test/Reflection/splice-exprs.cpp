@@ -20,7 +20,7 @@ struct C {
 };
 
 auto c = C{.i=2};
-auto v = c.[:^^C::i:];  // expected-error {{not derived from}}
+auto v = c.[:^^C::i:];
 
 static union { int m; };
 constexpr auto r = ^^m;
