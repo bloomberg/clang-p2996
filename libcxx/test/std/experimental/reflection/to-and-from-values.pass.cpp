@@ -409,6 +409,46 @@ static_assert(rp != rv);
 static_assert(ro != rv);
 }  // namespace pointer_object_ambiguity
 
+                        // ==========================
+                        // array_subobject_lvalue_path
+                        // ==========================
+
+namespace array_subobject_lvalue_path {
+
+// The type of an object reflection is computed by walking the lvalue path of
+// the underlying value. Entries are untagged: an entry is a declaration only
+// when the type it applies to is a class type, and a raw index otherwise.
+// Indices below 8 are masked to a null 'Decl *' and so never exercised this;
+// larger ones must not be decoded as declarations either.
+constexpr int arr[64] = {};
+
+struct Base { int b; };
+struct Derived : Base { int arr[64]; };
+constexpr Derived d = {};
+
+constexpr auto ro = std::meta::reflect_object(arr[40]);
+static_assert(is_object(ro));
+static_assert(type_of(ro) == ^^const int);
+static_assert([:ro:] == 0);
+
+constexpr auto rc = std::meta::reflect_constant(&arr[40]);
+static_assert(is_value(rc));
+static_assert(type_of(rc) == ^^const int *);
+static_assert([:rc:] == &arr[40]);
+
+// A base-class entry, then a member entry, then an array index.
+constexpr auto rn = std::meta::reflect_object(d.arr[33]);
+static_assert(type_of(rn) == ^^const int);
+static_assert([:rn:] == 0);
+
+constexpr auto rb = std::meta::reflect_object(d.b);
+static_assert(type_of(rb) == ^^const int);
+
+static_assert(constant_of(ro) == std::meta::reflect_constant(0));
+static_assert(constant_of(rn) == std::meta::reflect_constant(0));
+
+}  // namespace array_subobject_lvalue_path
+
                       // ================================
                       // reflect_constants_of_class_types
                       // ================================
