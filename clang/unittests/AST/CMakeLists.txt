@@ -14,6 +14,7 @@ add_clang_unittest(ASTTests
   ASTTypeTraitsTest.cpp
   ASTVectorTest.cpp
   AttrTest.cpp
+  AttributeScratchpadTest.cpp
   CommentLexer.cpp
   CommentParser.cpp
   CommentTextTest.cpp

@@ -724,6 +724,9 @@ public:
 
   AttributeFactory &getFactory() const { return Factory; }
 
+  /// The number of attributes currently owned by this pool.
+  size_t size() const { return Attrs.size(); }
+
   void clear() {
     Factory.reclaimPool(*this);
     Attrs.clear();

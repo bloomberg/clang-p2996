@@ -12,6 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "AttributeScratchpad.h"
 #include "clang/AST/APValue.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/Attr.h"
@@ -1864,12 +1865,6 @@ llvm::SmallVector<const Attr*, 8> static collectUniqueCxx11Attrs(const Decl *D) 
   return Result;
 }
 
-struct AttributeScratchpad {
-  AttributeFactory factory;
-  AttributePool pool;
-  AttributeScratchpad() : factory(), pool(factory) {}
-};
-
 // -----------------------------------------------------------------------------
 // Metafunction implementations
 // -----------------------------------------------------------------------------
@@ -2036,7 +2031,9 @@ bool is_msvc_attribute(APValue &Result, ASTContext &C,
 // Synthesize back a ParsedAttr from an Attr, the best I can...
 // Return a nullptr if the process met an error
 static const ParsedAttr* toSyntacticForm(const Attr* val, ASTContext * C) {
-  static AttributeScratchpad scratchpad;
+  // Owned by the ASTContext: the pool's allocator is not thread-safe, and the
+  // ParsedAttrs built below point back into this context.
+  AttributeScratchpad &scratchpad = C->getAttributeScratchpad();
   ParsedAttr * recoveredAttr = nullptr;
   auto onArgs = [&](
       IdentifierInfo * attrName,

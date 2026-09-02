@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/AST/ASTContext.h"
+#include "AttributeScratchpad.h"
 #include "ByteCode/Context.h"
 #include "CXXABI.h"
 #include "clang/AST/APValue.h"
@@ -912,6 +913,12 @@ interp::Context &ASTContext::getInterpContext() {
     InterpContext.reset(new interp::Context(*this));
   }
   return *InterpContext;
+}
+
+AttributeScratchpad &ASTContext::getAttributeScratchpad() {
+  if (!AttrScratchpad)
+    AttrScratchpad = std::make_unique<AttributeScratchpad>();
+  return *AttrScratchpad;
 }
 
 ParentMapContext &ASTContext::getParentMapContext() {

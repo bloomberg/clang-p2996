@@ -61,6 +61,7 @@ class APValue;
 class ASTMutationListener;
 class ASTRecordLayout;
 class AtomicExpr;
+struct AttributeScratchpad;
 class BlockExpr;
 struct BlockVarCopyInit;
 class BuiltinTemplateDecl;
@@ -744,6 +745,10 @@ private:
   std::unique_ptr<interp::Context> InterpContext;
   std::unique_ptr<ParentMapContext> ParentMapCtx;
 
+  /// Storage for the ParsedAttrs synthesized by attribute reflection.
+  /// Created on first use; see getAttributeScratchpad().
+  std::unique_ptr<AttributeScratchpad> AttrScratchpad;
+
   /// Keeps track of the deallocated DeclListNodes for future reuse.
   DeclListNode *ListNodeFreeList = nullptr;
 
@@ -758,6 +763,13 @@ public:
 
   /// Returns the clang bytecode interpreter context.
   interp::Context &getInterpContext();
+
+  /// Returns this context's storage for ParsedAttrs synthesized by the
+  /// attribute reflection metafunctions, creating it on first use.
+  ///
+  /// The scratchpad is per-ASTContext rather than global: its allocator is
+  /// not thread-safe, and the attributes it owns point into this context.
+  AttributeScratchpad &getAttributeScratchpad();
 
   struct CUDAConstantEvalContext {
     /// Do not allow wrong-sided variables in constant expressions.
