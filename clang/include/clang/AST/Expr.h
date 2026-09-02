@@ -781,10 +781,16 @@ public:
   ///
   /// If 'Kind' is 'PlainlyConstantEvaluated', then 'ContainingDecl' is the
   /// declaration containing the expression and must be non-null.
+  ///
+  /// If 'AllowImmediateFunctions' is true, the result may contain pointers or
+  /// references to immediate functions. This is used when representing a value
+  /// as a reflection (P2996), where the value is held by a consteval-only type
+  /// and so can never reach a runtime context.
   bool EvaluateAsConstantExpr(
       EvalResult &Result, const ASTContext &Ctx,
       ConstantExprKind Kind = ConstantExprKind::Normal,
-      Decl *ContainingDecl = nullptr) const;
+      Decl *ContainingDecl = nullptr,
+      bool AllowImmediateFunctions = false) const;
 
   /// If the current Expr is a pointer, this will try to statically
   /// determine the number of bytes available where the pointer is pointing.

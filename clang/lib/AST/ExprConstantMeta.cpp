@@ -5661,7 +5661,12 @@ bool reflect_result(APValue &Result, ASTContext &C, MetaActions &Meta,
     ConstantExprKind CEKind = (OVE->getType()->isRecordType() && !IsLValue) ?
                               ConstantExprKind::ClassTemplateArgument :
                               ConstantExprKind::NonClassTemplateArgument;
-    if (!OVE->EvaluateAsConstantExpr(Discarded, C, CEKind))
+    // The value is being stored in a reflection, so unlike a real template
+    // argument it may designate an immediate function: 'std::meta::info' is a
+    // consteval-only type, so the value cannot escape to a runtime context.
+    if (!OVE->EvaluateAsConstantExpr(Discarded, C, CEKind,
+                                     /*ContainingDecl=*/nullptr,
+                                     /*AllowImmediateFunctions=*/true))
       return Diagnoser(Range.getBegin(), diag::metafn_result_not_representable)
           << (IsLValue ? 1 : 0) << Range;
   }
