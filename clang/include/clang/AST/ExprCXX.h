@@ -5547,8 +5547,9 @@ private:
   unsigned MetaFnID;
 
   // An unowned reference to a callback for executing the metafunction at
-  // constant evaluation time.
-  const ImplFn *Impl;
+  // constant evaluation time. Null until deserialization supplies one, and
+  // left null if the serialized metafunction ID names nothing.
+  const ImplFn *Impl = nullptr;
 
   // Result type.
   QualType ResultType;
@@ -5583,8 +5584,15 @@ public:
   unsigned getMetaFnID() const { return MetaFnID; }
   void setMetaFnID(unsigned ID) { MetaFnID = ID; }
 
-  const ImplFn &getImpl() const { return *Impl; }
-  void setImpl(const ImplFn &Fn) { Impl = &Fn; }
+  /// Whether an evaluation callback is attached. False only for an expression
+  /// read back from a malformed AST file naming an unknown metafunction.
+  bool hasImpl() const { return Impl != nullptr; }
+
+  const ImplFn &getImpl() const {
+    assert(Impl && "no metafunction implementation");
+    return *Impl;
+  }
+  void setImpl(const ImplFn *Fn) { Impl = Fn; }
 
   QualType getResultType() const { return ResultType; }
   void setResultType(QualType QT) { ResultType = QT; }

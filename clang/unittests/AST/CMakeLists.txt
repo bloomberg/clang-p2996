@@ -25,6 +25,7 @@ add_clang_unittest(ASTTests
   DeclTest.cpp
   EvaluateAsRValueTest.cpp
   ExternalASTSourceTest.cpp
+  MetafunctionLookupTest.cpp
   NamedDeclPrinterTest.cpp
   ProfilingTest.cpp
   RandstructTest.cpp

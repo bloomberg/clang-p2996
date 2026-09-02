@@ -512,6 +512,9 @@ void ASTStmtReader::VisitCXXMetafunctionExpr(CXXMetafunctionExpr *E) {
   E->setLParenLoc(Record.readSourceLocation());
   E->setRParenLoc(Record.readSourceLocation());
   E->setMetaFnID(Record.readUInt32());
+  // Null when the ID names no metafunction; getMetafunctionCb has reported the
+  // file as malformed, and the expression is left without a callback rather
+  // than carrying a bogus one into constant evaluation.
   E->setImpl(Record.getMetafunctionCb(E->getMetaFnID()));
   E->setResultType(Record.readQualType());
 

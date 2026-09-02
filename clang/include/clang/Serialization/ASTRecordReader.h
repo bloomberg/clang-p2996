@@ -371,8 +371,23 @@ public:
 
   /// P2996 hack: Use the 'Sema' object from the ASTReader to get a
   /// metafunction callback during deserialization of a CXXMetafunctionExpr.
-  const CXXMetafunctionExpr::ImplFn &getMetafunctionCb(unsigned ID) {
-    return Reader->getSema()->getMetafunctionCb(ID);
+  ///
+  /// The ID is read verbatim from the AST file, so it is untrusted. Returns
+  /// null (having reported the file as malformed) if it names no metafunction,
+  /// or if the reader has no 'Sema' to ask.
+  const CXXMetafunctionExpr::ImplFn *getMetafunctionCb(unsigned ID) {
+    Sema *S = Reader->getSema();
+    if (!S) {
+      Reader->Error("metafunction expression deserialized without a Sema "
+                    "object");
+      return nullptr;
+    }
+
+    const CXXMetafunctionExpr::ImplFn *Impl = S->getMetafunctionCb(ID);
+    if (!Impl)
+      Reader->Error("malformed metafunction ID in AST file");
+
+    return Impl;
   }
 };
 

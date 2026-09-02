@@ -8894,6 +8894,11 @@ bool ExprEvaluatorBase<Derived>::VisitCXXMetafunctionExpr(
       (Info.EvalMode ==
        EvalInfo::EM_ConstantExpressionPlainlyConstantEvaluated);
 
+  // An expression deserialized from a malformed AST file may name no
+  // metafunction at all; the reader has already diagnosed the file.
+  if (!E->hasImpl())
+    return Error(E);
+
   // Evaluate the metafunction.
   APValue Result;
   const CXXMetafunctionExpr::ImplFn &Implementation = E->getImpl();

@@ -970,8 +970,13 @@ bool Metafunction::evaluate(APValue &Result, ASTContext &C,
 }
 
 bool Metafunction::Lookup(unsigned ID, const Metafunction *&result) {
-  if (ID >= NumMetafunctions)
+  // Always write the out-parameter: IDs reach this from deserialized ASTs, and
+  // a caller that forgets to check the return value must not be left holding
+  // whatever happened to be on the stack.
+  if (ID >= NumMetafunctions) {
+    result = nullptr;
     return true;
+  }
 
   result = &Metafunctions[ID];
   return false;
