@@ -2189,7 +2189,11 @@ protected:
     /// increments towards the beginning.
     /// Positive non-zero number represents the index + 1.
     /// Zero means this is not substituted from an expansion.
-    unsigned PackIndex : 15;
+    /// 26 bits fills the remainder of the 64-bit bitfield word; large pack
+    /// expansions (substituted character packs for long string literals)
+    /// overflowed the previous 15-bit field, miscompiling the expansion.
+    /// The constructor asserts the encoding fits.
+    unsigned PackIndex : 26;
   };
 
   class SubstTemplateTypeParmPackTypeBitfields {
