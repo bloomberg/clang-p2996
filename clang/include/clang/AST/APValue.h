@@ -486,6 +486,18 @@ public:
     Result.Kind = Indeterminate;
     return Result;
   }
+  /// The greatest value representable by the reflection-depth counter, and
+  /// therefore the deepest reflection-of-a-reflection this representation can
+  /// hold.
+  static constexpr unsigned MaxReflectionDepth = 255;
+
+  /// Whether 'Lift' can be applied without exceeding 'MaxReflectionDepth'.
+  ///
+  /// Callers that can be handed a user-controlled 'std::meta::info' must check
+  /// this and diagnose; 'Lift' itself has no channel through which to report
+  /// the failure and returns a value of kind 'None'.
+  bool canLift() const { return ReflectionDepth < MaxReflectionDepth; }
+
   APValue Lift(QualType ResultType) const;
   APValue Lower() const;
 

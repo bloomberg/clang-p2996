@@ -1050,6 +1050,22 @@ static bool SetAndSucceed(APValue &Out, const APValue &Result) {
   return false;
 }
 
+/// Lifts 'V' into a reflection and stores it in 'Out'.
+///
+/// The reflection-depth counter is a fixed-width field, and 'std::meta::info'
+/// is itself a structural type, so a metafunction handed a reflection can be
+/// asked to reflect it again without bound. Diagnose at the limit rather than
+/// letting 'APValue::Lift' silently produce a value of kind 'None'.
+static bool SetAndSucceedWithLift(APValue &Out, DiagFn Diagnoser,
+                                  SourceRange Range, const APValue &V,
+                                  QualType ResultTy) {
+  if (!V.canLift())
+    return Diagnoser(Range.getBegin(), diag::metafn_reflection_depth_exceeded)
+        << APValue::MaxReflectionDepth << Range;
+
+  return SetAndSucceed(Out, V.Lift(ResultTy));
+}
+
 static TemplateName findTemplateOfDecl(const Decl *D) {
   TemplateDecl *TDecl = nullptr;
   if (const auto *FD = dyn_cast<FunctionDecl>(D)) {
@@ -3276,7 +3292,8 @@ bool constant_of(APValue &Result, ASTContext &C, MetaActions &Meta,
                     false);
       ConstantTy = QualType{};
     }
-    return SetAndSucceed(Result, Constant.Lift(ConstantTy));
+    return SetAndSucceedWithLift(Result, Diagnoser, Range, Constant,
+                                 ConstantTy);
   }
   case ReflectionKind::Declaration: {
     ValueDecl *Decl = RV.getReflectedDecl();
@@ -3326,7 +3343,8 @@ bool constant_of(APValue &Result, ASTContext &C, MetaActions &Meta,
       ConstantTy = QualType{};
     }
 
-    return SetAndSucceed(Result, Constant.Lift(ConstantTy));
+    return SetAndSucceedWithLift(Result, Diagnoser, Range, Constant,
+                                 ConstantTy);
   }
   case ReflectionKind::Annotation: {
     CXX26AnnotationAttr *A = RV.getReflectedAnnotation();
@@ -3341,7 +3359,8 @@ bool constant_of(APValue &Result, ASTContext &C, MetaActions &Meta,
                     false);
       ConstantTy = QualType{};
     }
-    return SetAndSucceed(Result, Constant.Lift(ConstantTy));
+    return SetAndSucceedWithLift(Result, Diagnoser, Range, Constant,
+                                 ConstantTy);
   }
   case ReflectionKind::Attribute: // TODO P3385 anything to do ?
   case ReflectionKind::Null:
@@ -5625,6 +5644,14 @@ bool reflect_result(APValue &Result, ASTContext &C, MetaActions &Meta,
   if (!Evaluator(Arg, Args[1], !IsLValue))
     return true;
 
+  // 'std::meta::info' is a structural type, so 'reflect_constant' accepts a
+  // reflection and yields a reflection of it. Nothing else caps how many times
+  // that can be repeated, so check here before the depth counter would
+  // overflow.
+  if (!Arg.canLift())
+    return Diagnoser(Range.getBegin(), diag::metafn_reflection_depth_exceeded)
+        << APValue::MaxReflectionDepth << Range;
+
   // Construct an expression whose result is 'Arg', and evaluate it to check if
   // it's an allowed result of a constant template argument.
   //
@@ -7341,7 +7368,8 @@ bool reflect_invoke(APValue &Result, ASTContext &C, MetaActions &Meta,
               makeReflection(
                   const_cast<ValueDecl *>(LVBase.get<const ValueDecl *>())));
 
-  return SetAndSucceed(Result, EvalResult.Val.Lift(CallExpr->getType()));
+  return SetAndSucceedWithLift(Result, Diagnoser, Range, EvalResult.Val,
+                               CallExpr->getType());
 }
 
 }  // end namespace clang

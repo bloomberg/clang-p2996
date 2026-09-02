@@ -907,9 +907,22 @@ ReflectionKind APValue::getReflectionKind() const {
   }
 }
 
+static_assert(APValue::MaxReflectionDepth ==
+                  std::numeric_limits<uint8_t>::max(),
+              "MaxReflectionDepth must match the width of ReflectionDepth");
+
 APValue APValue::Lift(QualType ResultType) const {
-  assert(ReflectionDepth <
-         std::numeric_limits<decltype(ReflectionDepth)>::max());
+  // Refuse to wrap the depth counter. A wrapped counter would take a value
+  // whose static type is 'std::meta::info' back down to depth zero, where
+  // 'isReflection()' is false and 'getReflectionKind()' reads the raw union
+  // bytes of the underlying value as a 'ReflectionData' -- a kind
+  // discriminant and an entity pointer that accessors then dereference.
+  //
+  // There is no way to report the failure from here; callers that can be
+  // handed a user-controlled reflection must check 'canLift()' first and
+  // diagnose. Returning 'None' keeps the wrap unreachable for any that do not.
+  if (!canLift())
+    return APValue();
 
   // TODO: Special case for lvalues referring to functions?
   //       Should be "promoted" to a reflection of the function declaration.

@@ -1430,6 +1430,14 @@ ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
                                const_cast<ValueDecl *>(VD));
   }
 
+  // A 'std::meta::info' template argument is already a reflection; reflecting
+  // it again nests one level deeper, and the depth counter is finite.
+  if (!ER.Val.canLift()) {
+    Diag(E->getExprLoc(), diag::err_reflection_depth_exceeded)
+        << APValue::MaxReflectionDepth;
+    return ExprError();
+  }
+
   APValue RV = ER.Val.Lift(E->getType());
   return CXXReflectExpr::Create(Context, OperatorLoc, E->getSourceRange(), RV);
 }
