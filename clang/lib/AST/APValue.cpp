@@ -774,6 +774,62 @@ QualType APValue::getTypeOfReflectedResult(const ASTContext &C) const {
   return C.MetaInfoTy;
 }
 
+/// Computes the type of the subobject designated by an lvalue.
+///
+/// 'LValuePathEntry' is an untagged union: an entry is a base-or-member
+/// declaration only when the type it is applied to is a class type, and is a
+/// raw index otherwise. The path must therefore be walked from the base type
+/// forwards, discriminating each entry by the type reached so far; decoding an
+/// array index as a 'Decl *' would dereference an arbitrary address.
+///
+/// Returns a null 'QualType' if the path can not be walked.
+///
+/// 'V' must have 'LValue' representation; note that this is not the same as
+/// 'V.isLValue()', which is additionally false once a value has been lifted
+/// into a reflection. The lvalue accessors below assert on the representation.
+static QualType ComputeLValueType(const APValue &V) {
+  if (V.getLValueBase().isNull())
+    return QualType {};
+
+  QualType BaseTy = V.getLValueBase().getType();
+  if (BaseTy.isNull())
+    return QualType {};
+
+  SplitQualType SQT = BaseTy.split();
+  if (!V.hasLValuePath())
+    return QualType(SQT.Ty, SQT.Quals.getAsOpaqueValue());
+
+  auto StepTo = [&SQT](QualType QT) {
+    SQT.Ty = QT.getTypePtr();
+    if (QT.isConstQualified()) SQT.Quals.addConst();
+    if (QT.isVolatileQualified()) SQT.Quals.addVolatile();
+  };
+
+  for (const APValue::LValuePathEntry &E : V.getLValuePath()) {
+    if (SQT.Ty->isRecordType()) {
+      // The entry designates a base class or a non-static data member.
+      const Decl *D = E.getAsBaseOrMember().getPointer();
+      if (const auto *FD = dyn_cast_or_null<FieldDecl>(D))
+        StepTo(FD->getType());
+      else if (const auto *RD = dyn_cast_or_null<CXXRecordDecl>(D))
+        SQT.Ty = RD->getTypeForDecl();
+      else
+        return QualType {};
+    } else if (SQT.Ty->isAnyComplexType()) {
+      // The entry is the index of the real or imaginary part.
+      StepTo(SQT.Ty->castAs<ComplexType>()->getElementType());
+    } else if (const auto *AT = SQT.Ty->getAsArrayTypeUnsafe()) {
+      // The entry is an array index.
+      StepTo(AT->getElementType());
+    } else {
+      // The path does not match the type of the base; give up rather than
+      // reinterpret the entry as something it is not.
+      return QualType {};
+    }
+  }
+  return QualType(SQT.Ty, SQT.Quals.getAsOpaqueValue());
+}
+
 ReflectionKind APValue::getReflectionKind() const {
   assert(isReflection() && "not a reflection value");
 
@@ -817,16 +873,11 @@ ReflectionKind APValue::getReflectionKind() const {
         //   (normalized) type is the same as its 'UnderlyingTy'.
         const Type *LVTy = nullptr;
 
-        // If we have an LValuePath, use the type of the back-most path element.
+        // If we have an LValuePath, use the type of the designated subobject.
         if (hasLValuePath() && getLValuePath().size() > 0) {
-          const LValuePathEntry &E = getLValuePath().back();
-          if (const auto *D = E.getAsBaseOrMember().getPointer()) {
-            if (auto *FD = dyn_cast<FieldDecl>(D))
-              LVTy = FD->getType()->getCanonicalTypeUnqualified().getTypePtr();
-            else if (auto *TD = dyn_cast<CXXRecordDecl>(D))
-              LVTy = TD->getTypeForDecl()
-                        ->getCanonicalTypeUnqualified().getTypePtr();
-          }
+          QualType QT = ComputeLValueType(*this);
+          if (!QT.isNull())
+            LVTy = QT->getCanonicalTypeUnqualified().getTypePtr();
         }
 
         // Otherwise, infer from the LValueBase.
@@ -856,44 +907,22 @@ ReflectionKind APValue::getReflectionKind() const {
   }
 }
 
-static QualType ComputeLValueType(const APValue &V) {
-  assert(V.isLValue());
-  if (V.getLValueBase().isNull())
-    return QualType {};
-
-  SplitQualType SQT = V.getLValueBase().getType().split();
-
-  for (auto p = V.getLValuePath().begin();
-       p != V.getLValuePath().end(); ++p) {
-    const Decl *D = V.getLValuePath().back().getAsBaseOrMember().getPointer();
-    if (D) {  // base or member case
-      if (auto *VD = dyn_cast<FieldDecl>(D)) {
-        QualType QT = VD->getType();
-        SQT.Ty = QT.getTypePtr();
-
-        if (QT.isConstQualified()) SQT.Quals.addConst();
-        if (QT.isVolatileQualified()) SQT.Quals.addVolatile();
-
-        continue;
-      } else if (auto *TD = dyn_cast<CXXRecordDecl>(D)) {
-        SQT.Ty = TD->getTypeForDecl();
-        continue;
-      }
-
-      llvm_unreachable("unknown lvalue path kind");
-    } else { // array case
-      QualType QT = cast<ArrayType>(SQT.Ty)->getElementType();
-      SQT.Ty = QT.getTypePtr();
-      if (QT.isConstQualified()) SQT.Quals.addConst();
-      if (QT.isVolatileQualified()) SQT.Quals.addVolatile();
-    }
-  }
-  return QualType(SQT.Ty, SQT.Quals.getAsOpaqueValue());
-}
+static_assert(APValue::MaxReflectionDepth ==
+                  std::numeric_limits<uint8_t>::max(),
+              "MaxReflectionDepth must match the width of ReflectionDepth");
 
 APValue APValue::Lift(QualType ResultType) const {
-  assert(ReflectionDepth <
-         std::numeric_limits<decltype(ReflectionDepth)>::max());
+  // Refuse to wrap the depth counter. A wrapped counter would take a value
+  // whose static type is 'std::meta::info' back down to depth zero, where
+  // 'isReflection()' is false and 'getReflectionKind()' reads the raw union
+  // bytes of the underlying value as a 'ReflectionData' -- a kind
+  // discriminant and an entity pointer that accessors then dereference.
+  //
+  // There is no way to report the failure from here; callers that can be
+  // handed a user-controlled reflection must check 'canLift()' first and
+  // diagnose. Returning 'None' keeps the wrap unreachable for any that do not.
+  if (!canLift())
+    return APValue();
 
   // TODO: Special case for lvalues referring to functions?
   //       Should be "promoted" to a reflection of the function declaration.

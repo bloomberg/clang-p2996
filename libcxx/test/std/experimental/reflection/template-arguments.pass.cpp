@@ -307,6 +307,30 @@ int p[2];
 static_assert(template_arguments_of(^^fn<p[1]>)[0] ==
               std::meta::reflect_object(p[1]));
 
+// An array index in an lvalue path is a raw integer, not a tagged pointer:
+// indices large enough to survive masking off the low bits of a 'Decl *' must
+// not be decoded as declarations.
+int big[64];
+struct Base { int b; };
+struct Derived : Base { int arr[64]; };
+Derived d;
+
+template <const int *> struct PtrCls {};
+template <int &> struct RefCls {};
+
+static_assert(template_arguments_of(^^fn<big[40]>)[0] ==
+              std::meta::reflect_object(big[40]));
+static_assert(type_of(template_arguments_of(^^fn<big[40]>)[0]) == ^^int);
+
+static_assert(type_of(template_arguments_of(^^PtrCls<&big[40]>)[0]) ==
+              ^^const int *);
+
+// The same, reached through a base-class and member path before the index.
+static_assert(template_arguments_of(^^fn<d.arr[33]>)[0] ==
+              std::meta::reflect_object(d.arr[33]));
+static_assert(type_of(template_arguments_of(^^RefCls<d.arr[33]>)[0]) == ^^int);
+static_assert(type_of(template_arguments_of(^^RefCls<d.b>)[0]) == ^^int);
+
 }  // namespace subobject_reflection_arguments
 
                    // =======================================

@@ -211,6 +211,44 @@ struct S {
 
 S<V> s;
 }  // namespace barry_example
+                             // ===================
+                             // large_argument_list
+                             // ===================
+
+// Splice-specializations whose argument list exceeds the inline capacity of the
+// parser's 'TemplateArgList' must keep that list alive across the call into
+// Sema; otherwise the arguments are read from freed storage.
+namespace large_argument_list {
+template <typename...> struct TCls { static constexpr int zero = 0; };
+template <int...> struct TValCls { static constexpr int zero = 0; };
+
+struct Outer { using type = int; };
+
+constexpr auto r = ^^TCls;
+
+static_assert(template [:r:]<int, int, int, int, int, int, int, int, int, int,
+                             int, int, int, int, int, int, int, int, int,
+                             int>::zero == 0);
+
+static_assert(template [:^^TValCls:]<0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+                                     13, 14, 15, 16, 17, 18, 19>::zero == 0);
+
+// Arguments carrying a nested-name-specifier own heap storage of their own.
+static_assert(template [:^^TCls:]<
+    Outer::type, Outer::type, Outer::type, Outer::type, Outer::type,
+    Outer::type, Outer::type, Outer::type, Outer::type, Outer::type,
+    Outer::type, Outer::type, Outer::type, Outer::type, Outer::type,
+    Outer::type, Outer::type, Outer::type, Outer::type,
+    Outer::type>::zero == 0);
+
+static_assert(is_same_v<typename [:r:]<int, int, int, int, int, int, int, int,
+                                       int, int, int, int, int, int, int, int,
+                                       int, int, int, int>,
+                        TCls<int, int, int, int, int, int, int, int, int, int,
+                             int, int, int, int, int, int, int, int, int,
+                             int>>);
+}  // namespace large_argument_list
+
                                  // ===========
                                  // error_cases
                                  // ===========

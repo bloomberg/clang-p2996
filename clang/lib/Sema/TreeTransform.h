@@ -9106,6 +9106,11 @@ TreeTransform<Derived>::TransformCXXReflectExpr(CXXReflectExpr *E) {
 template <typename Derived>
 ExprResult
 TreeTransform<Derived>::TransformCXXMetafunctionExpr(CXXMetafunctionExpr *E) {
+  // Deserializing a malformed AST file can leave an expression with no
+  // callback to carry over; the reader has already diagnosed the file.
+  if (!E->hasImpl())
+    return ExprError();
+
   SmallVector<Expr *, 2> Args(E->getNumArgs());
   for (unsigned I = 0; I < E->getNumArgs(); ++I) {
     ExprResult Arg = getDerived().TransformExpr(E->getArg(I));

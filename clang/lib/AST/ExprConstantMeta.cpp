@@ -12,6 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "AttributeScratchpad.h"
 #include "clang/AST/APValue.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/Attr.h"
@@ -978,8 +979,13 @@ bool Metafunction::evaluate(APValue &Result, ASTContext &C,
 }
 
 bool Metafunction::Lookup(unsigned ID, const Metafunction *&result) {
-  if (ID >= NumMetafunctions)
+  // Always write the out-parameter: IDs reach this from deserialized ASTs, and
+  // a caller that forgets to check the return value must not be left holding
+  // whatever happened to be on the stack.
+  if (ID >= NumMetafunctions) {
+    result = nullptr;
     return true;
+  }
 
   result = &Metafunctions[ID];
   return false;
@@ -1057,6 +1063,22 @@ static Expr *makeStrLiteral(StringRef Str, ASTContext &C, bool Utf8) {
 static bool SetAndSucceed(APValue &Out, const APValue &Result) {
   Out = Result;
   return false;
+}
+
+/// Lifts 'V' into a reflection and stores it in 'Out'.
+///
+/// The reflection-depth counter is a fixed-width field, and 'std::meta::info'
+/// is itself a structural type, so a metafunction handed a reflection can be
+/// asked to reflect it again without bound. Diagnose at the limit rather than
+/// letting 'APValue::Lift' silently produce a value of kind 'None'.
+static bool SetAndSucceedWithLift(APValue &Out, DiagFn Diagnoser,
+                                  SourceRange Range, const APValue &V,
+                                  QualType ResultTy) {
+  if (!V.canLift())
+    return Diagnoser(Range.getBegin(), diag::metafn_reflection_depth_exceeded)
+        << APValue::MaxReflectionDepth << Range;
+
+  return SetAndSucceed(Out, V.Lift(ResultTy));
 }
 
 static TemplateName findTemplateOfDecl(const Decl *D) {
@@ -1857,12 +1879,6 @@ llvm::SmallVector<const Attr*, 8> static collectUniqueCxx11Attrs(const Decl *D) 
   return Result;
 }
 
-struct AttributeScratchpad {
-  AttributeFactory factory;
-  AttributePool pool;
-  AttributeScratchpad() : factory(), pool(factory) {}
-};
-
 // -----------------------------------------------------------------------------
 // Metafunction implementations
 // -----------------------------------------------------------------------------
@@ -2029,7 +2045,9 @@ bool is_msvc_attribute(APValue &Result, ASTContext &C,
 // Synthesize back a ParsedAttr from an Attr, the best I can...
 // Return a nullptr if the process met an error
 static const ParsedAttr* toSyntacticForm(const Attr* val, ASTContext * C) {
-  static AttributeScratchpad scratchpad;
+  // Owned by the ASTContext: the pool's allocator is not thread-safe, and the
+  // ParsedAttrs built below point back into this context.
+  AttributeScratchpad &scratchpad = C->getAttributeScratchpad();
   ParsedAttr * recoveredAttr = nullptr;
   auto onArgs = [&](
       IdentifierInfo * attrName,
@@ -3285,7 +3303,8 @@ bool constant_of(APValue &Result, ASTContext &C, MetaActions &Meta,
                     false);
       ConstantTy = QualType{};
     }
-    return SetAndSucceed(Result, Constant.Lift(ConstantTy));
+    return SetAndSucceedWithLift(Result, Diagnoser, Range, Constant,
+                                 ConstantTy);
   }
   case ReflectionKind::Declaration: {
     ValueDecl *Decl = RV.getReflectedDecl();
@@ -3335,7 +3354,8 @@ bool constant_of(APValue &Result, ASTContext &C, MetaActions &Meta,
       ConstantTy = QualType{};
     }
 
-    return SetAndSucceed(Result, Constant.Lift(ConstantTy));
+    return SetAndSucceedWithLift(Result, Diagnoser, Range, Constant,
+                                 ConstantTy);
   }
   case ReflectionKind::Annotation: {
     CXX26AnnotationAttr *A = RV.getReflectedAnnotation();
@@ -3350,7 +3370,8 @@ bool constant_of(APValue &Result, ASTContext &C, MetaActions &Meta,
                     false);
       ConstantTy = QualType{};
     }
-    return SetAndSucceed(Result, Constant.Lift(ConstantTy));
+    return SetAndSucceedWithLift(Result, Diagnoser, Range, Constant,
+                                 ConstantTy);
   }
   case ReflectionKind::Attribute: // TODO P3385 anything to do ?
   case ReflectionKind::Null:
@@ -5634,6 +5655,14 @@ bool reflect_result(APValue &Result, ASTContext &C, MetaActions &Meta,
   if (!Evaluator(Arg, Args[1], !IsLValue))
     return true;
 
+  // 'std::meta::info' is a structural type, so 'reflect_constant' accepts a
+  // reflection and yields a reflection of it. Nothing else caps how many times
+  // that can be repeated, so check here before the depth counter would
+  // overflow.
+  if (!Arg.canLift())
+    return Diagnoser(Range.getBegin(), diag::metafn_reflection_depth_exceeded)
+        << APValue::MaxReflectionDepth << Range;
+
   // Construct an expression whose result is 'Arg', and evaluate it to check if
   // it's an allowed result of a constant template argument.
   //
@@ -7377,7 +7406,8 @@ bool reflect_invoke(APValue &Result, ASTContext &C, MetaActions &Meta,
               makeReflection(
                   const_cast<ValueDecl *>(LVBase.get<const ValueDecl *>())));
 
-  return SetAndSucceed(Result, EvalResult.Val.Lift(CallExpr->getType()));
+  return SetAndSucceedWithLift(Result, Diagnoser, Range, EvalResult.Val,
+                               CallExpr->getType());
 }
 
 }  // end namespace clang

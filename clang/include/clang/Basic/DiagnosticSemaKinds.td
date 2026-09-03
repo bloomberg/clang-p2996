@@ -3205,6 +3205,8 @@ def err_reflect_local_requires_param : Error<
 def err_reflect_intervening_lambda : Error<
   "cannot take the reflection of a local entity for which there is an "
   "intervening lambda expression">;
+def err_reflection_depth_exceeded : Error<
+  "reflection would nest more than %0 levels deep">;
 
 def err_splice_operand_not_reflection : Error<
   "splice operand must be a reflection">;

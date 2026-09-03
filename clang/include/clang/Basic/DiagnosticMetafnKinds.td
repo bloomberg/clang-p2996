@@ -100,6 +100,8 @@ def metafn_value_not_structural_type : Note<
   "values of non-structural type %0 cannot be represented as reflections">;
 def metafn_result_not_representable : Note<
   "provided %select{value|object}0 cannot be represented by a reflection">;
+def metafn_reflection_depth_exceeded : Note<
+  "reflection would nest more than %0 levels deep">;
 
 def metafn_p3385_non_standard_attribute : Warning<
   "non-standard attribute %0 found when expanding attributes">;

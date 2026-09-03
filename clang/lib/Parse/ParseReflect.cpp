@@ -208,19 +208,20 @@ bool Parser::ParseSpliceSpecifier(bool TryParseSpecialization) {
 
   SpliceResult SR;
   if (TryParseSpecialization && Tok.is(tok::less)) {
-    ASTTemplateArgsPtr TArgsPtr;
     SourceLocation LAngleLoc, RAngleLoc;
-    {
-      TemplateArgList TArgs;
-      if (ParseTemplateIdAfterTemplateName(/*ConsumeLastToken=*/false,
-                                           LAngleLoc, TArgs, RAngleLoc,
-                                           /*Template=*/nullptr))
-        return true;
 
-      TArgsPtr = ASTTemplateArgsPtr(TArgs.data(), TArgs.size());
-      end = Tok;
-      ConsumeToken();
-    }
+    // 'TArgs' must outlive the 'ASTTemplateArgsPtr' aliasing its storage, and
+    // therefore the call to 'ActOnSpliceSpecifier' which reads through it.
+    TemplateArgList TArgs;
+    if (ParseTemplateIdAfterTemplateName(/*ConsumeLastToken=*/false, LAngleLoc,
+                                         TArgs, RAngleLoc,
+                                         /*Template=*/nullptr))
+      return true;
+
+    ASTTemplateArgsPtr TArgsPtr(TArgs.data(), TArgs.size());
+    end = Tok;
+    ConsumeToken();
+
     SR = Actions.ActOnSpliceSpecifier(LSplice, Operand, RSplice, LAngleLoc,
                                       TArgsPtr, RAngleLoc);
   } else {

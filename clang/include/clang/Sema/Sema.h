@@ -15689,7 +15689,10 @@ public:
 
   DeclContext *TryFindDeclContextOf(SpliceSpecifier *Splice);
 
-  const CXXMetafunctionExpr::ImplFn &getMetafunctionCb(unsigned FnID);
+  /// Returns the evaluation callback for the metafunction with the given ID,
+  /// or null if no such metafunction exists. IDs can arrive from a serialized
+  /// AST, so callers must handle the null result rather than assume validity.
+  const CXXMetafunctionExpr::ImplFn *getMetafunctionCb(unsigned FnID);
 
   static IndirectFieldDecl *findInjectedIndirectField(CXXRecordDecl *Outer,
                                                       FieldDecl *FD) {

@@ -1169,20 +1169,24 @@ ExprResult Sema::ActOnCXXMetafunction(SourceLocation KwLoc,
   // Find or build a 'std::function' having a lambda with the 'Sema' object
   // (i.e., 'this') and the 'Metafunction' both captured. This will be provided
   // as a callback to evaluate the metafunction at constant evaluation time.
-  const auto &ImplIt = getMetafunctionCb(FnID);
+  const CXXMetafunctionExpr::ImplFn *Impl = getMetafunctionCb(FnID);
+  if (!Impl) {
+    Diag(FnIDArg->getExprLoc(), diag::err_unknown_metafunction);
+    return ExprError();
+  }
 
   // Return the CXXMetafunctionExpr representation.
   return BuildCXXMetafunctionExpr(KwLoc, LParenLoc, RParenLoc,
-                                  FnID, ImplIt, Args);
+                                  FnID, *Impl, Args);
 }
 
-const CXXMetafunctionExpr::ImplFn &Sema::getMetafunctionCb(unsigned FnID) {
+const CXXMetafunctionExpr::ImplFn *Sema::getMetafunctionCb(unsigned FnID) {
   auto ImplIt = MetafunctionImplCbs.find(FnID);
   if (ImplIt == MetafunctionImplCbs.end()) {
     const Metafunction *Metafn;
-    Metafunction::Lookup(FnID, Metafn);
+    if (Metafunction::Lookup(FnID, Metafn))
+      return nullptr;
 
-    assert(Metafn);
     auto MetafnImpl = std::make_unique<CXXMetafunctionExpr::ImplFn>(
         std::function(
             [this, Metafn](APValue &Result,
@@ -1199,7 +1203,7 @@ const CXXMetafunctionExpr::ImplFn &Sema::getMetafunctionCb(unsigned FnID) {
     ImplIt = MetafunctionImplCbs.try_emplace(FnID, std::move(MetafnImpl)).first;
   }
 
-  return *ImplIt->second;
+  return ImplIt->second.get();
 }
 
 SpliceResult Sema::ActOnSpliceSpecifier(SourceLocation LSpliceLoc,
@@ -1428,6 +1432,14 @@ ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
     const ValueDecl *VD = ER.Val.getLValueBase().get<const ValueDecl *>();
     return BuildCXXReflectExpr(OperatorLoc, E->getExprLoc(),
                                const_cast<ValueDecl *>(VD));
+  }
+
+  // A 'std::meta::info' template argument is already a reflection; reflecting
+  // it again nests one level deeper, and the depth counter is finite.
+  if (!ER.Val.canLift()) {
+    Diag(E->getExprLoc(), diag::err_reflection_depth_exceeded)
+        << APValue::MaxReflectionDepth;
+    return ExprError();
   }
 
   APValue RV = ER.Val.Lift(E->getType());
