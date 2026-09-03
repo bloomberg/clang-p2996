@@ -296,11 +296,17 @@ extern "C" {
 void c_fun(int);
 int c_var;
 typedef void tdef_fun(void*);
+using alias_fun = void*(int);
+typedef char *pchr;
+using pdbl = double*;
 }
 
 static_assert(has_c_language_linkage(^^c_fun));
 static_assert(has_c_language_linkage(^^c_var));
-static_assert(!has_c_language_linkage(^^tdef_fun));
+static_assert(has_c_language_linkage(^^tdef_fun));
+static_assert(has_c_language_linkage(^^alias_fun));
+static_assert(!has_c_language_linkage(^^pchr));
+static_assert(!has_c_language_linkage(^^pdbl));
 
 extern "C" void other_c_fun(int);
 

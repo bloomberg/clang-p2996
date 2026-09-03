@@ -6411,6 +6411,19 @@ bool has_c_language_linkage(APValue &Result, ASTContext &C, MetaActions &Meta,
       else if (const auto *VD = dyn_cast<VarDecl>(D))
         result = VD->isExternC();
     }
+  } else if (RV.isReflectedType())  {
+    const auto QT = RV.getReflectedType();
+    if (const auto *TT = QT->getAs<clang::TypedefType>())
+      if (TT->isFunctionType() || TT->desugar()->isFunctionType()) {
+        if (const clang::TypedefNameDecl *TD = TT->getDecl()) {
+           for (const clang::DeclContext *DC = TD->getDeclContext();
+                DC; DC = DC->getParent())
+             if (const auto *LSD = llvm::dyn_cast<clang::LinkageSpecDecl>(DC)) {
+               result = (LSD->getLanguage() == clang::LinkageSpecLanguageIDs::C);
+               break;
+             }
+        }
+      }
   }
   return SetAndSucceed(Result, makeBool(C, result));
 }
