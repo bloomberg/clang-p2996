@@ -2081,7 +2081,7 @@ Decl *TemplateDeclInstantiator::VisitExpansionStmtDecl(ExpansionStmtDecl *D) {
       cast<ExpansionStmtDecl>(
           SemaRef.BuildExpansionStmtDeclaration(
               D->getBeginLoc(), cast<NonTypeTemplateParmDecl>(NTTP)));
-  CXXExpansionStmt *OldStmt = D->getStmt();
+  Stmt *OldStmt = D->getStmt();
   assert(Result && OldStmt);
 
   // Enter the scope of this instantiation. We don't use
@@ -2092,7 +2092,7 @@ Decl *TemplateDeclInstantiator::VisitExpansionStmtDecl(ExpansionStmtDecl *D) {
   StmtResult SR = SemaRef.SubstStmt(OldStmt, TemplateArgs);
   if (SR.isInvalid())
     return nullptr;
-  Result->setStmt(cast<CXXExpansionStmt>(SR.get()));
+  Result->setStmt(SR.get());
 
   return Result;
 }

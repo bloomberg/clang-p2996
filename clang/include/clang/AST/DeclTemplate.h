@@ -3347,11 +3347,11 @@ public:
 ///
 /// TODO(P2996): This could probably be a 'TemplateDecl'.
 class ExpansionStmtDecl : public Decl, public DeclContext {
-  CXXExpansionStmt *Expansion;
+  Stmt *Expansion;
   TemplateParameterList *TParams;
 
   ExpansionStmtDecl(DeclContext *DC, SourceLocation Loc,
-                    CXXExpansionStmt *Expansion,
+                    Stmt *Expansion,
                     TemplateParameterList *TParams);
 
   virtual void anchor();
@@ -3361,12 +3361,12 @@ public:
 
   static ExpansionStmtDecl *Create(ASTContext &C, DeclContext *DC,
                                    SourceLocation Loc,
-                                   CXXExpansionStmt *Expansion,
+                                   Stmt *Expansion,
                                    TemplateParameterList *TParams);
   static ExpansionStmtDecl *CreateDeserialized(ASTContext &C, GlobalDeclID ID);
 
-  CXXExpansionStmt *getStmt() const { return Expansion; }
-  void setStmt(CXXExpansionStmt *S) { Expansion = S; }
+  Stmt *getStmt() const { return Expansion; }
+  void setStmt(Stmt *S) { Expansion = S; }
 
   NonTypeTemplateParmDecl *getTemplateParm() const {
     return cast<NonTypeTemplateParmDecl>(TParams->getParam(0));
