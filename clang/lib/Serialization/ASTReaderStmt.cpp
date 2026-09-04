@@ -551,7 +551,9 @@ void ASTStmtReader::VisitExtractLValueExpr(ExtractLValueExpr *E) {
 }
 
 void ASTStmtReader::VisitExplDependentCallExpr(ExplDependentCallExpr *E) {
-  llvm_unreachable("unimplemented");
+  VisitExpr(E);
+  E->setTemplateDepth(Record.readUInt32());
+  E->setSubExpr(Record.readExpr());
 }
 
 void ASTStmtReader::VisitCXXExpansionStmt(CXXExpansionStmt *S) {
@@ -4660,6 +4662,10 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
     }
     case EXPR_METAFUNCTION: {
       S = CXXMetafunctionExpr::CreateEmpty(Context);
+      break;
+    }
+    case EXPR_EXPL_DEPENDENT_CALL: {
+      S = ExplDependentCallExpr::CreateEmpty(Context);
       break;
     }
     case EXPR_SPLICE: {

@@ -5726,18 +5726,23 @@ class ExplDependentCallExpr : public Expr {
   Expr *SubExpr;
 
   ExplDependentCallExpr(Expr *SubExpr, unsigned TemplateDepth);
+  ExplDependentCallExpr(EmptyShell Empty) : Expr(ExplDependentCallExprClass,
+                                                 Empty) {}
 
 public:
   static ExplDependentCallExpr *Create(ASTContext &C, Expr *SubExpr,
                                        unsigned TemplateDepth);
+  static ExplDependentCallExpr *CreateEmpty(ASTContext &C);
 
   Expr *getSubExpr() const {
     return SubExpr;
   }
+  void setSubExpr(Expr *E) { SubExpr = E; }
 
   int getTemplateDepth() const {
     return TemplateDepth;
   }
+  void setTemplateDepth(unsigned Depth) { TemplateDepth = Depth; }
 
   SourceLocation getBeginLoc() const {
     return SubExpr->getBeginLoc();
