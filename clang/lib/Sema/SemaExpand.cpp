@@ -14,6 +14,8 @@
 
 #include "clang/AST/Decl.h"
 #include "clang/AST/DynamicRecursiveASTVisitor.h"
+#include "clang/AST/Type.h"
+#include "clang/Basic/DiagnosticParse.h"
 #include "clang/Basic/DiagnosticSema.h"
 #include "clang/Lex/Preprocessor.h"
 #include "clang/Sema/EnterExpressionEvaluationContext.h"
@@ -429,6 +431,27 @@ StmtResult Sema::BuildCXXInitListExpansionStmt(SourceLocation TemplateKWLoc,
 ExprResult Sema::BuildCXXExpansionSelectExpr(
     Expr *Range, Expr *TParamRef, VarDecl *ExpansionVar,
     ArrayRef <MaterializeTemporaryExpr *> LifetimeExtendTemps) {
+
+  if (Range->hasPlaceholderType() && !Range->isTypeDependent()) {
+    ExprResult R = CheckPlaceholderExpr(Range);
+    if (R.isInvalid())
+      return ExprError();
+    Range = R.get();
+  }
+
+  if (!Range->isTypeDependent()) {
+    QualType RangeTy = Range->getType().getNonReferenceType();
+    if (RangeTy->isFunctionType() ||
+       (RangeTy->isPointerType() &&
+        RangeTy->getPointeeType()->isFunctionType())) {
+      ExprResult R = Range;
+      tryToRecoverWithCall(
+          R, PDiag(diag::err_expansion_stmt_range_is_function) << RangeTy,
+          /*ForceComplete=*/false);
+      return ExprError();
+    }
+  }
+
   if (Range->containsErrors())
     return ExprError();
 
