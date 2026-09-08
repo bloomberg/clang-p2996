@@ -29,6 +29,7 @@
 #include "clang/AST/ExprObjC.h"
 #include "clang/AST/LocInfoType.h"
 #include "clang/AST/Mangle.h"
+#include "clang/AST/ODRHash.h"
 #include "clang/AST/TypeLoc.h"
 #include "clang/Basic/ABI.h"
 #include "clang/Basic/Module.h"
@@ -5021,8 +5022,66 @@ void CXXNameMangler::mangleReflection(const APValue &R) {
   case ReflectionKind::Template: {
     Out << 't';
 
+    TemplateDecl *TD = R.getReflectedTemplate().getAsTemplateDecl();
+
+    // A deduction guide's DeclarationName (CXXDeductionGuideName) has no
+    // <unqualified-name> encoding: mangleTemplateName would reach the
+    // llvm_unreachable in mangleUnqualifiedName. members_of over a
+    // namespace enumerates guides like any other member, and lifting that
+    // list into define_static_array makes each one a reflection template
+    // argument, so they MUST mangle. Encode "dg" + the deduced template's
+    // name + the same '$'-bracketed ODR-hash discriminator used for
+    // overloaded function templates below: every guide for one template
+    // shares a single DeclarationName (and implicit/copy guides can be
+    // enumerated alongside explicit ones once CTAD has been used in the TU),
+    // so the hash of the template head + declaration pattern is what keeps
+    // two different guides for the same template distinct. Cross-TU-stable by
+    // design, preserving legitimate linkonce_odr merging.
+    if (auto *FTD = dyn_cast<FunctionTemplateDecl>(TD)) {
+      if (auto *DG = dyn_cast<CXXDeductionGuideDecl>(FTD->getTemplatedDecl())) {
+        Out << "dg";
+        if (TemplateDecl *Deduced = DG->getDeducedTemplate())
+          mangleTemplateName(Deduced, /*Args=*/{});
+        ODRHash Hash;
+        // The structural hash alone cannot separate an EXPLICIT guide from
+        // the IMPLICIT guide Sema declares for the same-signature
+        // constructor, nor a per-constructor guide from the copy guide when
+        // their signatures coincide (X(X<E>)); fold implicitness and the
+        // deduction-candidate kind in as well -- all of these enumerate
+        // side by side and are distinct reflections.
+        Hash.AddBoolean(DG->isImplicit());
+        DeductionCandidate DCK = DG->getDeductionCandidateKind();
+        Hash.AddBoolean(DCK == DeductionCandidate::Copy);
+        Hash.AddBoolean(DCK == DeductionCandidate::Aggregate);
+        Hash.AddTemplateParameterList(FTD->getTemplateParameters());
+        Hash.AddFunctionDecl(DG, /*SkipBody=*/true);
+        Out << '$' << Hash.CalculateHash() << '$';
+        break;
+      }
+    }
+
     ArrayRef<TemplateArgument> Args;
-    mangleTemplateName(R.getReflectedTemplate().getAsTemplateDecl(), Args);
+    mangleTemplateName(TD, Args);
+    // The name alone identifies class/variable/alias templates, but function
+    // templates OVERLOAD: two same-named siblings (e.g. absl raw_hash_map's
+    // lifetimebound operator[] pair) mangled identically here, so a template
+    // taking the reflection as an NTTP got ONE mangled name for its two
+    // specializations -- CodeGen then silently folds the linkonce_odr
+    // definitions and a single body serves both call sites (the AST-level
+    // specializations are correct and distinct; no diagnostic anywhere). Append a structural
+    // digest of the template head + declaration pattern to discriminate the
+    // overloads. An ODR hash (cross-TU-stable by design; it is how modules
+    // compare decls between TUs) rather than a structural mangling of the
+    // pattern's function type: dependent pattern types from real code embed
+    // parameter-referencing expressions (lifetimebound SFINAE, noexcept(...))
+    // that the mangler cannot encode outside a function-declaration context
+    // (mangleFunctionParam asserts).
+    if (auto *FTD = dyn_cast<FunctionTemplateDecl>(TD)) {
+      ODRHash Hash;
+      Hash.AddTemplateParameterList(FTD->getTemplateParameters());
+      Hash.AddFunctionDecl(FTD->getTemplatedDecl(), /*SkipBody=*/true);
+      Out << '$' << Hash.CalculateHash() << '$';
+    }
     break;
   }
   case ReflectionKind::Namespace: {
