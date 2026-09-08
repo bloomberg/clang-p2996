@@ -189,3 +189,63 @@ namespace NS {
 
 int a = fn<^^NS>();
 }  // namespace temp_dep_namespace
+
+                  // ========================================
+                  // bb_clang_p2996_issue_342_regression_test
+                  // ========================================
+
+namespace bb_clang_p2996_issue_342_regression_test {
+struct Base {
+  int operator()(int x) const { return x; }
+  operator int() const { return 0; }
+  template <typename T> T tfn(T v) const { return v; }
+  int fn() const { return 1; }
+};
+
+struct Derived : Base {
+  using Base::operator();
+  using Base::operator int;
+  using Base::tfn;
+  using Base::fn;
+};
+
+// The operand is an id-expression, so it names the function that the
+// using-declaration introduced ([expr.reflect]/7).
+static_assert(^^Derived::operator() == ^^Base::operator());
+static_assert(^^Derived::operator int == ^^Base::operator int);
+static_assert(^^Derived::tfn<int> == ^^Base::tfn<int>);
+static_assert(&[:^^Derived::operator():] == &Base::operator());
+
+// The operand is a reflection-name, so lookup finding a declaration that
+// replaced a using-declarator is ill-formed ([expr.reflect]/5.1).
+constexpr info r = ^^Derived::fn;
+  // expected-error@-1 {{cannot take the reflection of a using-declarator}}
+
+// The same distinction applies to dependent operands.
+template <typename T>
+struct S : T {
+  using T::operator();
+  using T::tfn;
+  static constexpr info a = ^^S::operator();
+  static constexpr info b = ^^T::operator();
+  static constexpr info c = ^^S::template tfn<int>;
+  static constexpr info d = ^^operator();
+};
+static_assert(S<Base>::a == ^^Base::operator());
+static_assert(S<Base>::b == ^^Base::operator());
+static_assert(S<Base>::c == ^^Base::tfn<int>);
+static_assert(S<Base>::d == ^^Base::operator());
+
+template <typename T>
+struct U : T {
+  using T::fn;
+  static constexpr info a = ^^U::fn;
+    // expected-error@-1 {{cannot take the reflection of a using-declarator}}
+  static constexpr info b = ^^fn;
+    // expected-error@-1 {{cannot take the reflection of a using-declarator}}
+};
+constexpr info ua = U<Base>::a;
+  // expected-note@-1 {{in instantiation of static data member}}
+constexpr info ub = U<Base>::b;
+  // expected-note@-1 {{in instantiation of static data member}}
+}  // namespace bb_clang_p2996_issue_342_regression_test
