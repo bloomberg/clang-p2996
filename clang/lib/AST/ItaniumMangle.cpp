@@ -29,6 +29,7 @@
 #include "clang/AST/ExprObjC.h"
 #include "clang/AST/LocInfoType.h"
 #include "clang/AST/Mangle.h"
+#include "clang/AST/ODRHash.h"
 #include "clang/AST/TypeLoc.h"
 #include "clang/Basic/ABI.h"
 #include "clang/Basic/Module.h"
@@ -5001,6 +5002,33 @@ void CXXNameMangler::mangleReflection(const APValue &R) {
     } else if (auto *DD = dyn_cast<CXXDestructorDecl>(D)) {
       GlobalDecl GD(DD, Dtor_Complete);
       mangle(GD);
+    } else if (auto *DG = dyn_cast<CXXDeductionGuideDecl>(D)) {
+      // A deduction-guide SPECIALIZATION reflection (e.g. obtained via
+      // substitute on the guide template) is Declaration-kind: mangle() would
+      // route it through mangleFunctionEncoding -> mangleUnqualifiedName,
+      // whose CXXDeductionGuideName case is unreachable. Encode it like the
+      // Template-kind guides below: "dg" + the deduced template + an ODR-hash
+      // discriminator, with the specialization's own function type folded in
+      // (AddFunctionDecl no-ops in specialization context, so the type is
+      // what separates Box<int>'s guide from Box<float>'s).
+      Out << "dg";
+      if (TemplateDecl *Deduced = DG->getDeducedTemplate())
+        mangleTemplateName(Deduced, /*Args=*/{});
+      ODRHash Hash;
+      Hash.AddBoolean(DG->isImplicit());
+      DeductionCandidate DCK = DG->getDeductionCandidateKind();
+      Hash.AddBoolean(DCK == DeductionCandidate::Copy);
+      Hash.AddBoolean(DCK == DeductionCandidate::Aggregate);
+      if (FunctionTemplateDecl *Primary = DG->getPrimaryTemplate()) {
+        Hash.AddTemplateParameterList(Primary->getTemplateParameters());
+        Hash.AddFunctionDecl(
+            cast<CXXDeductionGuideDecl>(Primary->getTemplatedDecl()),
+            /*SkipBody=*/true);
+      } else {
+        Hash.AddFunctionDecl(DG, /*SkipBody=*/true);
+      }
+      Hash.AddQualType(DG->getType());
+      Out << '$' << Hash.CalculateHash() << '$';
     } else {
       mangle(cast<NamedDecl>(D));
     }
@@ -5021,8 +5049,82 @@ void CXXNameMangler::mangleReflection(const APValue &R) {
   case ReflectionKind::Template: {
     Out << 't';
 
+    TemplateDecl *TD = R.getReflectedTemplate().getAsTemplateDecl();
+
+    // A deduction guide's DeclarationName (CXXDeductionGuideName) has no
+    // <unqualified-name> encoding: mangleTemplateName would reach the
+    // llvm_unreachable in mangleUnqualifiedName. members_of over a
+    // namespace enumerates guides like any other member, and lifting that
+    // list into define_static_array makes each one a reflection template
+    // argument, so they MUST mangle. Encode "dg" + the deduced template's
+    // name + the same '$'-bracketed ODR-hash discriminator used for
+    // overloaded function templates below: every guide for one template
+    // shares a single DeclarationName (and implicit/copy guides can be
+    // enumerated alongside explicit ones once CTAD has been used in the TU),
+    // so the hash of the template head + declaration pattern is what keeps
+    // two different guides for the same template distinct. Cross-TU-stable by
+    // design, preserving legitimate linkonce_odr merging.
+    if (auto *FTD = dyn_cast<FunctionTemplateDecl>(TD)) {
+      if (auto *DG = dyn_cast<CXXDeductionGuideDecl>(FTD->getTemplatedDecl())) {
+        Out << "dg";
+        if (TemplateDecl *Deduced = DG->getDeducedTemplate())
+          mangleTemplateName(Deduced, /*Args=*/{});
+        ODRHash Hash;
+        // The structural hash alone cannot separate an EXPLICIT guide from
+        // the IMPLICIT guide Sema declares for the same-signature
+        // constructor, nor a per-constructor guide from the copy guide when
+        // their signatures coincide (X(X<E>)); fold implicitness and the
+        // deduction-candidate kind in as well -- all of these enumerate
+        // side by side and are distinct reflections.
+        Hash.AddBoolean(DG->isImplicit());
+        DeductionCandidate DCK = DG->getDeductionCandidateKind();
+        Hash.AddBoolean(DCK == DeductionCandidate::Copy);
+        Hash.AddBoolean(DCK == DeductionCandidate::Aggregate);
+        Hash.AddTemplateParameterList(FTD->getTemplateParameters());
+        Hash.AddFunctionDecl(DG, /*SkipBody=*/true);
+        Out << '$' << Hash.CalculateHash() << '$';
+        break;
+      }
+    }
+
     ArrayRef<TemplateArgument> Args;
-    mangleTemplateName(R.getReflectedTemplate().getAsTemplateDecl(), Args);
+    mangleTemplateName(TD, Args);
+    // The name alone identifies class/variable/alias templates, but function
+    // templates OVERLOAD: two same-named siblings (e.g. absl raw_hash_map's
+    // lifetimebound operator[] pair) mangled identically here, so a template
+    // taking the reflection as an NTTP got ONE mangled name for its two
+    // specializations -- CodeGen then silently folds the linkonce_odr
+    // definitions and a single body serves both call sites (the AST-level
+    // specializations are correct and distinct; no diagnostic anywhere). Append a structural
+    // digest of the template head + declaration pattern to discriminate the
+    // overloads. An ODR hash (cross-TU-stable by design; it is how modules
+    // compare decls between TUs) rather than a structural mangling of the
+    // pattern's function type: dependent pattern types from real code embed
+    // parameter-referencing expressions (lifetimebound SFINAE, noexcept(...))
+    // that the mangler cannot encode outside a function-declaration context
+    // (mangleFunctionParam asserts).
+    if (auto *FTD = dyn_cast<FunctionTemplateDecl>(TD)) {
+      ODRHash Hash;
+      Hash.AddTemplateParameterList(FTD->getTemplateParameters());
+      const FunctionDecl *Pattern = FTD->getTemplatedDecl();
+      Hash.AddFunctionDecl(Pattern, /*SkipBody=*/true);
+      // AddFunctionDecl silently NO-OPS for a declaration in "specialization
+      // context" (a member template of a class template specialization, the
+      // common members_of shape), so siblings sharing one template head
+      // hashed identically there -- tl::expected<T,E>'s four value()
+      // overloads (const&/&/const&&/&&, identical heads) all folded. Hash
+      // the pattern's function type (return type, parameter
+      // types, cv-quals) and its ref-qualifier (which even
+      // VisitFunctionProtoType omits) as well; the ODR type hash handles the
+      // dependent pattern types that a structural MANGLING of the type
+      // cannot (see above).
+      Hash.AddQualType(Pattern->getType());
+      if (const auto *FPT = Pattern->getType()->getAs<FunctionProtoType>()) {
+        Hash.AddBoolean(FPT->getRefQualifier() == RQ_LValue);
+        Hash.AddBoolean(FPT->getRefQualifier() == RQ_RValue);
+      }
+      Out << '$' << Hash.CalculateHash() << '$';
+    }
     break;
   }
   case ReflectionKind::Namespace: {
