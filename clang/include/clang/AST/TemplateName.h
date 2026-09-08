@@ -68,6 +68,8 @@ protected:
 
     /// The pack index, or the number of stored templates
     /// or template arguments, depending on which subclass we have.
+    /// Subclass constructors must assert their payload fits (a wrapped
+    /// count silently miscompiles the expansion).
     unsigned Data : 15;
   };
 
@@ -77,6 +79,8 @@ protected:
   };
 
   UncommonTemplateNameStorage(Kind Kind, unsigned Index, unsigned Data) {
+    assert(Data < (1u << 15) &&
+           "size or pack index overflows UncommonTemplateNameStorage storage");
     Bits.Kind = Kind;
     Bits.Index = Index;
     Bits.Data = Data;
@@ -421,6 +425,8 @@ class SubstTemplateTemplateParmStorage
             SubstTemplateTemplateParm, Index,
             ((PackIndex.toInternalRepresentation()) << 1) | Final),
         Replacement(Replacement), AssociatedDecl(AssociatedDecl) {
+    assert(PackIndex.toInternalRepresentation() < (1u << 14) &&
+           "pack index overflows UncommonTemplateNameStorage::Bits.Data");
     assert(AssociatedDecl != nullptr);
   }
 

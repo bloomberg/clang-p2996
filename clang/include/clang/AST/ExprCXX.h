@@ -4611,9 +4611,15 @@ class SubstNonTypeTemplateParmExpr : public Expr {
   llvm::PointerIntPair<Decl *, 1, bool> AssociatedDeclAndRef;
 
   unsigned Index : 15;
-  unsigned PackIndex : 15;
   LLVM_PREFERRED_TYPE(bool)
   unsigned Final : 1;
+
+  /// Stored full-width: pack expansions routinely exceed 2^15-1 elements
+  /// (e.g. a substituted character pack for a long string literal), and the
+  /// index-plus-one encoding silently wrapped in a narrower bitfield,
+  /// miscompiling the expansion. The two fields above pack into 16 bits, so
+  /// this costs no object size on 64-bit hosts.
+  unsigned PackIndex;
 
   explicit SubstNonTypeTemplateParmExpr(EmptyShell Empty)
       : Expr(SubstNonTypeTemplateParmExprClass, Empty) {}
@@ -4627,7 +4633,7 @@ public:
       : Expr(SubstNonTypeTemplateParmExprClass, Ty, ValueKind, OK_Ordinary),
         Replacement(Replacement),
         AssociatedDeclAndRef(AssociatedDecl, RefParam), Index(Index),
-        PackIndex(PackIndex.toInternalRepresentation()), Final(Final) {
+        Final(Final), PackIndex(PackIndex.toInternalRepresentation()) {
     assert(AssociatedDecl != nullptr);
     SubstNonTypeTemplateParmExprBits.NameLoc = Loc;
     setDependence(computeDependence(this));
@@ -4699,8 +4705,11 @@ class SubstNonTypeTemplateParmPackExpr : public Expr {
   /// parameter pack is instantiated with.
   const TemplateArgument *Arguments;
 
-  /// The number of template arguments in \c Arguments.
-  unsigned NumArguments : 15;
+  /// The number of template arguments in \c Arguments. Stored full-width:
+  /// argument packs routinely exceed 2^15-1 elements (e.g. a character pack
+  /// for a long string literal), and the old 15-bit field silently wrapped,
+  /// miscompiling the expansion (a 2^15-element pack expanded as empty).
+  unsigned NumArguments;
 
   LLVM_PREFERRED_TYPE(bool)
   unsigned Final : 1;
