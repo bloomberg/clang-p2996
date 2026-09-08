@@ -280,6 +280,13 @@ static Cl::Kinds ClassifyInternal(ASTContext &Ctx, const Expr *E) {
 
   case Expr::CXXSpliceExprClass: {
     const auto *SE = dyn_cast<CXXSpliceExpr>(E);
+    // A dependent splice has no model expression yet (BuildReflectionSpliceExpr
+    // creates it with a null model); classify it by its own value kind instead
+    // of dereferencing the null model. Reachable at parse time: DeduceAutoType
+    // classifies a dependent splice used as the argument of an `auto` non-type
+    // template parameter, e.g. in a requires-expression type-requirement.
+    if (!SE->getModel())
+      return SE->getValueKind() == VK_LValue ? Cl::CL_LValue : Cl::CL_PRValue;
     if (const auto *DRE = dyn_cast<DeclRefExpr>(SE->getModel())) {
       if (auto *MD = dyn_cast<CXXMethodDecl>(DRE->getDecl());
           MD && !MD->isStatic())
