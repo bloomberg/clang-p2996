@@ -18060,13 +18060,29 @@ HandleImmediateInvocations(Sema &SemaRef,
   // side-effects may introduce additional invocation candidates, thereby
   // invalidating the iterator.
   //
+  // Moreover, evaluating an immediate invocation can recursively push (and pop)
+  // expression evaluation contexts via nested template instantiation. If that
+  // reallocates Sema::ExprEvalContexts (a SmallVector), the `Rec` reference —
+  // which aliases ExprEvalContexts.back() — is left dangling, a use-after-free
+  // surfacing later in PopExpressionEvaluationContext as a crash on garbage
+  // (e.g. heavy P2996 reflection over a large value type). Re-acquire the record
+  // through currentEvaluationContext() on each access; our record stays the top
+  // of the stack throughout (nested contexts are balanced).
+  //
   // TODO(P2996): Can we avoid this?
-  for (size_t Idx = 0; Idx < Rec.ImmediateInvocationCandidates.size(); ++Idx) {
-    auto CE = Rec.ImmediateInvocationCandidates[Idx];
+  for (size_t Idx = 0;
+       Idx < SemaRef.currentEvaluationContext().ImmediateInvocationCandidates.size();
+       ++Idx) {
+    auto CE =
+        SemaRef.currentEvaluationContext().ImmediateInvocationCandidates[Idx];
     if (!CE.getInt() && !CE.getPointer()->isValueDependent())
       EvaluateAndDiagnoseImmediateInvocation(SemaRef, CE);
   }
-  for (auto *DR : Rec.ReferenceToConsteval) {
+  // Re-acquire after the reentrant evaluation above (see note); `Rec` may now be
+  // dangling. The trailing loops below do not themselves reenter.
+  Sema::ExpressionEvaluationContextRecord &CurRec =
+      SemaRef.currentEvaluationContext();
+  for (auto *DR : CurRec.ReferenceToConsteval) {
     // If the expression is immediate escalating, it is not an error;
     // The outer context itself becomes immediate and further errors,
     // if any, will be handled by DiagnoseImmediateEscalatingReason.
@@ -18085,14 +18101,14 @@ HandleImmediateInvocations(Sema &SemaRef,
     // that is not a subexpression of an immediate invocation.
     bool ImmediateEscalating = false;
     bool IsPotentiallyEvaluated =
-        Rec.Context ==
+        CurRec.Context ==
             Sema::ExpressionEvaluationContext::PotentiallyEvaluated ||
-        Rec.Context ==
+        CurRec.Context ==
             Sema::ExpressionEvaluationContext::PotentiallyEvaluatedIfUsed;
     if (SemaRef.inTemplateInstantiation() && IsPotentiallyEvaluated)
-      ImmediateEscalating = Rec.InImmediateEscalatingFunctionContext;
+      ImmediateEscalating = CurRec.InImmediateEscalatingFunctionContext;
 
-    if (!Rec.InImmediateEscalatingFunctionContext ||
+    if (!CurRec.InImmediateEscalatingFunctionContext ||
         (SemaRef.inTemplateInstantiation() && !ImmediateEscalating)) {
       SemaRef.Diag(DR->getBeginLoc(), diag::err_invalid_consteval_take_address)
           << ND << isa<CXXRecordDecl>(ND) << FD->isConsteval();
@@ -18111,20 +18127,20 @@ HandleImmediateInvocations(Sema &SemaRef,
       SemaRef.MarkExpressionAsImmediateEscalating(DR);
     }
   }
-  for (auto *E : Rec.ConstevalOnly) {
+  for (auto *E : CurRec.ConstevalOnly) {
     if (E->isImmediateEscalating())
       continue;
 
     bool ImmediateEscalating = false;
     bool IsPotentiallyEvaluated =
-        Rec.Context ==
+        CurRec.Context ==
             Sema::ExpressionEvaluationContext::PotentiallyEvaluated ||
-        Rec.Context ==
+        CurRec.Context ==
             Sema::ExpressionEvaluationContext::PotentiallyEvaluatedIfUsed;
     if (SemaRef.inTemplateInstantiation() && IsPotentiallyEvaluated)
-      ImmediateEscalating = Rec.InImmediateEscalatingFunctionContext;
+      ImmediateEscalating = CurRec.InImmediateEscalatingFunctionContext;
 
-    if (!Rec.InImmediateEscalatingFunctionContext ||
+    if (!CurRec.InImmediateEscalatingFunctionContext ||
         (SemaRef.inTemplateInstantiation() && !ImmediateEscalating)) {
       SemaRef.Diag(E->getExprLoc(), diag::err_expr_consteval_only_type)
           << E->getSourceRange();
@@ -18178,10 +18194,16 @@ void Sema::PopExpressionEvaluationContext() {
   WarnOnPendingNoDerefs(Rec);
   HandleImmediateInvocations(*this, Rec);
 
+  // HandleImmediateInvocations may have evaluated immediate invocations that
+  // recursively pushed/popped expression evaluation contexts, reallocating
+  // ExprEvalContexts and invalidating `Rec`. Re-acquire the record (still the
+  // top of the stack) before any further use; do not touch `Rec` below.
+  ExpressionEvaluationContextRecord &TailRec = ExprEvalContexts.back();
+
   // Warn on any volatile-qualified simple-assignments that are not discarded-
   // value expressions nor unevaluated operands (those cases get removed from
   // this list by CheckUnusedVolatileAssignment).
-  for (auto *BO : Rec.VolatileAssignmentLHSs)
+  for (auto *BO : TailRec.VolatileAssignmentLHSs)
     Diag(BO->getBeginLoc(), diag::warn_deprecated_simple_assign_volatile)
         << BO->getType();
 
@@ -18189,16 +18211,19 @@ void Sema::PopExpressionEvaluationContext() {
   // temporaries that we may have created as part of the evaluation of
   // the expression in that context: they aren't relevant because they
   // will never be constructed.
-  if (Rec.isUnevaluated() || Rec.isConstantEvaluated()) {
-    ExprCleanupObjects.erase(ExprCleanupObjects.begin() + Rec.NumCleanupObjects,
-                             ExprCleanupObjects.end());
-    Cleanup = Rec.ParentCleanup;
+  if (TailRec.isUnevaluated() || TailRec.isConstantEvaluated()) {
+    ExprCleanupObjects.erase(
+        ExprCleanupObjects.begin() + TailRec.NumCleanupObjects,
+        ExprCleanupObjects.end());
+    Cleanup = TailRec.ParentCleanup;
     CleanupVarDeclMarking();
-    std::swap(MaybeODRUseExprs, Rec.SavedMaybeODRUseExprs);
+    // CleanupVarDeclMarking() may itself instantiate and reallocate
+    // ExprEvalContexts; re-acquire before reading SavedMaybeODRUseExprs.
+    std::swap(MaybeODRUseExprs, ExprEvalContexts.back().SavedMaybeODRUseExprs);
   // Otherwise, merge the contexts together.
   } else {
-    Cleanup.mergeFrom(Rec.ParentCleanup);
-    MaybeODRUseExprs.insert_range(Rec.SavedMaybeODRUseExprs);
+    Cleanup.mergeFrom(TailRec.ParentCleanup);
+    MaybeODRUseExprs.insert_range(TailRec.SavedMaybeODRUseExprs);
   }
 
   // Pop the current expression evaluation context off the stack.
@@ -20016,9 +20041,9 @@ ExprResult Sema::CheckLValueToRValueConversionOperand(Expr *E) {
   if (E->getType().isVolatileQualified() || E->getType()->getAs<RecordType>())
     return E;
 
-  auto &CEO = ExprEvalContexts.back().ConstevalOnly;
-  bool ReplaceConstevalOnly = E->getType()->isConstevalOnly() &&
-                              CEO.find(E) != CEO.end();
+  bool ReplaceConstevalOnly =
+      E->getType()->isConstevalOnly() &&
+      ExprEvalContexts.back().ConstevalOnly.contains(E);
 
   ExprResult Result =
       rebuildPotentialResultsAsNonOdrUsed(*this, E, NOUR_Constant);
@@ -20027,7 +20052,13 @@ ExprResult Sema::CheckLValueToRValueConversionOperand(Expr *E) {
 
   Result = Result.get() ? Result : E;
   if (ReplaceConstevalOnly)
-    CEO.insert(Result.get());
+    // Do not cache a reference to ConstevalOnly across the rebuild above: it
+    // can mark declarations used and trigger instantiation, which pushes
+    // expression evaluation contexts and may reallocate ExprEvalContexts,
+    // leaving such a reference dangling (same family as the reentrant
+    // consteval use-after-free fixed in PopExpressionEvaluationContext /
+    // HandleImmediateInvocations).
+    ExprEvalContexts.back().ConstevalOnly.insert(Result.get());
   return Result;
 }
 
