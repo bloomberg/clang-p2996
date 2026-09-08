@@ -5035,7 +5035,30 @@ void CXXNameMangler::mangleReflection(const APValue &R) {
   }
   case ReflectionKind::EntityProxy: {
     Out << 'a';
-    mangleNameWithAbiTags(R.getReflectedEntityProxy(), nullptr);
+    // Mangling the shadow declaration itself (mangleNameWithAbiTags) trips a
+    // cast<> assertion when the shadow lives in a class template
+    // specialization (e.g. a `using OperatorBase<T>::value;` re-export inside
+    // an instantiated class). Mangle the proxy's TARGET declaration instead,
+    // mirroring the Declaration case above; the 'a' tag keeps a proxy-of-X
+    // distinct from a declaration-of-X reflection.
+    NamedDecl *Target = R.getReflectedEntityProxy()->getTargetDecl();
+    if (auto *ED = dyn_cast<EnumConstantDecl>(Target)) {
+      mangleIntegerLiteral(ED->getType(), ED->getInitVal());
+    } else if (auto *CD = dyn_cast<CXXConstructorDecl>(Target)) {
+      GlobalDecl GD(CD, Ctor_Complete);
+      mangle(GD);
+    } else if (auto *DD = dyn_cast<CXXDestructorDecl>(Target)) {
+      GlobalDecl GD(DD, Dtor_Complete);
+      mangle(GD);
+    } else if (isa<FunctionDecl, VarDecl, FieldDecl>(Target)) {
+      mangle(Target);
+    } else if (auto *TD = dyn_cast<TypeDecl>(Target)) {
+      Context.mangleCanonicalTypeName(getASTContext().getTypeDeclType(TD), Out,
+                                      false);
+    } else if (IdentifierInfo *II = Target->getIdentifier()) {
+      // Last resort for target kinds mangle() cannot encode: the source name.
+      mangleSourceName(II);
+    }
     Out << '$';
     break;
   }
