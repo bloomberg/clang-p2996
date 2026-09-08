@@ -4017,6 +4017,8 @@ void CXXNameMangler::mangleNeonVectorType(const VectorType *T) {
     case BuiltinType::UShort:
       EltName = "poly16_t";
       break;
+    case BuiltinType::Long:
+    case BuiltinType::ULong:
     case BuiltinType::LongLong:
     case BuiltinType::ULongLong:
       EltName = "poly64_t";
@@ -4033,6 +4035,11 @@ void CXXNameMangler::mangleNeonVectorType(const VectorType *T) {
     case BuiltinType::UInt:      EltName = "uint32_t"; break;
     case BuiltinType::LongLong:  EltName = "int64_t"; break;
     case BuiltinType::ULongLong: EltName = "uint64_t"; break;
+    // LP64 targets (Darwin AArch64) predeclare the 64-bit NEON element as
+    // plain long; reflection's eager instantiation over the predeclared
+    // global typedefs (__Int64x1_t et al.) mangles these specializations.
+    case BuiltinType::Long:      EltName = "int64_t"; break;
+    case BuiltinType::ULong:     EltName = "uint64_t"; break;
     case BuiltinType::Double:    EltName = "float64_t"; break;
     case BuiltinType::Float:     EltName = "float32_t"; break;
     case BuiltinType::Half:      EltName = "float16_t"; break;
