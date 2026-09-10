@@ -6029,10 +6029,18 @@ namespace {
           }
       }
       const ElaboratedType *T = TL.getTypePtr();
+      const CXXScopeSpec &SS = DS.getTypeSpecScope();
+      if (SS.isEmpty() && T->getQualifier()) {
+        // A qualified type-specifier that did not come from the parser (for
+        // example, a member type handed to 'define_aggregate') carries no
+        // source information for its qualifier. Build trivial locations
+        // rather than pairing the qualifier with an empty location.
+        TL.initialize(Context, DS.getTypeSpecTypeLoc());
+        return;
+      }
       TL.setElaboratedKeywordLoc(T->getKeyword() != ElaboratedTypeKeyword::None
                                      ? DS.getTypeSpecTypeLoc()
                                      : SourceLocation());
-      const CXXScopeSpec& SS = DS.getTypeSpecScope();
       TL.setQualifierLoc(SS.getWithLocInContext(Context));
       Visit(TL.getNextTypeLoc().getUnqualifiedLoc());
     }

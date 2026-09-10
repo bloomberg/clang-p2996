@@ -423,5 +423,39 @@ VS<^^int> v2;
 
 }  // namespace bb_clang_p2996_issue_159_regression_test
 
+                  // ========================================
+                  // bb_clang_p2996_issue_349_regression_test
+                  // ========================================
+
+namespace bb_clang_p2996_issue_349_regression_test {
+namespace ns {
+struct T {};
+
+template <typename>
+struct U {};
+}  // namespace ns
+
+// Member types spelled with a nested-name-specifier underneath a pointer or a
+// cv-qualifier used to get a qualifier without source locations.
+struct S;
+consteval {
+  define_aggregate(^^S, {
+    data_member_spec(^^const ns::T *, {.name = "pointer_to_const"}),
+    data_member_spec(^^const ns::T, {.name = "const_value"}),
+    data_member_spec(^^ns::T *const, {.name = "const_pointer"}),
+    data_member_spec(^^const ns::U<int> *, {.name = "pointer_to_template"}),
+    data_member_spec(^^ns::T, {.name = "value"}),
+  });
+}
+
+static_assert(type_of(^^S::pointer_to_const) == ^^const ns::T *);
+static_assert(type_of(^^S::const_value) == ^^const ns::T);
+static_assert(type_of(^^S::const_pointer) == ^^ns::T *const);
+static_assert(type_of(^^S::pointer_to_template) == ^^const ns::U<int> *);
+static_assert(type_of(^^S::value) == ^^ns::T);
+
+[[maybe_unused]] S s{};
+}  // namespace bb_clang_p2996_issue_349_regression_test
+
 
 int main() { }
