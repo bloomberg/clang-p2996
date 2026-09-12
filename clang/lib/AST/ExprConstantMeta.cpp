@@ -653,6 +653,11 @@ static bool alignment_of(APValue &Result, ASTContext &C, MetaActions &Meta,
                          SourceRange Range, ArrayRef<Expr *> Args,
                          Decl *ContainingDecl);
 
+static bool has_c_language_linkage(APValue &Result, ASTContext &C, MetaActions &Meta,
+                                   EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
+                                   QualType ResultTy, SourceRange Range,
+                                   ArrayRef<Expr *> Args, Decl *ContainingDecl);
+
 // -----------------------------------------------------------------------------
 // P3096 Metafunction declarations
 // -----------------------------------------------------------------------------
@@ -927,6 +932,7 @@ static constexpr Metafunction Metafunctions[] = {
   { Metafunction::MFRK_spliceFromArg, 2, 2, bit_offset_of },
   { Metafunction::MFRK_sizeT, 1, 1, bit_size_of },
   { Metafunction::MFRK_sizeT, 1, 1, alignment_of },
+  { Metafunction::MFRK_bool, 1, 1, has_c_language_linkage },
 
   // P3096 metafunction extensions
   { Metafunction::MFRK_metaInfo, 3, 3, get_ith_parameter_of },
@@ -6413,6 +6419,42 @@ bool alignment_of(APValue &Result, ASTContext &C, MetaActions &Meta,
         << 4 << DescriptionOf(RV) << Range;
   }
   llvm_unreachable("unknown reflection kind");
+}
+
+bool has_c_language_linkage(APValue &Result, ASTContext &C, MetaActions &Meta,
+                            EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
+                            QualType ResultTy, SourceRange Range, ArrayRef<Expr *> Args,
+                            Decl *ContainingDecl) {
+  assert(Args[0]->getType()->isReflectionType());
+  assert(ResultTy == C.BoolTy);
+
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
+    return true;
+
+  bool result = false;
+  if (RV.isReflectedDecl()) {
+    if (const Decl *D = RV.getReflectedDecl()) {
+      if (const auto *FD = dyn_cast<FunctionDecl>(D))
+        result = FD->isExternC();
+      else if (const auto *VD = dyn_cast<VarDecl>(D))
+        result = VD->isExternC();
+    }
+  } else if (RV.isReflectedType())  {
+    const auto QT = RV.getReflectedType();
+    if (const auto *TT = QT->getAs<clang::TypedefType>())
+      if (TT->isFunctionType() || TT->desugar()->isFunctionType()) {
+        if (const clang::TypedefNameDecl *TD = TT->getDecl()) {
+           for (const clang::DeclContext *DC = TD->getDeclContext();
+                DC; DC = DC->getParent())
+             if (const auto *LSD = llvm::dyn_cast<clang::LinkageSpecDecl>(DC)) {
+               result = (LSD->getLanguage() == clang::LinkageSpecLanguageIDs::C);
+               break;
+             }
+        }
+      }
+  }
+  return SetAndSucceed(Result, makeBool(C, result));
 }
 
 bool get_ith_parameter_of(APValue &Result, ASTContext &C, MetaActions &Meta,
