@@ -1706,6 +1706,63 @@ static ValueDecl *normalizeSplicedMemberDecl(ValueDecl *VD) {
   return VD;
 }
 
+/// Finds an immediate function designated by a pointer or pointer-to-member
+/// subobject of \p V, if there is one.
+///
+/// A reflection may hold a value that designates an immediate function (e.g.
+/// 'std::meta::reflect_constant(&some_consteval_fn)'), since 'std::meta::info'
+/// is a consteval-only type. Splicing such a value outside of an immediate
+/// invocation would let the address reach a runtime context, so the splice has
+/// to be rejected there.
+static const FunctionDecl *findImmediateFunction(const APValue &V) {
+  switch (V.getKind()) {
+  case APValue::LValue:
+    if (const auto *VD = V.getLValueBase().dyn_cast<const ValueDecl *>()) {
+      if (const auto *FD = dyn_cast<FunctionDecl>(VD);
+          FD && FD->isImmediateFunction())
+        return FD;
+      // A class-type value is materialized as a template parameter object, so
+      // look through one for a pointer it may be holding.
+      if (const auto *TPO = dyn_cast<TemplateParamObjectDecl>(VD))
+        return findImmediateFunction(TPO->getValue());
+    }
+    return nullptr;
+  case APValue::MemberPointer:
+    if (const auto *FD =
+            dyn_cast_or_null<FunctionDecl>(V.getMemberPointerDecl());
+        FD && FD->isImmediateFunction())
+      return FD;
+    return nullptr;
+  case APValue::Struct:
+    for (unsigned I = 0, N = V.getStructNumBases(); I != N; ++I)
+      if (const FunctionDecl *FD = findImmediateFunction(V.getStructBase(I)))
+        return FD;
+    for (unsigned I = 0, N = V.getStructNumFields(); I != N; ++I)
+      if (const FunctionDecl *FD = findImmediateFunction(V.getStructField(I)))
+        return FD;
+    return nullptr;
+  case APValue::Union:
+    if (V.getUnionField())
+      return findImmediateFunction(V.getUnionValue());
+    return nullptr;
+  case APValue::Array:
+    for (unsigned I = 0, N = V.getArrayInitializedElts(); I != N; ++I)
+      if (const FunctionDecl *FD =
+              findImmediateFunction(V.getArrayInitializedElt(I)))
+        return FD;
+    if (V.hasArrayFiller())
+      return findImmediateFunction(V.getArrayFiller());
+    return nullptr;
+  case APValue::Vector:
+    for (unsigned I = 0, N = V.getVectorLength(); I != N; ++I)
+      if (const FunctionDecl *FD = findImmediateFunction(V.getVectorElt(I)))
+        return FD;
+    return nullptr;
+  default:
+    return nullptr;
+  }
+}
+
 ExprResult Sema::BuildReflectionSpliceExpr(SourceLocation TemplateKWLoc,
                                            SpliceSpecifier *Splice,
                                            bool AllowMemberReference) {
@@ -1733,6 +1790,24 @@ ExprResult Sema::BuildReflectionSpliceExpr(SourceLocation TemplateKWLoc,
       Diag(Splice->getBeginLoc(),
            diag::err_unexpected_reflection_kind_in_splice) << 3;
       return ExprError();
+    }
+
+    // A reflected value or object may designate an immediate function; mirror
+    // the check that MarkDeclRefReferenced applies to a naked reference to one,
+    // since no DeclRefExpr is formed here for that machinery to see.
+    if (bool IsValue = Refl.getReflectionKind() == ReflectionKind::Value;
+        (IsValue || Refl.getReflectionKind() == ReflectionKind::Object) &&
+        !isUnevaluatedContext() && !isConstantEvaluatedContext() &&
+        !isImmediateFunctionContext() &&
+        !isCheckingDefaultArgumentOrInitializer() &&
+        !RebuildingImmediateInvocation) {
+      if (const FunctionDecl *FD = findImmediateFunction(
+              IsValue ? Refl.getReflectedValue() : Refl.getReflectedObject())) {
+        Diag(Splice->getBeginLoc(), diag::err_invalid_consteval_take_address)
+            << FD << /*call operator of=*/false << FD->isConsteval();
+        Diag(FD->getLocation(), diag::note_declared_at);
+        return ExprError();
+      }
     }
 
     Expr *Result = nullptr;
