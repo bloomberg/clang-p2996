@@ -15,10 +15,12 @@
 #include "clang/AST/Decl.h"
 #include "clang/AST/DynamicRecursiveASTVisitor.h"
 #include "clang/Basic/DiagnosticSema.h"
+#include "clang/Basic/UnsignedOrNone.h"
 #include "clang/Lex/Preprocessor.h"
 #include "clang/Sema/EnterExpressionEvaluationContext.h"
 #include "clang/Sema/Initialization.h"
 #include "clang/Sema/Lookup.h"
+#include "clang/Sema/Ownership.h"
 #include "clang/Sema/Overload.h"
 #include "clang/Sema/Sema.h"
 #include "clang/Sema/Template.h"
@@ -516,8 +518,9 @@ Sema::BuildCXXExpansionInitListSelectExpr(CXXExpansionInitListExpr *Range,
   return SubExprs[I];
 }
 
-StmtResult Sema::FinishCXXExpansionStmt(Stmt *Heading, Stmt *Body) {
-  if (!Heading || !Body)
+// When Size is none means the size is dependent.
+StmtResult Sema::FinishCXXExpansionStmt(Stmt *S, UnsignedOrNone Size) {
+  if (!S)
     return StmtError();
 
   // Diagnose identifier labels.
@@ -529,49 +532,44 @@ StmtResult Sema::FinishCXXExpansionStmt(Stmt *Heading, Stmt *Body) {
       return false;
     }
   } Visitor(*this);
-  if (!Visitor.TraverseStmt(Body))
+  if (!Visitor.TraverseStmt(S))
     return StmtError();
 
-  CXXExpansionStmt *Expansion = cast<CXXExpansionStmt>(Heading);
-  Expansion->setBody(Body);
+  if (!Size)
+    return S;
 
-  if (Expansion->hasDependentSize())
-    return Expansion;
+  if (*Size == 0u)
+    return S;
 
-  // Return an empty statement if the range is empty.
-  if (Expansion->getNumInstantiations() == 0)
-     return Expansion;
+  CXXExpansionStmt *Expansion = cast<CXXExpansionStmt>(S);
 
   // Create a compound statement binding loop and body.
-  Stmt *VarAndBody[] = {Expansion->getExpansionVarStmt(), Body};
+  Stmt *VarAndBody[] = {Expansion->getExpansionVarStmt(), Expansion->getBody()};
   Stmt *CombinedBody = CompoundStmt::Create(Context, VarAndBody,
                                             FPOptionsOverride(),
                                             Expansion->getBeginLoc(),
                                             Expansion->getEndLoc());
 
-  ExpansionStmtDecl *StmtDecl = cast<ExpansionStmtDecl>(CurContext);
-  DeclContext *DC = CurContext;
-  while (isa<ExpansionStmtDecl>(DC))
-    DC = DC->getParent();
-
   // Expand the body for each instantiation.
   SmallVector<Stmt *, 4> Instantiations;
-  while (Instantiations.size() < Expansion->getNumInstantiations()) {
+  while (Instantiations.size() < *Size) {
 
-    ContextRAII CtxGuard(*this, DC, /*NewThis=*/false);
-    ExpansionStmtSynthesisRAII ExpansionGuard(*this, !DC->isDependentContext());
+    ContextRAII CtxGuard(*this, CurContext, /*NewThis=*/false);
+    ExpansionStmtSynthesisRAII ExpansionGuard(*this,
+                                             !CurContext->isDependentContext());
 
     TemplateArgument TArgs[] = {
         { Context, llvm::APSInt::get(Instantiations.size()),
           Context.getSizeType() }
     };
-    MultiLevelTemplateArgumentList MTArgList(StmtDecl, TArgs, true);
+    MultiLevelTemplateArgumentList MTArgList(
+        cast<ExpansionStmtDecl>(CurContext), TArgs, true);
     MTArgList.addOuterRetainedLevels(
             ExtractParmVarDeclDepth(Expansion->getTParamRef()));
 
     LocalInstantiationScope LIScope(*this, /*CombineWithOuterScope=*/true);
-    InstantiatingTemplate Inst(*this, Body->getBeginLoc(), Expansion, TArgs,
-                               Body->getSourceRange());
+    InstantiatingTemplate Inst(*this, S->getBeginLoc(), Expansion, TArgs,
+                               S->getSourceRange());
 
     StmtResult Instantiation = SubstStmt(CombinedBody, MTArgList);
 
@@ -580,14 +578,22 @@ StmtResult Sema::FinishCXXExpansionStmt(Stmt *Heading, Stmt *Body) {
     Instantiations.push_back(Instantiation.get());
   }
 
-  // Allocate a more permanent buffer to hold pointers to Stmts.
-  Stmt **StmtStorage = new (Context) Stmt *[Instantiations.size()];
-  std::memcpy(StmtStorage, Instantiations.data(),
-              Instantiations.size() * sizeof(Stmt *));
+  return CompoundStmt::Create(Context, Instantiations, FPOptionsOverride(),
+                              Expansion->getBeginLoc(), Expansion->getEndLoc());
+}
 
-  // Attach Stmt buffer to the CXXExpansionStmt, and return.
-  Expansion->setInstantiations(StmtStorage);
-  return Expansion;
+StmtResult Sema::FinishCXXExpansionStmt(Stmt *Heading, Stmt *Body) {
+  if (!Heading || !Body)
+    return StmtError();
+
+  CXXExpansionStmt *Expansion = cast<CXXExpansionStmt>(Heading);
+  Expansion->setBody(Body);
+
+  UnsignedOrNone Size = std::nullopt;
+  if (!Expansion->hasDependentSize()) {
+    Size = Expansion->getNumInstantiations();
+  }
+  return FinishCXXExpansionStmt(Heading, Size);
 }
 
 ExprResult Sema::ActOnCXXExpansionInitList(SourceLocation LBraceLoc,

@@ -11,6 +11,7 @@
 // UNSUPPORTED: c++03 || c++11 || c++14 || c++17 || c++20
 // ADDITIONAL_COMPILE_FLAGS: -freflection
 // ADDITIONAL_COMPILE_FLAGS: -fannotation-attributes
+// ADDITIONAL_COMPILE_FLAGS: -fexpansion-statements
 
 // <experimental/reflection>
 //
@@ -290,5 +291,39 @@ static_assert(func2_first == std::meta::reflect_constant(1));
 static_assert(func_first == std::meta::reflect_constant(test));
 }  // namespace bb_clang_p2996_issue_143_regression_test
 
+// =====================================
+// nested_template_for_over_annotations
+// =====================================
+
+namespace nested_template_for_over_annotations {
+
+enum class S { x, y };
+
+namespace T {
+[[= S::x]] consteval int p() { return 1; }
+[[= S::y]] consteval int p(int) { return 2; }
+} // namespace T
+
+template <std::meta::info Ns>
+consteval int run() {
+  int hits           = 0;
+  constexpr auto ctx = std::meta::access_context::unchecked();
+  template for (constexpr auto i : define_static_array(members_of(Ns, ctx))) {
+    if constexpr (std::meta::is_user_provided(i)) {
+      template for (constexpr auto a : define_static_array(annotations_of(i))) {
+        if constexpr (type_of(a) == ^^S) {
+          if constexpr (extract<S>(a) == S::x) {
+            hits += [:i:]();
+          }
+        }
+      }
+    }
+  }
+  return hits;
+}
+
+static_assert(run<^^T>() == 1);
+
+} // namespace nested_template_for_over_annotations
 
 int main() { }

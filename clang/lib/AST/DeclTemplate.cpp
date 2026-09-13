@@ -1639,7 +1639,7 @@ void TemplateParamObjectDecl::printAsInit(llvm::raw_ostream &OS,
 }
 
 ExpansionStmtDecl::ExpansionStmtDecl(DeclContext *DC, SourceLocation Loc,
-                                     CXXExpansionStmt *Expansion,
+                                     Stmt *Expansion,
                                      TemplateParameterList *TParams)
     : Decl(ExpansionStmt, DC, Loc),
       DeclContext(ExpansionStmt), Expansion(Expansion), TParams(TParams) { }
@@ -1648,7 +1648,7 @@ void ExpansionStmtDecl::anchor() {}
 
 ExpansionStmtDecl *ExpansionStmtDecl::Create(ASTContext &C, DeclContext *DC,
                                              SourceLocation Loc,
-                                             CXXExpansionStmt *Expansion,
+                                             Stmt *Expansion,
                                              TemplateParameterList *TParams) {
   return new (C, DC) ExpansionStmtDecl(DC, Loc, Expansion, TParams);
 }
