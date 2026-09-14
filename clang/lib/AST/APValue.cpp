@@ -885,7 +885,7 @@ ReflectionKind APValue::getReflectionKind() const {
           if (auto *B = getLValueBase().dyn_cast<const ValueDecl *>()) {
             LVTy = B->getType()->getCanonicalTypeUnqualified().getTypePtr();
           } else if (auto *B = getLValueBase().dyn_cast<const Expr *>()) {
-            // If the base expression isn't an lvalue, it must be an object.
+            // If the base expression isn't an lvalue, it must not be an object.
             if (!B->isLValue())
               return ReflectionKind::Value;
 
