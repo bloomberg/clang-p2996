@@ -968,6 +968,15 @@ ExprResult Sema::ConstevalOnlyRecorder::RecordAndReturn(ExprResult Res) {
   return Res;
 }
 
+/// Returns whether a reflect-expression whose operand is spelled with \p Name
+/// has the form '^^ reflection-name' ([expr.reflect]/5) rather than
+/// '^^ id-expression' ([expr.reflect]/7). A reflection-name is an identifier
+/// without template arguments; only that form is ill-formed when lookup finds
+/// a declaration that replaced a using-declarator ([expr.reflect]/5.1).
+static bool isReflectionNameForm(DeclarationName Name, bool HasTemplateArgs) {
+  return Name.getNameKind() == DeclarationName::Identifier && !HasTemplateArgs;
+}
+
 ExprResult Sema::ActOnCXXReflectExpr(SourceLocation OpLoc,
                                      SourceLocation TemplateKWLoc,
                                      CXXScopeSpec &SS, UnqualifiedId &Id) {
@@ -1027,10 +1036,13 @@ ExprResult Sema::ActOnCXXReflectExpr(SourceLocation OpLoc,
   if (auto *USD = dyn_cast<UsingShadowDecl>(ND)) {
     if (getLangOpts().EntityProxyReflection)
       return BuildCXXReflectExpr(OpLoc, NameInfo.getBeginLoc(), USD);
-    else {
+    if (isReflectionNameForm(NameInfo.getName(), TArgs)) {
       Diag(SS.getBeginLoc(), diag::err_reflect_using_declarator);
       return ExprError();
     }
+
+    // An id-expression names the entity that the using-declarator introduced.
+    ND = USD->getTargetDecl();
   }
 
   if (auto *TD = dyn_cast<TypeDecl>(ND)) {
@@ -1301,7 +1313,11 @@ ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
       Diag(OperandLoc, diag::err_reflect_overload_set);
       return ExprError();
     }
-    D = *UD->shadow_begin();
+    UsingShadowDecl *USD = *UD->shadow_begin();
+    D = USD;
+    if (!getLangOpts().EntityProxyReflection &&
+        !isReflectionNameForm(UD->getDeclName(), /*HasTemplateArgs=*/false))
+      D = USD->getTargetDecl();
   }
 
   D = D->getCanonicalDecl();
@@ -1350,7 +1366,11 @@ ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc, Expr *E) {
   // Check if this is a reference to a declared entity.
   if (auto *DRE = dyn_cast<DeclRefExpr>(E)) {
     Decl *D = DRE->getDecl();
-    if (auto *F = DRE->getFoundDecl(); isa<UsingShadowDecl>(F))
+    if (auto *F = DRE->getFoundDecl();
+        isa<UsingShadowDecl>(F) &&
+        (getLangOpts().EntityProxyReflection ||
+         isReflectionNameForm(DRE->getNameInfo().getName(),
+                              DRE->hasExplicitTemplateArgs())))
       D = F;
 
     return BuildCXXReflectExpr(OperatorLoc, DRE->getExprLoc(), D);
