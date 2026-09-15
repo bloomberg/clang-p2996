@@ -200,6 +200,7 @@ struct Base {
   operator int() const { return 0; }
   template <typename T> T tfn(T v) const { return v; }
   int fn() const { return 1; }
+  static void *operator new(decltype(sizeof(0)) n);
 };
 
 struct Derived : Base {
@@ -207,6 +208,7 @@ struct Derived : Base {
   using Base::operator int;
   using Base::tfn;
   using Base::fn;
+  using Base::operator new;
 };
 
 // The operand is an id-expression, so it names the function that the
@@ -214,6 +216,7 @@ struct Derived : Base {
 static_assert(^^Derived::operator() == ^^Base::operator());
 static_assert(^^Derived::operator int == ^^Base::operator int);
 static_assert(^^Derived::tfn<int> == ^^Base::tfn<int>);
+static_assert(^^Derived::operator new == ^^Base::operator new);
 static_assert(&[:^^Derived::operator():] == &Base::operator());
 
 // The operand is a reflection-name, so lookup finding a declaration that
@@ -226,15 +229,16 @@ template <typename T>
 struct S : T {
   using T::operator();
   using T::tfn;
+  using T::operator new;
   static constexpr info a = ^^S::operator();
   static constexpr info b = ^^T::operator();
   static constexpr info c = ^^S::template tfn<int>;
-  static constexpr info d = ^^operator();
+  static constexpr info d = ^^operator new;
 };
 static_assert(S<Base>::a == ^^Base::operator());
 static_assert(S<Base>::b == ^^Base::operator());
 static_assert(S<Base>::c == ^^Base::tfn<int>);
-static_assert(S<Base>::d == ^^Base::operator());
+static_assert(S<Base>::d == ^^Base::operator new);
 
 template <typename T>
 struct U : T {
