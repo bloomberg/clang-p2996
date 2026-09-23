@@ -35,6 +35,7 @@
 #include "clang/Sema/ParsedAttr.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Support/ConvertUTF.h"
 #include "llvm/Support/raw_ostream.h"
 #include <optional>
 
@@ -625,6 +626,13 @@ static bool define_unscoped_enum(APValue &Result, ASTContext &C,
                              QualType ResultTy, SourceRange Range,
                              ArrayRef<Expr *> Args, Decl *ContainingDecl);
 
+static bool define_encoded_static_string(APValue &Result, ASTContext &C,
+                                         MetaActions &Meta, EvalFn Evaluator,
+                                         DiagFn Diagnoser, bool AllowInjection,
+                                         QualType ResultTy, SourceRange Range,
+                                         ArrayRef<Expr *> Args,
+                                         Decl *ContainingDecl);
+
 static bool offset_of(APValue &Result, ASTContext &C, MetaActions &Meta,
                       EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
                       QualType ResultTy, SourceRange Range,
@@ -960,6 +968,9 @@ static constexpr Metafunction Metafunctions[] = {
 
   // P4033 extension: completing unscoped (C-style) enums
   { Metafunction::MFRK_metaInfo, 3, 3, define_unscoped_enum },
+
+  // P3867: define_encoded_static_string
+  { Metafunction::MFRK_spliceFromArg, 3, 3, define_encoded_static_string },
 };
 constexpr const unsigned NumMetafunctions = sizeof(Metafunctions) /
                                             sizeof(Metafunction);
@@ -7408,6 +7419,91 @@ bool reflect_invoke(APValue &Result, ASTContext &C, MetaActions &Meta,
 
   return SetAndSucceedWithLift(Result, Diagnoser, Range, EvalResult.Val,
                                CallExpr->getType());
+}
+
+// -----------------------------------------------------------------------------
+// P3867: define_encoded_static_string
+// -----------------------------------------------------------------------------
+
+static std::optional<StringLiteralKind>
+stringLiteralKindForCharType(ASTContext &C, QualType CharTy) {
+  if (CharTy->isWideCharType())
+    return StringLiteralKind::Wide;
+  if (CharTy->isChar8Type())
+    return StringLiteralKind::UTF8;
+  if (CharTy->isChar16Type())
+    return StringLiteralKind::UTF16;
+  if (CharTy->isChar32Type())
+    return StringLiteralKind::UTF32;
+  // `isCharType()` also matches signed/unsigned char; P3867 only allows `char`.
+  if (C.hasSameUnqualifiedType(CharTy, C.CharTy))
+    return StringLiteralKind::Ordinary;
+  return std::nullopt;
+}
+
+bool define_encoded_static_string(APValue &Result, ASTContext &C,
+                                  [[maybe_unused]] MetaActions &Meta,
+                                  EvalFn Evaluator, DiagFn Diagnoser,
+                                  [[maybe_unused]] bool AllowInjection,
+                                  QualType ResultTy, SourceRange Range,
+                                  ArrayRef<Expr *> Args,
+                                  [[maybe_unused]] Decl *ContainingDecl) {
+  // ResultTy is `const CharT *`, spliced from the first argument.
+  if (ResultTy.isNull() || !ResultTy->isPointerType())
+    return Diagnoser(Range.getBegin(),
+                     diag::metafn_encoded_string_invalid_char_type)
+           << ResultTy << Range;
+
+  QualType CharTy = ResultTy->getPointeeType().getUnqualifiedType();
+  std::optional<StringLiteralKind> Kind =
+      stringLiteralKindForCharType(C, CharTy);
+  if (!Kind)
+    return Diagnoser(Range.getBegin(),
+                     diag::metafn_encoded_string_invalid_char_type)
+           << CharTy << Range;
+
+  APValue SizeV;
+  if (!Evaluator(SizeV, Args[2], /*ConvertToRValue=*/true))
+    return true;
+  uint64_t Len = SizeV.getInt().getZExtValue();
+
+  APValue DataV;
+  if (!Evaluator(DataV, Args[1], /*ConvertToRValue=*/false))
+    return true;
+
+  std::string Utf8;
+  Expr::EvalResult Status;
+  if (!Args[1]->EvaluateCharRangeAsString(Utf8, Len, DataV, C, Status))
+    return true;
+
+  unsigned CharByteWidth = C.getTypeSizeInChars(CharTy).getQuantity();
+  assert(CharByteWidth == 1 || CharByteWidth == 2 || CharByteWidth == 4);
+
+  // ConvertUTF8toWide requires WideCharWidth * (Source.size() + 1) bytes.
+  llvm::SmallVector<char, 32> Encoded;
+  Encoded.resize((Utf8.size() + 1) * CharByteWidth);
+  char *Ptr = Encoded.data();
+  const llvm::UTF8 *ErrorPtr = nullptr;
+  if (!llvm::ConvertUTF8toWide(CharByteWidth, Utf8, Ptr, ErrorPtr))
+    return Diagnoser(Range.getBegin(),
+                     diag::metafn_encoded_string_conversion_failed)
+           << CharTy << Range;
+
+  unsigned ByteLength = static_cast<unsigned>(Ptr - Encoded.data());
+  assert(ByteLength % CharByteWidth == 0 && "partial output code unit");
+  // ConvertUTF8toWide does not write a terminator; include the extra zeroed
+  // code unit reserved by the resize above, matching Sema string literals.
+  ByteLength += CharByteWidth;
+  unsigned NumChars = ByteLength / CharByteWidth;
+
+  // getStringLiteralArrayType adds a trailing NUL to the array type.
+  QualType StrLitTy = C.getStringLiteralArrayType(CharTy, NumChars - 1);
+  Expr *StrLit =
+      StringLiteral::Create(C, StringRef(Encoded.data(), ByteLength), *Kind,
+                            /*Pascal=*/false, StrLitTy, SourceLocation{});
+
+  APValue::LValuePathEntry Path[1] = {APValue::LValuePathEntry::ArrayIndex(0)};
+  return SetAndSucceed(Result, APValue(StrLit, CharUnits::Zero(), Path, false));
 }
 
 }  // end namespace clang

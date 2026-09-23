@@ -811,6 +811,17 @@ public:
                                  const Expr *PtrExpression, ASTContext &Ctx,
                                  EvalResult &Status) const;
 
+  /// Evaluate a character range from an already-evaluated pointer value.
+  /// `Ptr` must be an LValue APValue naming the first character, or (if this
+  /// expression is a glvalue of pointer type) the pointer object itself.
+  bool EvaluateCharRangeAsString(std::string &Result, uint64_t Size,
+                                 const APValue &Ptr, ASTContext &Ctx,
+                                 EvalResult &Status) const;
+
+  bool EvaluateCharRangeAsString(APValue &Result, uint64_t Size,
+                                 const APValue &Ptr, ASTContext &Ctx,
+                                 EvalResult &Status) const;
+
   /// If the current Expr can be evaluated to a pointer to a null-terminated
   /// constant string, return the constant string (without the terminating
   /// null).

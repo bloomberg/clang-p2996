@@ -127,4 +127,12 @@ def metafn_enum_not_unscoped : Note<"%0 is not an unscoped enumeration type">;
 // Annotation injection.
 def metafn_cannot_annotate : Note<"cannot attach an annotation to %1">;
 
+// P3867 define_encoded_static_string
+def metafn_encoded_string_invalid_char_type
+    : Note<"%0 is not a valid character type for "
+           "define_encoded_static_string">;
+def metafn_encoded_string_conversion_failed
+    : Note<"cannot encode the provided UTF-8 string in the associated "
+           "encoding of %0">;
+
 }  // end of metafn component

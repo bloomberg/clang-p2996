@@ -1187,6 +1187,14 @@ Sema::BuildMemberReferenceExpr(Scope *S, Expr *Base, SourceLocation OpLoc,
   bool IsRHSDependent = (RHS->isValueDependent() || RHS->isTypeDependent());
   bool IsArrow = (OpKind == tok::arrow);
   if (Base) {
+    // Apply the usual conversions to the base first, so that the base of
+    // '->' is a pointer prvalue and an array base decays, as for a member
+    // access that is not a splice.
+    ExprResult BaseResult = PerformMemberExprBaseConversion(Base, IsArrow);
+    if (BaseResult.isInvalid())
+      return ExprError();
+    Base = BaseResult.get();
+
     const PointerType *PT = Base->getType()->getAs<PointerType>();
     bool IsPtr = (PT != nullptr);
     bool IsRecord = isRecordType(PT ? PT->getPointeeType() : Base->getType());

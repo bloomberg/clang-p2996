@@ -408,6 +408,12 @@ template <reflection_range R1 = initializer_list<info>,
 
 } // namespace reflection_v2
 } // namespace meta
+
+// P3867 define_encoded_static_string
+template <class CharT, ranges::input_range R>
+  requires same_as<char8_t, ranges::range_value_t<R>>
+consteval const CharT *define_encoded_static_string(R &&r);
+
 } // namespace std
 
 */
@@ -593,6 +599,9 @@ enum : unsigned {
 
   // P4033 extension: completing unscoped (C-style) enums
   __metafn_define_unscoped_enum,
+
+  // P3867: define_encoded_static_string
+  __metafn_define_encoded_static_string,
 };
 
 consteval auto __workaround_expand_compiler_builtins(info type) -> info;
@@ -2658,6 +2667,35 @@ consteval auto define_static_string(string_view in) -> const char * {
 consteval auto define_static_string(u8string_view in) -> const char8_t * {
   meta::info array = meta::reflect_constant_string(in);
   return extract<const char8_t*>(array);
+}
+
+// P3867: transcode a UTF-8 sequence into a string literal in the associated
+// encoding of CharT. String-literal trailing NULs are dropped by
+// reflect_constant_string ([meta.define.static]).
+template <class CharT>
+consteval auto __define_encoded_static_string(u8string_view in) -> const CharT * {
+  const char8_t *utf8 = define_static_string(in);
+  if constexpr (same_as<CharT, char8_t>)
+    return utf8;
+  return __metafunction(meta::detail::__metafn_define_encoded_static_string,
+                        ^^const CharT *, utf8, in.size());
+}
+
+template <class CharT, ranges::input_range R>
+  requires same_as<char8_t, ranges::range_value_t<R>>
+consteval auto define_encoded_static_string(R &&r) -> const CharT * {
+  static_assert(same_as<CharT, char> || same_as<CharT, wchar_t> ||
+                    same_as<CharT, char8_t> || same_as<CharT, char16_t> ||
+                    same_as<CharT, char32_t>,
+                "CharT must be char, wchar_t, char8_t, char16_t, or char32_t");
+
+  if constexpr (convertible_to<R, u8string_view>) {
+    return __define_encoded_static_string<CharT>(r);
+  } else {
+    vector<char8_t> seq(from_range, r);
+    return __define_encoded_static_string<CharT>(
+        u8string_view(seq.data(), seq.size()));
+  }
 }
 
 _LIBCPP_END_NAMESPACE_STD
