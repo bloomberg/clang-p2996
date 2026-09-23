@@ -3198,6 +3198,9 @@ def err_reflect_nttp : Error<
   "cannot take the reflection of a non-type template parameter">;
 def err_reflect_using_declarator : Error<
   "cannot take the reflection of a using-declarator">;
+def err_reflect_unqualified_member_function : Error<
+  "cannot take the reflection of non-static member function %0 named by an "
+  "unqualified name">;
 def err_reflect_init_capture : Error<
   "cannot take the reflection of a local entity declared by init-capture">;
 def err_reflect_local_requires_param : Error<

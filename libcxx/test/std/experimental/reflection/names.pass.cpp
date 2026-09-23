@@ -261,7 +261,7 @@ static_assert(identifier_of(^^myns::Enum::C) == "C");
 static_assert(identifier_of(^^myns::EnumCls) == "EnumCls");
 static_assert(identifier_of(^^myns::EnumCls::C) == "C");
 static_assert(identifier_of(^^myns::operator""_a) == "_a");
-static_assert(identifier_of(^^myns::operator""_b) == "_b");
+static_assert(identifier_of(template_of(^^myns::operator""_b<'a'>)) == "_b");
 static_assert(display_string_of(^^myns) == "myns");
 static_assert(display_string_of(^^myns::mem) == "mem");
 static_assert(display_string_of(^^myns::memfn) == "memfn");
@@ -276,7 +276,7 @@ static_assert(display_string_of(^^myns::Enum::C) == "C");
 static_assert(display_string_of(^^myns::EnumCls) == "EnumCls");
 static_assert(display_string_of(^^myns::EnumCls::C) == "C");
 static_assert(display_string_of(^^myns::operator""_a) == R"(operator""_a)");
-static_assert(display_string_of(^^myns::operator""_b) == R"(operator""_b)");
+static_assert(display_string_of(template_of(^^myns::operator""_b<'a'>)) == R"(operator""_b)");
 
 class K\u{00FC}hl1 {};
 
@@ -304,7 +304,7 @@ int operator,(const S&, const S&);
 
 static_assert(display_string_of(^^operator+) == "operator+");
 static_assert(display_string_of(^^operator,) == "operator,");
-static_assert(display_string_of(^^S::operator-) == "operator-");
+static_assert(display_string_of(template_of(^^S::operator-<int>)) == "operator-");
 static_assert(display_string_of(^^S::operator new) == "operator new");
 }  // namespace Ops
 

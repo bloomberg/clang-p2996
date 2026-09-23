@@ -252,4 +252,64 @@ constexpr info ua = U<Base>::a;
   // expected-note@-1 {{in instantiation of static data member}}
 constexpr info ub = U<Base>::b;
   // expected-note@-1 {{in instantiation of static data member}}
+
+// An id-expression that names an overload set must be the operand of a
+// well-formed '&' ([expr.reflect]/7.2). Without a nested-name-specifier, '&'
+// cannot form a pointer to a non-static member function.
+struct Self {
+  int operator()(int) const;
+  template <typename T> T tfn(T v) const { return v; }
+  static constexpr info a = ^^operator();
+    // expected-error@-1 {{cannot take the reflection of non-static member function 'operator()' named by an unqualified name}}
+  static constexpr info b = ^^tfn<int>;
+    // expected-error@-1 {{cannot take the reflection of non-static member function 'tfn<int>' named by an unqualified name}}
+};
+
+struct DerivedSelf : Base {
+  using Base::operator();
+  static constexpr info a = ^^operator();
+    // expected-error@-1 {{cannot take the reflection of non-static member function 'operator()' named by an unqualified name}}
+};
+
+template <typename T>
+struct V : T {
+  using T::operator();
+  static constexpr info a = ^^operator();
+    // expected-error@-1 {{cannot take the reflection of non-static member function 'operator()' named by an unqualified name}}
+};
+constexpr info va = V<Base>::a;
+  // expected-note@-1 {{in instantiation of static data member}}
+
+// Nor can '&' select a specialization of a function template without template
+// arguments. A reflection-name naming the template is not an id-expression,
+// so it still represents the template ([expr.reflect]/5.5.2).
+struct TemplateBase {
+  template <typename T> int operator()(T) const;
+  template <typename T> int tfn(T) const;
+};
+
+struct TemplateDerived : TemplateBase {
+  using TemplateBase::operator();
+};
+
+constexpr info tb = ^^TemplateBase::operator();
+  // expected-error@-1 {{cannot take the reflection of an overload set}}
+constexpr info td = ^^TemplateDerived::operator();
+  // expected-error@-1 {{cannot take the reflection of an overload set}}
+constexpr info tfn = ^^TemplateBase::tfn;
+static_assert(^^TemplateBase::operator()<int> ==
+              ^^TemplateDerived::operator()<int>);
+
+template <typename T>
+struct W : T {
+  using T::operator();
+  static constexpr info a = ^^T::operator();
+    // expected-error@-1 {{cannot take the reflection of an overload set}}
+  static constexpr info b = ^^operator();
+    // expected-error@-1 {{cannot take the reflection of an overload set}}
+};
+constexpr info wa = W<TemplateBase>::a;
+  // expected-note@-1 {{in instantiation of static data member}}
+constexpr info wb = W<TemplateBase>::b;
+  // expected-note@-1 {{in instantiation of static data member}}
 }  // namespace bb_clang_p2996_issue_342_regression_test

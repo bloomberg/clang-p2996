@@ -86,7 +86,10 @@ constexpr info info_nested_template_static_func2 =
 constexpr info info_nested_template_var = ^^MemberTemplates::template_var;
 constexpr info info_nested_template_var2 =
       ^^MemberTemplates::template template_var;
+// '&' cannot select a specialization without template arguments
+// ([expr.reflect]/7.2).
 constexpr info info_nested_template_operator = ^^MemberTemplates::operator+;
+    // expected-error@-1 {{cannot take the reflection of an overload set}}
 constexpr info info_nested_template_operator2 =
       ^^MemberTemplates::template operator+;
 

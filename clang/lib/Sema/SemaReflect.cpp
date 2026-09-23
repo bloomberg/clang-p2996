@@ -977,6 +977,32 @@ static bool isReflectionNameForm(DeclarationName Name, bool HasTemplateArgs) {
   return Name.getNameKind() == DeclarationName::Identifier && !HasTemplateArgs;
 }
 
+/// Diagnoses an id-expression that names \p D for which '&id-expression' is
+/// ill-formed ([expr.reflect]/7.2), and returns whether it did. Such an
+/// id-expression either names a non-static member function without a
+/// nested-name-specifier, or names only a function template without template
+/// arguments, from which '&' cannot select a function with no target. A
+/// reflection-name that names a function template is not an id-expression; it
+/// represents the template ([expr.reflect]/5.5.2).
+static bool diagnoseIllFormedAddressOfFunction(Sema &S, SourceLocation Loc,
+                                               const NamedDecl *D,
+                                               DeclarationName Name,
+                                               bool IsQualified,
+                                               bool HasTemplateArgs) {
+  if (auto *MD = dyn_cast<CXXMethodDecl>(D);
+      MD && MD->isInstance() && !IsQualified &&
+      !isReflectionNameForm(Name, HasTemplateArgs)) {
+    S.Diag(Loc, diag::err_reflect_unqualified_member_function) << MD;
+    return true;
+  }
+  if (isa<FunctionTemplateDecl>(D) && !HasTemplateArgs &&
+      !isReflectionNameForm(Name, /*HasTemplateArgs=*/false)) {
+    S.Diag(Loc, diag::err_reflect_overload_set);
+    return true;
+  }
+  return false;
+}
+
 ExprResult Sema::ActOnCXXReflectExpr(SourceLocation OpLoc,
                                      SourceLocation TemplateKWLoc,
                                      CXXScopeSpec &SS, UnqualifiedId &Id) {
@@ -1044,6 +1070,11 @@ ExprResult Sema::ActOnCXXReflectExpr(SourceLocation OpLoc,
     // An id-expression names the entity that the using-declarator introduced.
     ND = USD->getTargetDecl();
   }
+
+  if (diagnoseIllFormedAddressOfFunction(*this, NameInfo.getBeginLoc(), ND,
+                                         NameInfo.getName(), SS.isNotEmpty(),
+                                         TArgs))
+    return ExprError();
 
   if (auto *TD = dyn_cast<TypeDecl>(ND)) {
     QualType QT = Context.getTypeDeclType(TD);
@@ -1307,7 +1338,7 @@ ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
 ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
                                      SourceLocation OperandLoc, Decl *D) {
   // This case can happen after transforming a dependent reflection naming a
-  // using-declarator.
+  // using-declarator by an unqualified name.
   if (auto *UD = dyn_cast<UsingDecl>(D)) {
     if (UD->shadow_size() > 1) {
       Diag(OperandLoc, diag::err_reflect_overload_set);
@@ -1316,8 +1347,13 @@ ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
     UsingShadowDecl *USD = *UD->shadow_begin();
     D = USD;
     if (!getLangOpts().EntityProxyReflection &&
-        !isReflectionNameForm(UD->getDeclName(), /*HasTemplateArgs=*/false))
+        !isReflectionNameForm(UD->getDeclName(), /*HasTemplateArgs=*/false)) {
+      if (diagnoseIllFormedAddressOfFunction(
+              *this, OperandLoc, USD->getTargetDecl(), UD->getDeclName(),
+              /*IsQualified=*/false, /*HasTemplateArgs=*/false))
+        return ExprError();
       D = USD->getTargetDecl();
+    }
   }
 
   D = D->getCanonicalDecl();
@@ -1372,6 +1408,11 @@ ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc, Expr *E) {
          isReflectionNameForm(DRE->getNameInfo().getName(),
                               DRE->hasExplicitTemplateArgs())))
       D = F;
+    else if (diagnoseIllFormedAddressOfFunction(
+                 *this, DRE->getExprLoc(), DRE->getDecl(),
+                 DRE->getNameInfo().getName(), DRE->hasQualifier(),
+                 DRE->hasExplicitTemplateArgs()))
+      return ExprError();
 
     return BuildCXXReflectExpr(OperatorLoc, DRE->getExprLoc(), D);
   }
