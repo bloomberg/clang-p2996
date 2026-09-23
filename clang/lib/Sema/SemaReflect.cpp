@@ -990,8 +990,7 @@ static bool diagnoseIllFormedAddressOfFunction(Sema &S, SourceLocation Loc,
                                                bool IsQualified,
                                                bool HasTemplateArgs) {
   if (auto *MD = dyn_cast<CXXMethodDecl>(D);
-      MD && MD->isInstance() && !IsQualified &&
-      !isReflectionNameForm(Name, HasTemplateArgs)) {
+      MD && MD->isInstance() && !IsQualified) {
     S.Diag(Loc, diag::err_reflect_unqualified_member_function) << MD;
     return true;
   }

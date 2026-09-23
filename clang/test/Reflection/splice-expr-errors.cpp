@@ -29,8 +29,8 @@ struct S {
                      // expected-note {{explicit 'this' pointer}}
     (void) [:^^S:]::k;  // expected-error {{cannot implicitly reference}} \
                         // expected-note {{explicit 'this' pointer}}
-    [:^^fn:]();  // expected-error {{cannot implicitly reference}} \
-                 // expected-note {{explicit 'this' pointer}}
+    [:^^S::fn:]();  // expected-error {{cannot implicitly reference}} \
+                    // expected-note {{explicit 'this' pointer}}
     [:^^S:]::fn2();  // expected-error {{cannot implicitly reference}} \
                      // expected-note {{explicit 'this' pointer}}
   }

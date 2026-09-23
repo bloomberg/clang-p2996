@@ -312,4 +312,22 @@ constexpr info wa = W<TemplateBase>::a;
   // expected-note@-1 {{in instantiation of static data member}}
 constexpr info wb = W<TemplateBase>::b;
   // expected-note@-1 {{in instantiation of static data member}}
+
+// A reflection-name that finds neither a template nor a type is interpreted as
+// an id-expression ([expr.reflect]/5.9), so the same holds for an identifier.
+// A non-static data member is not an overload set ([expr.reflect]/7.3).
+struct SelfIdentifier {
+  int k;
+  int fn() const;
+  static int sfn();
+  static constexpr info a = ^^fn;
+    // expected-error@-1 {{cannot take the reflection of non-static member function 'fn' named by an unqualified name}}
+  static constexpr info b = ^^sfn;
+  static constexpr info c = ^^k;
+  void mem() const {
+    constexpr info d = ^^fn;
+      // expected-error@-1 {{cannot take the reflection of non-static member function 'fn' named by an unqualified name}}
+    constexpr info e = ^^SelfIdentifier::fn;
+  }
+};
 }  // namespace bb_clang_p2996_issue_342_regression_test

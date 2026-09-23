@@ -241,7 +241,7 @@ struct S {
     static_assert([:^^S:]::l == 3);
     (void) this->[:^^k:];
     (void) this->[:^^S:]::k;
-    this->[:^^fn2:]();
+    this->[:^^S::fn2:]();
     this->[:^^S:]::fn2();
   }
 };
