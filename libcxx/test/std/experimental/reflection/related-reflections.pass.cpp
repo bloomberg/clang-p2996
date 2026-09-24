@@ -184,4 +184,50 @@ static_assert(parent_of(rm) != parent_of(parent_of(rm)));
 static_assert(parent_of(parent_of(parent_of(rm))) == ^^S);
 }  // namespace anonymous_unions
 
+                  // ========================================
+                  // bb_clang_p2996_issue_200_regression_test
+                  // ========================================
+
+namespace bb_clang_p2996_issue_200_regression_test {
+template <typename T>
+struct TCls {};
+
+template <typename T>
+using TAlias = TCls<T>;
+
+namespace NS {
+using Alias = TCls<int>;
+}  // namespace NS
+
+struct Cls {
+  using Alias = TCls<int>;
+  typedef TCls<int> Typedef;
+  using AliasOfAliasSpecialization = TAlias<int>;
+  using AliasOfAlias = Alias;
+};
+
+template <typename T>
+struct TemplatedCls {
+  using Alias = TCls<T>;
+};
+
+// The parent of an alias is the scope that declares it, whatever it names.
+static_assert(parent_of(^^NS::Alias) == ^^NS);
+static_assert(parent_of(^^Cls::Alias) == ^^Cls);
+static_assert(parent_of(^^Cls::Typedef) == ^^Cls);
+static_assert(parent_of(^^Cls::AliasOfAliasSpecialization) == ^^Cls);
+static_assert(parent_of(^^Cls::AliasOfAlias) == ^^Cls);
+static_assert(parent_of(^^TemplatedCls<int>::Alias) == ^^TemplatedCls<int>);
+static_assert(parent_of(dealias(^^Cls::Alias)) ==
+              ^^bb_clang_p2996_issue_200_regression_test);
+
+// An alias that is not a specialization of an alias template has no template
+// arguments.
+static_assert(!has_template_arguments(^^Cls::Alias));
+static_assert(has_template_arguments(dealias(^^Cls::Alias)));
+static_assert(template_of(dealias(^^Cls::Alias)) == ^^TCls);
+static_assert(has_template_arguments(^^TAlias<int>));
+static_assert(template_of(^^TAlias<int>) == ^^TAlias);
+}  // namespace bb_clang_p2996_issue_200_regression_test
+
 int main() { }

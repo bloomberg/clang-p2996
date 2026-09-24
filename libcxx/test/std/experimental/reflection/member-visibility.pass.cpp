@@ -15,6 +15,7 @@
 //
 // [reflection]
 
+#include <algorithm>
 #include <meta>
 #include <ranges>
 
@@ -420,5 +421,84 @@ static_assert(std::meta::is_public(^^S::E::A));
 static_assert(!std::meta::is_public(^^S::SE::B));
 
 }  // namespace bb_clang_p2996_issue_193_regression_test
+
+                  // ========================================
+                  // bb_clang_p2996_issue_200_regression_test
+                  // ========================================
+
+namespace bb_clang_p2996_issue_200_regression_test {
+template <typename T>
+struct TCls {};
+
+using NSAlias = TCls<int>;
+
+class Cls {
+  using PrivateAlias = TCls<int>;
+  typedef TCls<int> PrivateTypedef;
+
+protected:
+  using ProtectedAlias = TCls<int>;
+
+public:
+  using PublicAlias = TCls<int>;
+  typedef TCls<int> PublicTypedef;
+
+  static constexpr auto r_private_alias = ^^PrivateAlias;
+  static constexpr auto r_private_typedef = ^^PrivateTypedef;
+  static constexpr auto r_protected_alias = ^^ProtectedAlias;
+};
+
+template <typename T>
+class TemplatedCls {
+  using PrivateAlias = TCls<T>;
+
+public:
+  using PublicAlias = TCls<T>;
+
+  static constexpr auto r_private_alias = ^^PrivateAlias;
+};
+
+// A member alias of a class template specialization is a class member with
+// the access it was declared with.
+static_assert(is_class_member(^^Cls::PublicAlias));
+static_assert(is_class_member(Cls::r_private_alias));
+static_assert(!is_namespace_member(^^Cls::PublicAlias));
+static_assert(!is_class_member(^^NSAlias));
+static_assert(is_namespace_member(^^NSAlias));
+
+static_assert(is_public(^^Cls::PublicAlias));
+static_assert(is_public(^^Cls::PublicTypedef));
+static_assert(is_public(^^TemplatedCls<int>::PublicAlias));
+static_assert(is_protected(Cls::r_protected_alias));
+static_assert(is_private(Cls::r_private_alias));
+static_assert(is_private(Cls::r_private_typedef));
+static_assert(is_private(TemplatedCls<int>::r_private_alias));
+static_assert(!is_public(Cls::r_private_alias));
+static_assert(!is_private(^^Cls::PublicAlias));
+
+// Access checking applies to it.
+constexpr auto unprivileged = access_context::unprivileged();
+constexpr auto unchecked = access_context::unchecked();
+
+static_assert(is_accessible(^^Cls::PublicAlias, unprivileged));
+static_assert(!is_accessible(Cls::r_protected_alias, unprivileged));
+static_assert(!is_accessible(Cls::r_private_alias, unprivileged));
+static_assert(!is_accessible(Cls::r_private_typedef, unprivileged));
+static_assert(!is_accessible(TemplatedCls<int>::r_private_alias, unprivileged));
+static_assert(is_accessible(Cls::r_private_alias, unchecked));
+
+consteval bool has_member(std::meta::info cls, std::meta::info member,
+                          access_context ctx) {
+  return std::ranges::contains(members_of(cls, ctx), member);
+}
+
+static_assert(has_member(^^Cls, ^^Cls::PublicAlias, unprivileged));
+static_assert(!has_member(^^Cls, Cls::r_protected_alias, unprivileged));
+static_assert(!has_member(^^Cls, Cls::r_private_alias, unprivileged));
+static_assert(!has_member(^^Cls, Cls::r_private_typedef, unprivileged));
+static_assert(has_member(^^Cls, Cls::r_private_alias, unchecked));
+static_assert(!has_member(^^TemplatedCls<int>,
+                          TemplatedCls<int>::r_private_alias, unprivileged));
+}  // namespace bb_clang_p2996_issue_200_regression_test
 
 int main() { }
