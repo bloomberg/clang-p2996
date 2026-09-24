@@ -2782,7 +2782,7 @@ void ASTDeclReader::VisitConstevalBlockDecl(ConstevalBlockDecl *D) {
 
 void ASTDeclReader::VisitExpansionStmtDecl(ExpansionStmtDecl *D) {
   VisitDecl(D);
-  D->Expansion = cast<CXXExpansionStmt>(Record.readStmt());
+  D->Expansion = Record.readStmt();
   D->TParams = Record.readTemplateParameterList();
 }
 

@@ -15787,6 +15787,8 @@ public:
                                        MultiExprArg SubExprs,
                                        SourceLocation RBraceLoc);
 
+  StmtResult FinishCXXExpansionStmt(Stmt *S, UnsignedOrNone Size);
+
   StmtResult FinishCXXExpansionStmt(Stmt *Heading, Stmt *Body);
 
   StmtResult BuildCXXExpansionStmt(

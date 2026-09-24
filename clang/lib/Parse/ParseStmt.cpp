@@ -257,7 +257,6 @@ Retry:
                                                     Tok.getLocation()));
       assert(ExpansionDecl && "no ExpansionStmtDecl returned");
 
-      CXXExpansionStmt *Expansion;
       {
         Sema::ContextRAII CtxGuard(Actions, ExpansionDecl, /*NewThis=*/false);
         TemplateParameterDepthRAII TParamDepthGuard(TemplateParameterDepth);
@@ -266,16 +265,16 @@ Retry:
         StmtResult SR = ParseForStatement(TrailingElseLoc);
         if (SR.isInvalid())
           return SR;
-        Expansion = cast<CXXExpansionStmt>(SR.get());
-        ExpansionDecl->setStmt(Expansion);
+        ExpansionDecl->setStmt(SR.get());
       }
 
       DeclSpec DS(AttrFactory);
       DeclGroupPtrTy DeclGroupPtr =
           Actions.FinalizeDeclaratorGroup(getCurScope(), DS, {ExpansionDecl});
 
-      return Actions.ActOnDeclStmt(DeclGroupPtr, Expansion->getBeginLoc(),
-                                   Expansion->getEndLoc());
+      return Actions.ActOnDeclStmt(DeclGroupPtr,
+                                   ExpansionDecl->getStmt()->getBeginLoc(),
+                                   ExpansionDecl->getStmt()->getEndLoc());
     }
 
     SourceLocation DeclEnd;

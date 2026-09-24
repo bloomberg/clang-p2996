@@ -1815,7 +1815,6 @@ ExprResult Sema::BuildReflectionSpliceExpr(SourceLocation TemplateKWLoc,
     case ReflectionKind::Declaration: {
       Decl *TheDecl = Refl.getReflectedDecl();
 
-      // Class members may not be implicitly referenced through a splice.
       if (!AllowMemberReference &&
           (isa<FieldDecl>(TheDecl) ||
            (isa<CXXMethodDecl>(TheDecl) &&
