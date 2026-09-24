@@ -46,6 +46,7 @@
 #include "clang/AST/CharUnits.h"
 #include "clang/AST/CurrentSourceLocExprScope.h"
 #include "clang/AST/Expr.h"
+#include "clang/AST/Metafunction.h"
 #include "clang/AST/OSLog.h"
 #include "clang/AST/OptionalDiagnostic.h"
 #include "clang/AST/RecordLayout.h"
@@ -1052,6 +1053,7 @@ namespace {
                       /*This=*/nullptr,
                       /*CallExpr=*/nullptr, CallRef()),
           EvaluatingDecl((const ValueDecl *)nullptr),
+          ContainingDecl(nullptr),
           EvaluatingDeclValue(nullptr), HasActiveDiagnostic(false),
           HasFoldFailureDiagnostic(false), EvalMode(Mode),
           PrevCurrentEvalInfo(CurrentEvalInfo) {
@@ -8909,9 +8911,17 @@ bool ExprEvaluatorBase<Derived>::VisitCXXMetafunctionExpr(
   // Evaluate the metafunction.
   APValue Result;
   const CXXMetafunctionExpr::ImplFn &Implementation = E->getImpl();
+  Decl *EvaluationContext = Info.ContainingDecl;
+  const Metafunction *Metafn;
+  if (!Metafunction::Lookup(E->getMetaFnID(), Metafn) &&
+      Metafn->getEvaluationContextKind() == Metafunction::MFEK_Caller) {
+    if (CallStackFrame *Caller = Info.CurrentCall->Caller;
+        Caller && Caller->Callee)
+      EvaluationContext = const_cast<FunctionDecl *>(Caller->Callee);
+  }
   if (Implementation(Result, Evaluator, Diagnoser, AllowInjection,
                      E->getResultType(), Info.CurrentCall->CallRange, Args,
-                     Info.ContainingDecl)) {
+                     EvaluationContext)) {
     bool Result = Error(E);
     Info.addNotes(Diagnostics);
 

@@ -943,7 +943,8 @@ static constexpr Metafunction Metafunctions[] = {
   { Metafunction::MFRK_bool, 1, 1, is_explicit_object_parameter },
   { Metafunction::MFRK_bool, 1, 1, is_function_parameter },
   { Metafunction::MFRK_metaInfo, 1, 1, return_type_of },
-  { Metafunction::MFRK_metaInfo, 1, 1, variable_of },
+  { Metafunction::MFRK_metaInfo, 1, 1, variable_of,
+    Metafunction::MFEK_Caller },
 
   // P3394 annotation metafunction extensions
   { Metafunction::MFRK_metaInfo, 3, 3, get_ith_annotation_of },
@@ -6668,7 +6669,13 @@ bool variable_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   ParmVarDecl *PVD = RV.getReflectedParameter();
   FunctionDecl *FD = cast<FunctionDecl>(PVD->getDeclContext());
 
-  if (Meta.CurrentCtx()->getCanonicalDecl() != FD->getCanonicalDecl())
+  Decl *EvaluationContext = ContainingDecl ? ContainingDecl : Meta.CurrentCtx();
+  FunctionDecl *EvaluationFunction = dyn_cast<FunctionDecl>(EvaluationContext);
+  if (!EvaluationFunction)
+    EvaluationFunction =
+        dyn_cast_or_null<FunctionDecl>(EvaluationContext->getDeclContext());
+  if (!EvaluationFunction || EvaluationFunction->getCanonicalDecl() !=
+                                 FD->getCanonicalDecl())
     return true;
   assert(FD->getDefinition());
   PVD = FD->getDefinition()->getParamDecl(PVD->getFunctionScopeIndex());

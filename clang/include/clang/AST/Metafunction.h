@@ -38,6 +38,11 @@ public:
     MFRK_spliceFromArg,
   };
 
+  enum EvaluationContextKind : unsigned {
+    MFEK_ContainingDecl,
+    MFEK_Caller,
+  };
+
   using EvaluateFn = CXXMetafunctionExpr::EvaluateFn;
   using DiagnoseFn = CXXMetafunctionExpr::DiagnoseFn;
 
@@ -57,14 +62,17 @@ private:
   unsigned MinArgs;
   unsigned MaxArgs;
   impl_fn_t ImplFn;
+  EvaluationContextKind ContextKind;
 
 public:
   constexpr Metafunction(ResultKind ResultKind,
                          unsigned MinArgs,
                          unsigned MaxArgs,
-                         impl_fn_t ImplFn)
+                         impl_fn_t ImplFn,
+                         EvaluationContextKind ContextKind =
+                             MFEK_ContainingDecl)
       : Kind(ResultKind), MinArgs(MinArgs), MaxArgs(MaxArgs),
-        ImplFn(ImplFn) { }
+        ImplFn(ImplFn), ContextKind(ContextKind) { }
 
   ResultKind getResultKind() const {
     return Kind;
@@ -76,6 +84,10 @@ public:
 
   unsigned getMaxArgs() const {
     return MaxArgs;
+  }
+
+  EvaluationContextKind getEvaluationContextKind() const {
+    return ContextKind;
   }
 
   bool evaluate(APValue &Result, ASTContext &C, MetaActions &Meta,

@@ -21,6 +21,12 @@
 
 constexpr auto ctx = std::meta::access_context::unchecked();
 
+consteval std::meta::info destructor_of(std::meta::info type) {
+  return (std::meta::members_of(type, ctx) |
+          std::views::filter(std::meta::is_destructor))
+      .front();
+}
+
                          // ==========================
                          // class_or_namespace_members
                          // ==========================
@@ -282,29 +288,29 @@ struct S {
     ~S() = delete;
 };
 static_assert(is_deleted(^^deleted));
-static_assert(is_deleted(^^S::~S));
+static_assert(is_deleted(destructor_of(^^S)));
 static_assert(!is_deleted(^^not_deleted));
 
 struct not_dflt {
     ~not_dflt();
 };
-static_assert(!is_defaulted(^^not_dflt::~not_dflt));
+static_assert(!is_defaulted(destructor_of(^^not_dflt)));
 
 struct explicit_dflt {
     ~explicit_dflt() = default;
 };
-static_assert(is_defaulted(^^explicit_dflt::~explicit_dflt));
+static_assert(is_defaulted(destructor_of(^^explicit_dflt)));
 
 struct implicit_dflt {
 };
-static_assert(is_defaulted(^^implicit_dflt::~implicit_dflt));
+static_assert(is_defaulted(destructor_of(^^implicit_dflt)));
 
 struct impl_dflt {
     ~impl_dflt();
 };
-static_assert(!is_defaulted(^^impl_dflt::~impl_dflt));
+static_assert(!is_defaulted(destructor_of(^^impl_dflt)));
 impl_dflt::~impl_dflt() = default;
-static_assert(is_defaulted(^^impl_dflt::~impl_dflt));
+static_assert(is_defaulted(destructor_of(^^impl_dflt)));
 
 int x;
 void fn();
@@ -706,13 +712,13 @@ static_assert(!is_noexcept(type_of(^^E_Something)));
 
 // Defaulted special members
 struct DelDest { ~DelDest() = delete; };
-static_assert(is_noexcept (^^DelDest::~DelDest));
+static_assert(is_noexcept(destructor_of(^^DelDest)));
 
 struct DefDest { ~DefDest() = default; };
-static_assert(is_noexcept (^^DefDest::~DefDest));
+static_assert(is_noexcept(destructor_of(^^DefDest)));
 
 struct EmptyStruct { };
-static_assert(is_noexcept (^^EmptyStruct::~EmptyStruct));
+static_assert(is_noexcept(destructor_of(^^EmptyStruct)));
 } // namespace noexcept_functions
 
                               // ================
