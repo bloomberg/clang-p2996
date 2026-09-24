@@ -29,6 +29,7 @@
 #include "clang/AST/ExprObjC.h"
 #include "clang/AST/LocInfoType.h"
 #include "clang/AST/Mangle.h"
+#include "clang/AST/ODRHash.h"
 #include "clang/AST/TypeLoc.h"
 #include "clang/Basic/ABI.h"
 #include "clang/Basic/Module.h"
@@ -5021,8 +5022,29 @@ void CXXNameMangler::mangleReflection(const APValue &R) {
   case ReflectionKind::Template: {
     Out << 't';
 
+    TemplateDecl *TD = R.getReflectedTemplate().getAsTemplateDecl();
     ArrayRef<TemplateArgument> Args;
-    mangleTemplateName(R.getReflectedTemplate().getAsTemplateDecl(), Args);
+    mangleTemplateName(TD, Args);
+    // The name alone identifies class/variable/alias templates, but function
+    // templates OVERLOAD: two same-named siblings (e.g. absl raw_hash_map's
+    // lifetimebound operator[] pair) mangled identically here, so a template
+    // taking the reflection as an NTTP got ONE mangled name for its two
+    // specializations -- CodeGen then silently folds the linkonce_odr
+    // definitions and a single body serves both call sites (the AST-level
+    // specializations are correct and distinct; no diagnostic anywhere). Append a structural
+    // digest of the template head + declaration pattern to discriminate the
+    // overloads. An ODR hash (cross-TU-stable by design; it is how modules
+    // compare decls between TUs) rather than a structural mangling of the
+    // pattern's function type: dependent pattern types from real code embed
+    // parameter-referencing expressions (lifetimebound SFINAE, noexcept(...))
+    // that the mangler cannot encode outside a function-declaration context
+    // (mangleFunctionParam asserts).
+    if (auto *FTD = dyn_cast<FunctionTemplateDecl>(TD)) {
+      ODRHash Hash;
+      Hash.AddTemplateParameterList(FTD->getTemplateParameters());
+      Hash.AddFunctionDecl(FTD->getTemplatedDecl(), /*SkipBody=*/true);
+      Out << '$' << Hash.CalculateHash() << '$';
+    }
     break;
   }
   case ReflectionKind::Namespace: {
