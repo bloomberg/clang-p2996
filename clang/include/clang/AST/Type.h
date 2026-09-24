@@ -7415,14 +7415,14 @@ class ReflectionSpliceType : public Type {
   SpliceSpecifier *Splice;
   QualType UnderlyingTy;
 
-  static TypeDependence computeDependence(QualType Canon,
+  static TypeDependence computeDependence(QualType UnderlyingTy,
                                           SpliceSpecifier *Splice);
 
 protected:
   friend class ASTContext;
 
   ReflectionSpliceType(SourceLocation TypenameKWLoc, SpliceSpecifier *Splice,
-                       QualType Canon = QualType());
+                       QualType UnderlyingTy);
 
 public:
   /// Returns the location of the 'typename' keyword (if any).
@@ -7461,11 +7461,11 @@ public:
                                 SpliceSpecifier *Splice);
 
   void Profile(llvm::FoldingSetNodeID &ID) {
-    ID.AddPointer(getSplice());
+    DependentReflectionSpliceType::Profile(ID, Context, getSplice());
   }
 
   static void Profile(llvm::FoldingSetNodeID &ID, const ASTContext &Context,
-                      Expr *Operand);
+                      const SpliceSpecifier *Splice);
 };
 
 /// This class wraps the list of protocol qualifiers. For types that can
