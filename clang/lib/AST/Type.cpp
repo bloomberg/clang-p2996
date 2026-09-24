@@ -4471,6 +4471,8 @@ SubstTemplateTypeParmType::SubstTemplateTypeParmType(QualType Replacement,
 
   SubstTemplateTypeParmTypeBits.Index = Index;
   SubstTemplateTypeParmTypeBits.Final = Final;
+  assert(PackIndex.toInternalRepresentation() < (1u << 26) &&
+         "pack index overflows SubstTemplateTypeParmTypeBitfields::PackIndex");
   SubstTemplateTypeParmTypeBits.PackIndex =
       PackIndex.toInternalRepresentation();
   assert(AssociatedDecl != nullptr);
