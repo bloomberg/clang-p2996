@@ -128,9 +128,9 @@ ExprResult Parser::ParseCXXReflectExpression(SourceLocation OpLoc) {
 
     std::string refKind;
     if (QualType QT = cast<LocInfoType>(TR.get().get())->getType();
-        QT->isLValueReferenceType()) {
+        isa<LValueReferenceType>(QT)) {
       refKind = "&";
-    } else if (QT->isRValueReferenceType()) {
+    } else if (isa<RValueReferenceType>(QT)) {
       refKind = "&&";
     } else if (auto *FPT = dyn_cast<FunctionProtoType>(QT)) {
       if (FPT->getRefQualifier() == RQ_LValue)
