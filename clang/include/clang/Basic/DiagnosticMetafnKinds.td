@@ -54,6 +54,8 @@ def metafn_cannot_be_arg : Note<
 def metafn_undeduced_placeholder : Note<
   "cannot form a reflection of function %0 whose type %1 contains an undeduced "
   "placeholder">;
+def metafn_substitution_failed : Note<
+  "substitution of the given template arguments into %0 failed">;
 def metafn_cannot_invoke : Note<"cannot invoke %0">;
 def metafn_no_specialization_found : Note<
   "no specialization of the function template %0 matched the provided "

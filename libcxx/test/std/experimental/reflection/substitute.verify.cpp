@@ -500,4 +500,22 @@ constexpr auto r2 = substitute(^^fn2, {^^int});
   // expected-note@-1 {{requested here}}
 }  // namespace wording_example
 
+                       // ======================
+                       // invalid_type_formation
+                       // ======================
+
+// Substitution that forms an invalid type inside a template-id in the
+// DECLARATION (reference to void) fails after the arguments themselves
+// validated: can_substitute answers false and substitute diagnoses the
+// failure (previously a clang SIGSEGV).
+namespace invalid_type_formation {
+template <class T> struct trait { using type = void; };
+template <class OT> typename trait<OT&>::type fn();
+
+static_assert(!can_substitute(^^fn, {^^void}));
+constexpr auto r = substitute(^^fn, {^^void});
+  // expected-error@-1 {{must be initialized by a constant expression}} \
+  // expected-note@-1 {{substitution of the given template arguments into 'fn' failed}}
+}  // namespace invalid_type_formation
+
 int main() { }
