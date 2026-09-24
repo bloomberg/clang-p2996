@@ -1003,6 +1003,12 @@ namespace {
     /// function context later.
     bool IsImmediateEscalating = false;
 
+    /// Whether the value being checked is destined for a reflection (P2996).
+    /// If so, permit pointers and references to immediate functions: the
+    /// result is held by a 'std::meta::info', which is a consteval-only type
+    /// and therefore can never carry the pointer into a runtime context.
+    bool AllowImmediateFunctions = false;
+
     enum EvaluationMode {
       /// Evaluate as a constant expression. Stop if we find that the expression
       /// is not a constant expression.
@@ -2418,7 +2424,7 @@ static bool CheckLValueConstantExpression(EvalInfo &Info, SourceLocation Loc,
   }
 
   if (auto *FD = dyn_cast_or_null<FunctionDecl>(BaseVD);
-      FD && FD->isImmediateFunction()) {
+      FD && FD->isImmediateFunction() && !Info.AllowImmediateFunctions) {
     Info.FFDiag(Loc, diag::note_consteval_address_accessible)
         << !Type->isAnyPointerType();
     Info.Note(FD->getLocation(), diag::note_declared_at);
@@ -2576,7 +2582,7 @@ static bool CheckMemberPointerConstantExpression(EvalInfo &Info,
   const auto *FD = dyn_cast_or_null<CXXMethodDecl>(Member);
   if (!FD)
     return true;
-  if (FD->isImmediateFunction()) {
+  if (FD->isImmediateFunction() && !Info.AllowImmediateFunctions) {
     Info.FFDiag(Loc, diag::note_consteval_address_accessible) << /*pointer*/ 0;
     Info.Note(FD->getLocation(), diag::note_declared_at);
     return false;
@@ -8871,7 +8877,12 @@ bool ExprEvaluatorBase<Derived>::VisitCXXMetafunctionExpr(
           return false;
       }
 
-      // Check this core constant expression is a constant expression.
+      // Check this core constant expression is a constant expression. A
+      // metafunction argument only ever feeds a reflection, so a pointer or
+      // reference to an immediate function is fine here (see
+      // EvalInfo::AllowImmediateFunctions).
+      llvm::SaveAndRestore<bool> AllowImmediate(Info.AllowImmediateFunctions,
+                                                true);
       return CheckConstantExpression(Info, E->getExprLoc(), E->getType(),
                                      Result, ConstantExprKind::Normal);
     }
@@ -17328,8 +17339,8 @@ static bool EvaluateDestruction(const ASTContext &Ctx, APValue::LValueBase Base,
 }
 
 bool Expr::EvaluateAsConstantExpr(EvalResult &Result, const ASTContext &Ctx,
-                                  ConstantExprKind Kind,
-                                  Decl *ContainingDecl) const {
+                                  ConstantExprKind Kind, Decl *ContainingDecl,
+                                  bool AllowImmediateFunctions) const {
   assert(!isValueDependent() &&
          "Expression evaluator can't be called on a dependent expression.");
   bool IsConst;
@@ -17349,6 +17360,7 @@ bool Expr::EvaluateAsConstantExpr(EvalResult &Result, const ASTContext &Ctx,
   Info.InConstantContext = true;
   Info.IsImmediateEscalating =
       (Kind == ConstantExprKind::EscalatoryImmediateInvocation);
+  Info.AllowImmediateFunctions = AllowImmediateFunctions;
 
   if (Info.EnableNewConstInterp) {
     if (!Info.Ctx.getInterpContext().evaluate(Info, this, Result.Val, Kind))
