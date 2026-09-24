@@ -10681,6 +10681,13 @@ public:
                                      bool Complain, DeclAccessPair &Found,
                                      bool *pHadMultipleCandidates = nullptr);
 
+  /// Resolve an overloaded function name when taking its address without a
+  /// target type, as specified by [over.over]. Function templates are deduced
+  /// from an empty set of P/A pairs.
+  FunctionDecl *
+  ResolveAddressOfOverloadedFunctionWithoutTarget(Expr *AddressOfExpr,
+                                                  DeclAccessPair &Found);
+
   /// Given an expression that refers to an overloaded function, try to
   /// resolve that function to a single function that can have its address
   /// taken. This will modify `Pair` iff it returns non-null.

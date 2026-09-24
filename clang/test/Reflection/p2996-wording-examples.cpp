@@ -280,9 +280,10 @@ struct V : T {
 constexpr info va = V<Base>::a;
   // expected-note@-1 {{in instantiation of static data member}}
 
-// Nor can '&' select a specialization of a function template without template
-// arguments. A reflection-name naming the template is not an id-expression,
-// so it still represents the template ([expr.reflect]/5.5.2).
+// Here '&' cannot select a specialization of the function template because T
+// has neither a deduction source nor a default. A reflection-name naming the
+// template is not an id-expression, so it still represents the template
+// ([expr.reflect]/5.5.2).
 struct TemplateBase {
   template <typename T> int operator()(T) const;
   template <typename T> int tfn(T) const;
@@ -331,3 +332,134 @@ struct SelfIdentifier {
   }
 };
 }  // namespace bb_clang_p2996_issue_342_regression_test
+
+                  // ========================================
+                  // bb_clang_p2996_issue_353_regression_test
+                  // ========================================
+
+namespace bb_clang_p2996_issue_353_regression_test {
+namespace template_identifier_direct {
+struct Base {
+  template <class> struct X;
+};
+struct Derived : Base {
+  using Base::X;
+};
+constexpr info r = ^^Derived::template X;
+  // expected-error@-1 {{cannot take the reflection of a using-declarator}}
+} // namespace template_identifier_direct
+
+namespace template_identifier_dependent {
+struct Base {
+  template <class> struct X;
+};
+struct Derived : Base {
+  using Base::X;
+};
+template <class T> struct Probe {
+  static constexpr info value = ^^T::template X;
+    // expected-error@-1 {{cannot take the reflection of a using-declarator}}
+};
+constexpr info r = Probe<Derived>::value;
+  // expected-note@-1 {{in instantiation of static data member}}
+} // namespace template_identifier_dependent
+
+namespace using_pack {
+struct Base {
+  static void f();
+  static void *operator new(decltype(sizeof(0)));
+};
+template <class... Bases> struct Derived : Bases... {
+  using Bases::f...;
+  using Bases::operator new...;
+  static constexpr info name = ^^f;
+    // expected-error@-1 {{cannot take the reflection of a using-declarator}}
+  static constexpr info id = ^^operator new;
+};
+constexpr info r = Derived<Base>::name;
+  // expected-note@-1 {{in instantiation of static data member}}
+static_assert(Derived<Base>::id == ^^Base::operator new);
+} // namespace using_pack
+
+namespace defaulted_template_argument {
+struct Base {
+  template <class T = int> int operator()() const;
+};
+struct Derived : Base {
+  using Base::operator();
+};
+static_assert(^^Base::operator() == ^^Base::operator()<int>);
+static_assert(^^Derived::operator() == ^^Base::operator()<int>);
+} // namespace defaulted_template_argument
+
+namespace empty_template_parameter_pack {
+struct S {
+  template <class... Ts> int operator()() const;
+};
+static_assert(^^S::operator() == ^^S::operator()<>);
+} // namespace empty_template_parameter_pack
+
+namespace mixed_overload_set {
+struct S {
+  int operator()() const;
+  template <class T> int operator()(T) const;
+};
+static_assert(&[:^^S::operator():] ==
+              static_cast<int (S::*)() const>(&S::operator()));
+} // namespace mixed_overload_set
+
+namespace constrained_template_set {
+struct S {
+  template <class T = int>
+    requires (sizeof(T) != 0)
+  int operator()(int) const;
+  template <class T = int>
+    requires (sizeof(T) == 0)
+  int operator()(long) const;
+};
+static_assert(&[:^^S::operator():] ==
+              static_cast<int (S::*)(int) const>(&S::operator()<int>));
+} // namespace constrained_template_set
+
+namespace partially_ordered_template_set {
+struct S {
+  template <class T = int> int operator()(T) const;
+  template <class T = int> int operator()(T *) const;
+};
+static_assert(&[:^^S::operator():] ==
+              static_cast<int (S::*)(int *) const>(&S::operator()<int>));
+} // namespace partially_ordered_template_set
+
+namespace deleted_function {
+struct S {
+  int operator()() const = delete;
+  template <class T> int operator()(T) const;
+};
+constexpr info r = ^^S::operator();
+} // namespace deleted_function
+
+namespace ambiguous_non_template_set {
+struct S {
+  int operator()(int) const;
+  int operator()(double) const;
+};
+constexpr info r = ^^S::operator();
+  // expected-error@-1 {{cannot take the reflection of an overload set}}
+} // namespace ambiguous_non_template_set
+
+namespace unqualified_defaulted_template {
+struct S {
+  template <class T = int> int operator()() const;
+  static constexpr info r = ^^operator();
+    // expected-error@-1 {{cannot take the reflection of non-static member function 'operator()<int>' named by an unqualified name}}
+};
+} // namespace unqualified_defaulted_template
+
+namespace destructor_address {
+struct S {
+  ~S();
+};
+constexpr info r = ^^S::~S;
+  // expected-error@-1 {{taking the address of a destructor}}
+} // namespace destructor_address
+} // namespace bb_clang_p2996_issue_353_regression_test

@@ -978,10 +978,7 @@ static bool isReflectionNameForm(DeclarationName Name, bool HasTemplateArgs) {
 }
 
 /// Diagnoses an id-expression that names \p D for which '&id-expression' is
-/// ill-formed ([expr.reflect]/7.2), and returns whether it did. Such an
-/// id-expression either names a non-static member function without a
-/// nested-name-specifier, or names only a function template without template
-/// arguments, from which '&' cannot select a function with no target. A
+/// ill-formed ([expr.reflect]/7.2), and returns whether it did. A
 /// reflection-name that names a function template is not an id-expression; it
 /// represents the template ([expr.reflect]/5.5.2).
 static bool diagnoseIllFormedAddressOfFunction(Sema &S, SourceLocation Loc,
@@ -989,6 +986,10 @@ static bool diagnoseIllFormedAddressOfFunction(Sema &S, SourceLocation Loc,
                                                DeclarationName Name,
                                                bool IsQualified,
                                                bool HasTemplateArgs) {
+  if (isa<CXXDestructorDecl>(D)) {
+    S.Diag(Loc, diag::err_typecheck_addrof_dtor) << SourceRange(Loc, Loc);
+    return true;
+  }
   if (auto *MD = dyn_cast<CXXMethodDecl>(D);
       MD && MD->isInstance() && !IsQualified) {
     S.Diag(Loc, diag::err_reflect_unqualified_member_function) << MD;
@@ -1047,7 +1048,8 @@ ExprResult Sema::ActOnCXXReflectExpr(SourceLocation OpLoc,
   // having more than one candidate.
   if (Found.isAmbiguous()) {
     return ExprError();
-  } else if (Found.isOverloadedResult() && Found.end() - Found.begin() > 1) {
+  } else if (Found.isOverloadedResult() &&
+             !isReflectionNameForm(NameInfo.getName(), TArgs)) {
     Expr *Result = UnresolvedLookupExpr::Create(
           Context, nullptr, SS.getWithLocInContext(Context),
           SourceLocation(), NameInfo, false, TArgs, Found.begin(),
@@ -1336,6 +1338,32 @@ ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
 // TODO(P2996): Capture whole SourceRange of declaration naming.
 ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
                                      SourceLocation OperandLoc, Decl *D) {
+  if (auto *UPD = dyn_cast<UsingPackDecl>(D)) {
+    if (!getLangOpts().EntityProxyReflection &&
+        isReflectionNameForm(UPD->getDeclName(),
+                             /*HasTemplateArgs=*/false)) {
+      Diag(OperandLoc, diag::err_reflect_using_declarator);
+      return ExprError();
+    }
+
+    SmallVector<UsingShadowDecl *, 4> Shadows;
+    for (NamedDecl *Expansion : UPD->expansions()) {
+      auto *UD = dyn_cast<UsingDecl>(Expansion);
+      if (!UD) {
+        Diag(OperandLoc, diag::err_reflect_overload_set);
+        return ExprError();
+      }
+      llvm::append_range(Shadows, UD->shadows());
+    }
+    if (Shadows.size() != 1) {
+      Diag(OperandLoc, diag::err_reflect_overload_set);
+      return ExprError();
+    }
+    D = getLangOpts().EntityProxyReflection
+            ? static_cast<Decl *>(Shadows.front())
+            : static_cast<Decl *>(Shadows.front()->getTargetDecl());
+  }
+
   // This case can happen after transforming a dependent reflection naming a
   // using-declarator by an unqualified name.
   if (auto *UD = dyn_cast<UsingDecl>(D)) {
@@ -1377,6 +1405,13 @@ ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
 ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
                                      SourceLocation OperandLoc,
                                      const TemplateName Template) {
+  if (UsingShadowDecl *USD = Template.getAsUsingShadowDecl()) {
+    if (getLangOpts().EntityProxyReflection)
+      return BuildCXXReflectExpr(OperatorLoc, OperandLoc, USD);
+    Diag(OperandLoc, diag::err_reflect_using_declarator);
+    return ExprError();
+  }
+
   if (Template.getKind() == TemplateName::OverloadedTemplate) {
     Diag(OperandLoc, diag::err_reflect_overload_set);
     return ExprError();
@@ -1432,39 +1467,19 @@ ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc, Expr *E) {
 
 ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
                                      UnresolvedLookupExpr *E) {
-  // If the UnresolvedLookupExpr could refer to multiple candidates, there
-  // will be no means of choosing between them. Raise an error indicating
-  // lack of support for reflection of overload sets at this time.
   auto *ULE = cast<UnresolvedLookupExpr>(E);
-
-  // On the other hand, a unique candidate Decl might refer to a specialized
-  // function template. Begin by inventing a 'VarDecl' for a 'const auto'
-  // variable which would be initialized by the operand 'ULE'.
-  QualType ConstAutoTy = Context.getAutoDeductType().withConst();
-  TypeSourceInfo *TSI = Context.CreateTypeSourceInfo(ConstAutoTy, 0);
-  auto *InventedVD = VarDecl::Create(Context, nullptr, SourceLocation(),
-                                     E->getExprLoc(), nullptr, ConstAutoTy,
-                                     TSI, SC_Auto);
-
-  // Use the 'auto' deduction machinery to infer the operand type.
-  if (DeduceVariableDeclarationType(InventedVD, true, ULE)) {
+  DeclAccessPair FoundOverload;
+  FunctionDecl *FoundDecl =
+      ResolveAddressOfOverloadedFunctionWithoutTarget(ULE, FoundOverload);
+  if (!FoundDecl) {
     Diag(E->getExprLoc(), diag::err_reflect_overload_set)
         << E->getSourceRange();
     return ExprError();
   }
-
-  // Now use the type to obtain the unique overload candidate that this can
-  // refer to; raise an error in the presence of any ambiguity.
-  bool HadMultipleCandidates;
-  DeclAccessPair FoundOverload;
-  FunctionDecl *FoundDecl =
-      ResolveAddressOfOverloadedFunction(ULE, InventedVD->getType(), true,
-                                         FoundOverload,
-                                         &HadMultipleCandidates);
-  if (!FoundDecl) {
-    Diag(E->getExprLoc(), diag::err_reflect_overload_set);
+  if (diagnoseIllFormedAddressOfFunction(
+          *this, E->getNameLoc(), FoundDecl, E->getName(),
+          E->getQualifier() != nullptr, E->hasExplicitTemplateArgs()))
     return ExprError();
-  }
   ExprResult ER = FixOverloadedFunctionReference(E, FoundOverload, FoundDecl);
   assert(!ER.isInvalid() && "could not fix overloaded function reference");
 
