@@ -17632,6 +17632,32 @@ Sema::PushExpressionEvaluationContext(
   PushExpressionEvaluationContext(NewContext, ClosureContextDecl, ExprContext);
 }
 
+/// Whether the body of a lambda appearing in the given evaluation contexts
+/// (innermost last) is in an immediate function context because of them.
+static bool isLambdaBodyInImmediateFunctionContext(
+    ArrayRef<Sema::ExpressionEvaluationContextRecord> Enclosing) {
+  using Context = Sema::ExpressionEvaluationContext;
+  for (const auto &Rec : llvm::reverse(Enclosing)) {
+    // The initializer of a constexpr or constinit variable is an immediate
+    // function context, but the body of a lambda is not a subexpression of the
+    // initializer that the lambda appears in: all that matters to the body is
+    // what encloses the variable, which the record inherited when pushed.
+    if (Rec.Context == Context::ImmediateFunctionContext &&
+        isa_and_nonnull<VarDecl>(Rec.ManglingContextDecl) &&
+        !isa<ParmVarDecl>(Rec.ManglingContextDecl))
+      return Rec.InImmediateFunctionContext;
+
+    if (Rec.isConstantEvaluated())
+      return true;
+    if (!Rec.isImmediateFunctionContext())
+      return false;
+    if (Rec.Context == Context::ImmediateFunctionContext)
+      return true;
+    // This context only inherited the property: find out where from.
+  }
+  return false;
+}
+
 void Sema::PushExpressionEvaluationContextForFunction(
     ExpressionEvaluationContext NewContext, FunctionDecl *FD) {
   // [expr.const]/p14.1
@@ -17642,8 +17668,6 @@ void Sema::PushExpressionEvaluationContextForFunction(
       FD && FD->isConsteval()
           ? ExpressionEvaluationContext::ImmediateFunctionContext
           : NewContext);
-  const Sema::ExpressionEvaluationContextRecord &Parent =
-      parentEvaluationContext();
   Sema::ExpressionEvaluationContextRecord &Current = currentEvaluationContext();
 
   Current.InDiscardedStatement = false;
@@ -17663,9 +17687,8 @@ void Sema::PushExpressionEvaluationContextForFunction(
 
     if (isLambdaMethod(FD))
       Current.InImmediateFunctionContext =
-          FD->isConsteval() ||
-          (isLambdaMethod(FD) && (Parent.isConstantEvaluated() ||
-                                  Parent.isImmediateFunctionContext()));
+          FD->isConsteval() || isLambdaBodyInImmediateFunctionContext(
+                                   llvm::ArrayRef(ExprEvalContexts).drop_back());
     else
       Current.InImmediateFunctionContext = FD->isConsteval();
   }
