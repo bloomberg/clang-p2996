@@ -210,7 +210,7 @@ int f() {
 }
 struct S {
   static constexpr auto r = ^^S;
-  void m() { constexpr auto q = ^^m; }
+  void m() { constexpr auto q = ^^S::m; }
 };
 template <typename... Ts> struct Pack {
   static constexpr int n = sizeof...(Ts);
