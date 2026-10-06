@@ -633,6 +633,47 @@ static bool define_encoded_static_string(APValue &Result, ASTContext &C,
                                          ArrayRef<Expr *> Args,
                                          Decl *ContainingDecl);
 
+// Token sequences and code injection (P3294).
+static bool is_token_sequence(APValue &Result, ASTContext &C, MetaActions &Meta,
+        EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
+        QualType ResultTy, SourceRange Range, ArrayRef<Expr *> Args,
+        Decl *ContainingDecl);
+
+static bool is_empty_token_sequence(APValue &Result, ASTContext &C, MetaActions &Meta,
+        EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
+        QualType ResultTy, SourceRange Range, ArrayRef<Expr *> Args,
+        Decl *ContainingDecl);
+
+static bool nearest_token_queuing_context(APValue &Result, ASTContext &C, MetaActions &Meta,
+        EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
+        QualType ResultTy, SourceRange Range, ArrayRef<Expr *> Args,
+        Decl *ContainingDecl);
+
+static bool nearest_class_or_namespace(APValue &Result, ASTContext &C, MetaActions &Meta,
+        EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
+        QualType ResultTy, SourceRange Range, ArrayRef<Expr *> Args,
+        Decl *ContainingDecl);
+
+static bool nearest_namespace(APValue &Result, ASTContext &C, MetaActions &Meta,
+        EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
+        QualType ResultTy, SourceRange Range, ArrayRef<Expr *> Args,
+        Decl *ContainingDecl);
+
+static bool report_tokens(APValue &Result, ASTContext &C, MetaActions &Meta,
+        EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
+        QualType ResultTy, SourceRange Range, ArrayRef<Expr *> Args,
+        Decl *ContainingDecl);
+
+static bool queue_injection(APValue &Result, ASTContext &C, MetaActions &Meta,
+        EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
+        QualType ResultTy, SourceRange Range, ArrayRef<Expr *> Args,
+        Decl *ContainingDecl);
+
+static bool namespace_inject(APValue &Result, ASTContext &C, MetaActions &Meta,
+        EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
+        QualType ResultTy, SourceRange Range, ArrayRef<Expr *> Args,
+        Decl *ContainingDecl);
+
 static bool offset_of(APValue &Result, ASTContext &C, MetaActions &Meta,
                       EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
                       QualType ResultTy, SourceRange Range,
@@ -972,6 +1013,16 @@ static constexpr Metafunction Metafunctions[] = {
 
   // P3867: define_encoded_static_string
   { Metafunction::MFRK_spliceFromArg, 3, 3, define_encoded_static_string },
+
+  // P3294: token sequences and code injection
+  { Metafunction::MFRK_bool, 1, 1, is_token_sequence },
+  { Metafunction::MFRK_bool, 1, 1, is_empty_token_sequence },
+  { Metafunction::MFRK_metaInfo, 0, 0, nearest_token_queuing_context },
+  { Metafunction::MFRK_metaInfo, 0, 0, nearest_class_or_namespace },
+  { Metafunction::MFRK_metaInfo, 0, 0, nearest_namespace },
+  { Metafunction::MFRK_bool, 1, 1, report_tokens },
+  { Metafunction::MFRK_bool, 2, 2, queue_injection },
+  { Metafunction::MFRK_bool, 2, 2, namespace_inject },
 };
 constexpr const unsigned NumMetafunctions = sizeof(Metafunctions) /
                                             sizeof(Metafunction);
@@ -1850,6 +1901,9 @@ StringRef DescriptionOf(APValue RV, bool Granular = true) {
   case ReflectionKind::Annotation: {
     return "an annotation";
   }
+  case ReflectionKind::TokenSequence: {
+    return "a token sequence";
+  }
   case ReflectionKind::Attribute: {
     return "an attribute";
   }
@@ -2330,6 +2384,7 @@ bool get_begin_enumerator_decl_of(APValue &Result, ASTContext &C,
   case ReflectionKind::Parameter:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Attribute:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation: {
     return DiagnoseReflectionKind(Diagnoser, Range, "an enum type",
                                   DescriptionOf(RV));
@@ -2374,6 +2429,7 @@ bool get_next_enumerator_decl_of(APValue &Result, ASTContext &C,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Attribute:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation: {
     llvm_unreachable("should have failed in 'get_begin_enumerator_decl_of'");
   }
@@ -2437,6 +2493,7 @@ bool get_ith_base_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::Parameter:
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation:
   case ReflectionKind::Attribute:
     return DiagnoseReflectionKind(Diagnoser, Range, "a class type",
@@ -2500,6 +2557,7 @@ bool get_ith_template_argument_of(APValue &Result, ASTContext &C,
   case ReflectionKind::Parameter:
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation:
   case ReflectionKind::Attribute:
     return DiagnoseReflectionKind(Diagnoser, Range, "a template specialization",
@@ -2593,6 +2651,7 @@ bool get_begin_member_decl_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::Value:
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation:
   case ReflectionKind::Attribute:
     return true;
@@ -2797,6 +2856,7 @@ bool identifier_of(APValue &Result, ASTContext &C, MetaActions &Meta,
                      diag::metafn_name_of_unnamed_singleton) << 0 << Range;
   case ReflectionKind::Object:
   case ReflectionKind::Value:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation:
   case ReflectionKind::Attribute:
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_have_name)
@@ -2895,6 +2955,7 @@ bool has_identifier(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::Object:
   case ReflectionKind::Value:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation:
     break;
   case ReflectionKind::EntityProxy:
@@ -3000,6 +3061,7 @@ bool source_location_of(APValue &Result, ASTContext &C, MetaActions &Meta,
                         RV.getReflectedAttribute());
   case ReflectionKind::Object:
   case ReflectionKind::Value:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Null:
   case ReflectionKind::DataMemberSpec:
     return findDeclLoc(Result, C, Evaluator, ResultTy, nullptr);
@@ -3018,6 +3080,7 @@ bool type_of(APValue &Result, ASTContext &C, MetaActions &Meta,
     return true;
 
   switch (RV.getReflectionKind()) {
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Null:
   case ReflectionKind::Type:
   case ReflectionKind::Attribute:
@@ -3100,6 +3163,7 @@ bool parent_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::Object:
   case ReflectionKind::Value:
   case ReflectionKind::DataMemberSpec:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation:
   case ReflectionKind::Attribute:
     if (Diagnoser)
@@ -3169,6 +3233,7 @@ bool underlying_entity_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::Parameter:
   case ReflectionKind::DataMemberSpec:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation:
   case ReflectionKind::Attribute:
     return SetAndSucceed(Result, RV);
@@ -3212,6 +3277,7 @@ bool proxied_entity_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::Parameter:
   case ReflectionKind::DataMemberSpec:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation:
   case ReflectionKind::Attribute:
     return DiagnoseReflectionKind(Diagnoser, Range, "an entity proxy");
@@ -3269,6 +3335,7 @@ bool object_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::Template:
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation:
   case ReflectionKind::Attribute:
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
@@ -3386,6 +3453,7 @@ bool constant_of(APValue &Result, ASTContext &C, MetaActions &Meta,
                                  ConstantTy);
   }
   case ReflectionKind::Attribute: // TODO P3385 anything to do ?
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Null:
   case ReflectionKind::Type:
   case ReflectionKind::Template:
@@ -3437,6 +3505,7 @@ bool template_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::Parameter:
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation:
   case ReflectionKind::Attribute:
     return DiagnoseReflectionKind(Diagnoser, Range, "a template specialization",
@@ -3462,6 +3531,7 @@ static bool CanActAsTemplateArg(const APValue &RV) {
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::Parameter:
   case ReflectionKind::DataMemberSpec:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation:
   case ReflectionKind::Attribute:
   case ReflectionKind::Null:
@@ -3917,6 +3987,7 @@ bool extract(APValue &Result, ASTContext &C, MetaActions &Meta,
                            {}, false, false));
     }
   }
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Null:
   case ReflectionKind::Type:
   case ReflectionKind::Template:
@@ -3977,6 +4048,7 @@ bool is_ACCESS(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::Value:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Parameter:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation:
   case ReflectionKind::Namespace:
   case ReflectionKind::Attribute:
@@ -4074,6 +4146,7 @@ bool is_virtual(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::EntityProxy:
   case ReflectionKind::Parameter:
   case ReflectionKind::DataMemberSpec:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation:
   case ReflectionKind::Attribute:
     return SetAndSucceed(Result, makeBool(C, IsVirtual));
@@ -4290,6 +4363,7 @@ bool is_const(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::Parameter:
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation:
   case ReflectionKind::Attribute:
     return SetAndSucceed(Result, makeBool(C, false));
@@ -4330,6 +4404,7 @@ bool is_volatile(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Attribute:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation:
     return SetAndSucceed(Result, makeBool(C, false));
   case ReflectionKind::Type: {
@@ -4715,6 +4790,7 @@ bool is_static_member(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::Parameter:
   case ReflectionKind::DataMemberSpec:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation:
   case ReflectionKind::Attribute:
     return SetAndSucceed(Result, makeBool(C, result));
@@ -4861,6 +4937,7 @@ bool is_alias(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Parameter:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation:
   case ReflectionKind::EntityProxy:
   case ReflectionKind::Attribute:
@@ -4949,6 +5026,7 @@ bool has_complete_definition(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::Parameter:
   case ReflectionKind::DataMemberSpec:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation:
   case ReflectionKind::Attribute:
     break;
@@ -4990,6 +5068,7 @@ bool is_enumerable_type(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::Parameter:
   case ReflectionKind::DataMemberSpec:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation:
   case ReflectionKind::Attribute:
     break;
@@ -5287,6 +5366,7 @@ bool has_template_arguments(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::Parameter:
   case ReflectionKind::DataMemberSpec:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation:
   case ReflectionKind::Attribute:
     return SetAndSucceed(Result, makeBool(C, false));
@@ -5397,6 +5477,7 @@ bool is_constructor(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::Parameter:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Attribute:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation:
     return SetAndSucceed(Result, makeBool(C, false));
   case ReflectionKind::Declaration: {
@@ -5548,6 +5629,7 @@ bool is_destructor(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::Parameter:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Attribute:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation:
     return SetAndSucceed(Result, makeBool(C, false));
   case ReflectionKind::Declaration: {
@@ -5582,6 +5664,7 @@ bool is_special_member_function(APValue &Result, ASTContext &C,
   case ReflectionKind::Parameter:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Attribute:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation:
     return SetAndSucceed(Result, makeBool(C, false));
   case ReflectionKind::Declaration: {
@@ -6180,6 +6263,7 @@ bool offset_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::Parameter:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Attribute:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation:
     return DiagnoseReflectionKind(Diagnoser, Range, "a non-static data member",
                                   DescriptionOf(RV));
@@ -6254,6 +6338,7 @@ bool size_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::Parameter:
   case ReflectionKind::Attribute:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation:
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
         << 3 << DescriptionOf(RV);
@@ -6282,6 +6367,7 @@ bool bit_offset_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::Parameter:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Attribute:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation:
     return DiagnoseReflectionKind(Diagnoser, Range, "a non-static data member",
                                   DescriptionOf(RV));
@@ -6354,6 +6440,7 @@ bool bit_size_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::Parameter:
   case ReflectionKind::Attribute:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation:
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
         << 3 << DescriptionOf(RV);
@@ -6419,6 +6506,7 @@ bool alignment_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::EntityProxy:
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::Parameter:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation:
   case ReflectionKind::Attribute:
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
@@ -6481,6 +6569,7 @@ bool get_ith_parameter_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::Parameter:
   case ReflectionKind::DataMemberSpec:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation:
   case ReflectionKind::Attribute:
     return true;
@@ -6511,6 +6600,7 @@ bool has_ellipsis_parameter(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::Parameter:
   case ReflectionKind::DataMemberSpec:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation:
   case ReflectionKind::Attribute:
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
@@ -6561,6 +6651,7 @@ bool has_default_argument(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::EntityProxy:
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::DataMemberSpec:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation:
   case ReflectionKind::Attribute:
     return DiagnoseReflectionKind(Diagnoser, Range, "a function parameter",
@@ -6643,6 +6734,7 @@ bool return_type_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::Parameter:
   case ReflectionKind::DataMemberSpec:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation:
   case ReflectionKind::Attribute:
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
@@ -6756,12 +6848,258 @@ bool get_ith_annotation_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::Parameter:
   case ReflectionKind::DataMemberSpec:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation:
   case ReflectionKind::Attribute:
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
         << 7 << DescriptionOf(RV) << Range;
   }
   llvm_unreachable("unknown reflection kind");
+}
+
+// -----------------------------------------------------------------------------
+// Token sequences and code injection (P3294)
+// -----------------------------------------------------------------------------
+
+bool is_token_sequence(APValue &Result, ASTContext &C, MetaActions &Meta,
+                       EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
+                       QualType ResultTy, SourceRange Range,
+                       ArrayRef<Expr *> Args, Decl *ContainingDecl) {
+  assert(Args[0]->getType()->isReflectionType());
+  assert(ResultTy == C.BoolTy);
+
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
+    return true;
+
+  return SetAndSucceed(Result, makeBool(C, RV.isReflectedTokenSequence()));
+}
+
+bool is_empty_token_sequence(APValue &Result, ASTContext &C, MetaActions &Meta,
+                             EvalFn Evaluator, DiagFn Diagnoser,
+                             bool AllowInjection, QualType ResultTy,
+                             SourceRange Range, ArrayRef<Expr *> Args,
+                             Decl *ContainingDecl) {
+  assert(Args[0]->getType()->isReflectionType());
+  assert(ResultTy == C.BoolTy);
+
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
+    return true;
+
+  return SetAndSucceed(
+      Result, makeBool(C, RV.isReflectedTokenSequence() &&
+                              RV.getReflectedTokenSequence()->empty()));
+}
+
+namespace {
+enum class InjectionContextKind { Queuing, ClassOrNamespace, Namespace };
+} // namespace
+
+// Returns a reflection of the nearest context enclosing the declaration whose
+// evaluation is underway (e.g., a consteval block) that is of the given kind:
+//  - 'Queuing': a function, class or namespace;
+//  - 'ClassOrNamespace': a class or namespace;
+//  - 'Namespace': a namespace.
+static APValue nearestInjectionContext(ASTContext &C, MetaActions &Meta,
+                                       Decl *ContainingDecl,
+                                       InjectionContextKind Kind) {
+  DeclContext *DC = nullptr;
+  if (ContainingDecl && !isa<TranslationUnitDecl>(ContainingDecl))
+    DC = ContainingDecl->getLexicalDeclContext();
+  else
+    DC = cast<DeclContext>(Meta.CurrentCtx());
+
+  for (; DC; DC = DC->getLexicalParent()) {
+    if (isa<TranslationUnitDecl>(DC) || isa<NamespaceDecl>(DC))
+      return makeReflection(cast<Decl>(DC));
+
+    if (auto *RD = dyn_cast<CXXRecordDecl>(DC)) {
+      // The closure type of a lambda is no place to inject anything into.
+      if (RD->isLambda() || Kind == InjectionContextKind::Namespace)
+        continue;
+      return makeReflection(C.getTagDeclType(RD));
+    }
+
+    if (auto *FD = dyn_cast<FunctionDecl>(DC))
+      if (Kind == InjectionContextKind::Queuing)
+        return makeReflection(static_cast<ValueDecl *>(FD));
+  }
+  return makeReflection(static_cast<Decl *>(C.getTranslationUnitDecl()));
+}
+
+bool nearest_token_queuing_context(APValue &Result, ASTContext &C,
+                                   MetaActions &Meta, EvalFn Evaluator,
+                                   DiagFn Diagnoser, bool AllowInjection,
+                                   QualType ResultTy, SourceRange Range,
+                                   ArrayRef<Expr *> Args,
+                                   Decl *ContainingDecl) {
+  assert(ResultTy == C.MetaInfoTy);
+  return SetAndSucceed(Result,
+                       nearestInjectionContext(C, Meta, ContainingDecl,
+                                               InjectionContextKind::Queuing));
+}
+
+bool nearest_class_or_namespace(APValue &Result, ASTContext &C,
+                                MetaActions &Meta, EvalFn Evaluator,
+                                DiagFn Diagnoser, bool AllowInjection,
+                                QualType ResultTy, SourceRange Range,
+                                ArrayRef<Expr *> Args, Decl *ContainingDecl) {
+  assert(ResultTy == C.MetaInfoTy);
+  return SetAndSucceed(
+      Result, nearestInjectionContext(C, Meta, ContainingDecl,
+                                      InjectionContextKind::ClassOrNamespace));
+}
+
+bool nearest_namespace(APValue &Result, ASTContext &C, MetaActions &Meta,
+                       EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
+                       QualType ResultTy, SourceRange Range,
+                       ArrayRef<Expr *> Args, Decl *ContainingDecl) {
+  assert(ResultTy == C.MetaInfoTy);
+  return SetAndSucceed(
+      Result, nearestInjectionContext(C, Meta, ContainingDecl,
+                                      InjectionContextKind::Namespace));
+}
+
+// Evaluates 'E' as a reflection of a token sequence.
+static bool evaluateTokenSequence(const TokenSequence *&TS, EvalFn Evaluator,
+                                  DiagFn Diagnoser, SourceRange Range,
+                                  Expr *E) {
+  APValue RV;
+  if (!Evaluator(RV, E, true))
+    return true;
+  if (!RV.isReflectedTokenSequence())
+    return Diagnoser(Range.getBegin(), diag::metafn_not_a_token_sequence)
+        << DescriptionOf(RV) << Range;
+
+  TS = RV.getReflectedTokenSequence();
+  return false;
+}
+
+// Reports the outcome of a token injection request.
+static bool finishTokenInjection(APValue &Result, ASTContext &C,
+                                 DiagFn Diagnoser, SourceRange Range,
+                                 MetaActions::TokenInjectionResult Res,
+                                 const APValue &Target) {
+  switch (Res) {
+  case MetaActions::TokenInjectionResult::Success:
+    return SetAndSucceed(Result, makeBool(C, true));
+  case MetaActions::TokenInjectionResult::BadContext:
+    return Diagnoser(Range.getBegin(), diag::metafn_bad_injection_context)
+        << DescriptionOf(Target) << Range;
+  case MetaActions::TokenInjectionResult::BlockInInstantiation:
+    return Diagnoser(Range.getBegin(),
+                     diag::metafn_injection_block_in_instantiation)
+        << Range;
+  case MetaActions::TokenInjectionResult::UnsupportedParserState:
+    return Diagnoser(Range.getBegin(),
+                     diag::metafn_injection_unsupported_parser_state)
+        << Range;
+  case MetaActions::TokenInjectionResult::Failed:
+    return Diagnoser(Range.getBegin(), diag::metafn_injection_failed) << Range;
+  }
+  llvm_unreachable("unknown token injection result");
+}
+
+bool report_tokens(APValue &Result, ASTContext &C, MetaActions &Meta,
+                   EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
+                   QualType ResultTy, SourceRange Range, ArrayRef<Expr *> Args,
+                   Decl *ContainingDecl) {
+  assert(Args[0]->getType()->isReflectionType());
+  assert(ResultTy == C.BoolTy);
+
+  const TokenSequence *TS = nullptr;
+  if (evaluateTokenSequence(TS, Evaluator, Diagnoser, Range, Args[0]))
+    return true;
+
+  // Only report from a plainly constant-evaluated context: any other
+  // evaluation may be repeated or speculative, which would duplicate the
+  // output.
+  //
+  // Attribute the report to the construct being evaluated (e.g., the
+  // consteval block) rather than to some location in the standard library.
+  if (AllowInjection)
+    Meta.ReportTokens(TS, ContainingDecl && ContainingDecl->getLocation().isValid()
+                              ? ContainingDecl->getLocation()
+                              : Range.getBegin());
+  return SetAndSucceed(Result, makeBool(C, AllowInjection));
+}
+
+bool queue_injection(APValue &Result, ASTContext &C, MetaActions &Meta,
+                     EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
+                     QualType ResultTy, SourceRange Range,
+                     ArrayRef<Expr *> Args, Decl *ContainingDecl) {
+  assert(Args[0]->getType()->isReflectionType());
+  assert(Args[1]->getType()->isReflectionType());
+  assert(ResultTy == C.BoolTy);
+
+  APValue Target;
+  if (!Evaluator(Target, Args[0], true))
+    return true;
+
+  const TokenSequence *TS = nullptr;
+  if (evaluateTokenSequence(TS, Evaluator, Diagnoser, Range, Args[1]))
+    return true;
+
+  Decl *TargetDecl = nullptr;
+  switch (Target.getReflectionKind()) {
+  case ReflectionKind::Namespace:
+    TargetDecl = Target.getReflectedNamespace();
+    break;
+  case ReflectionKind::Type:
+    TargetDecl = Target.getReflectedType()->getAsCXXRecordDecl();
+    break;
+  case ReflectionKind::Declaration:
+    TargetDecl = dyn_cast<FunctionDecl>(Target.getReflectedDecl());
+    break;
+  default:
+    break;
+  }
+  if (!TargetDecl)
+    return finishTokenInjection(Result, C, Diagnoser, Range,
+                                MetaActions::TokenInjectionResult::BadContext,
+                                Target);
+
+  if (!AllowInjection)
+    return Diagnoser(Range.getBegin(),
+                     diag::metafn_injected_decl_non_plainly_consteval);
+
+  return finishTokenInjection(
+      Result, C, Diagnoser, Range,
+      Meta.QueueTokenInjection(TargetDecl, TS, ContainingDecl,
+                               Range.getBegin()),
+      Target);
+}
+
+bool namespace_inject(APValue &Result, ASTContext &C, MetaActions &Meta,
+                      EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
+                      QualType ResultTy, SourceRange Range,
+                      ArrayRef<Expr *> Args, Decl *ContainingDecl) {
+  assert(Args[0]->getType()->isReflectionType());
+  assert(Args[1]->getType()->isReflectionType());
+  assert(ResultTy == C.BoolTy);
+
+  APValue Target;
+  if (!Evaluator(Target, Args[0], true))
+    return true;
+
+  const TokenSequence *TS = nullptr;
+  if (evaluateTokenSequence(TS, Evaluator, Diagnoser, Range, Args[1]))
+    return true;
+
+  if (!Target.isReflectedNamespace())
+    return Diagnoser(Range.getBegin(), diag::metafn_injection_not_a_namespace)
+        << DescriptionOf(Target) << Range;
+
+  if (!AllowInjection)
+    return Diagnoser(Range.getBegin(),
+                     diag::metafn_injected_decl_non_plainly_consteval);
+
+  return finishTokenInjection(
+      Result, C, Diagnoser, Range,
+      Meta.InjectIntoNamespace(Target.getReflectedNamespace(), TS,
+                               ContainingDecl, Range.getBegin()),
+      Target);
 }
 
 bool is_annotation(APValue &Result, ASTContext &C, MetaActions &Meta,
@@ -6830,6 +7168,7 @@ bool annotate(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::Parameter:
   case ReflectionKind::DataMemberSpec:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation:
   case ReflectionKind::EntityProxy:
   case ReflectionKind::Attribute:
@@ -7007,6 +7346,7 @@ bool is_accessible(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::Namespace:
   case ReflectionKind::Parameter:
   case ReflectionKind::DataMemberSpec:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation:
   case ReflectionKind::Attribute:
     return SetAndSucceed(Result, makeBool(C, false));
@@ -7072,6 +7412,7 @@ bool is_access_specified(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::Namespace:
   case ReflectionKind::Parameter:
   case ReflectionKind::DataMemberSpec:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation:
   case ReflectionKind::Attribute:
     return SetAndSucceed(Result, makeBool(C, false));
@@ -7250,6 +7591,7 @@ bool reflect_invoke(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::BaseSpecifier:
   case ReflectionKind::Parameter:
   case ReflectionKind::DataMemberSpec:
+  case ReflectionKind::TokenSequence:
   case ReflectionKind::Annotation:
   case ReflectionKind::Attribute:
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_invoke)

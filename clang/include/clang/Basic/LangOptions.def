@@ -316,6 +316,7 @@ LANGOPT(ExpansionStatements , 1, 0, "Experimental C++26 Expansion Statements")
 LANGOPT(AnnotationAttributes, 1, 0, "Experimental C++26 support for annotations")
 LANGOPT(EntityProxyReflection, 1, 0, "Augments C++26 Reflection with entity proxy reflection")
 LANGOPT(ReflectionLatest    , 1, 0, "Enable all experimental C++26 features supported by Clang/P2996")
+LANGOPT(TokenInjection      , 1, 0, "Token sequences and code injection as described by P3294")
 
 LANGOPT(MSVCEnableStdcMacro , 1, 0, "Define __STDC__ with '-fms-compatibility'")
 LANGOPT(SizedDeallocation , 1, 0, "sized deallocation")

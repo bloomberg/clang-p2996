@@ -10,6 +10,10 @@ let Component = "AST" in {
 
 // Constant expression diagnostics. These (and their users) belong in Sema.
 def note_expr_divide_by_zero : Note<"division by zero">;
+def note_interpolated_id_not_identifier : Note<
+  "'%0' %select{does not spell an identifier|is a keyword, not an identifier}1">;
+def note_interpolated_not_token_sequence : Note<
+  "operand of '\\{' interpolator does not represent a token sequence">;
 def note_constexpr_invalid_cast : Note<
   "%enum_select<ConstexprInvalidCastKind>{%Reinterpret{reinterpret_cast}|%Dynamic{dynamic_cast}|"
   "%ThisConversionOrReinterpret{%select{this conversion|cast that performs the conversions "

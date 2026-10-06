@@ -3257,6 +3257,23 @@ def err_unknown_metafunction : Error<
 def err_metafunction_arity : Error<
   "expected between %0 and %1 arguments (%2 given)">;
 
+def err_interpolator_expected_string : Error<
+  "operand of '%0' interpolator must be a string%select{| or an integer}1, "
+  "but has type %2">;
+def note_interpolator_string_requirements : Note<
+  "a string operand is a pointer to a null-terminated sequence of 'char', or "
+  "an object of a class having 'size()' and 'data()' member functions">;
+def err_interpolator_expected_reflection : Error<
+  "operand of '%0' interpolator must be convertible to 'std::meta::info', "
+  "but has type %1">;
+def err_interpolator_value_type : Error<
+  "operand of '\\val' interpolator has type %0, which is not a structural "
+  "type">;
+def note_token_sequence_injected_here : Note<
+  "in token sequence injected here">;
+def warn_report_tokens : Warning<
+  "token sequence: %0">, InGroup<DiagGroup<"report-tokens">>;
+
 def err_consteval_block_not_constexpr : Error<
   "evaluating expression of a consteval block must be a constant expression">;
 

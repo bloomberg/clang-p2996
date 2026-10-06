@@ -231,8 +231,8 @@ void Parser::ParseInnerNamespace(const InnerNamespaceInfoList &InnerNSs,
                                  ParsedAttributes &attrs,
                                  BalancedDelimiterTracker &Tracker) {
   if (index == InnerNSs.size()) {
-    while (!tryParseMisplacedModuleImport() && Tok.isNot(tok::r_brace) &&
-           Tok.isNot(tok::eof)) {
+    while (!tryParseMisplacedModuleImport() &&
+           !isAtEndOfInjectableSequence(TokenInjectionKind::Declaration)) {
       ParsedAttributes DeclAttrs(AttrFactory);
       MaybeParseCXX11Attributes(DeclAttrs);
       ParsedAttributes EmptyDeclSpecAttrs(AttrFactory);
@@ -2914,8 +2914,12 @@ Parser::DeclGroupPtrTy Parser::ParseCXXClassMemberDeclaration(
       getLangOpts().Reflection && Tok.is(tok::kw_consteval) &&
       NextToken().is(tok::l_brace)) {
     SourceLocation DeclEnd;
-    return DeclGroupPtrTy::make(
-        DeclGroupRef(ParseConstevalBlockDeclaration(DeclEnd)));
+    Decl *Block = ParseConstevalBlockDeclaration(DeclEnd);
+    // Remember the access in effect: tokens injected by an instantiation of
+    // the block are parsed with that access (P3294).
+    if (Block)
+      Block->setAccess(AS);
+    return DeclGroupPtrTy::make(DeclGroupRef(Block));
   }
 
   if (Tok.is(tok::kw_template)) {
@@ -3899,8 +3903,8 @@ void Parser::ParseCXXMemberSpecification(SourceLocation RecordLoc,
 
   if (TagDecl) {
     // While we still have something to read, read the member-declarations.
-    while (!tryParseMisplacedModuleImport() && Tok.isNot(tok::r_brace) &&
-           Tok.isNot(tok::eof)) {
+    while (!tryParseMisplacedModuleImport() &&
+           !isAtEndOfInjectableSequence(TokenInjectionKind::Member, &CurAS)) {
       // Each iteration of this loop reads one member-declaration.
       ParseCXXClassMemberDeclarationWithPragmas(
           CurAS, AccessAttrs, static_cast<DeclSpec::TST>(TagType), TagDecl);

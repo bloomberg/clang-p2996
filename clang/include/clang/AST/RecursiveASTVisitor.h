@@ -3068,11 +3068,14 @@ DEF_TRAVERSE_STMT(CXXReflectExpr, {
     case ReflectionKind::BaseSpecifier:
     case ReflectionKind::DataMemberSpec:
     case ReflectionKind::Attribute:
+    case ReflectionKind::EnumeratorSpec:
+    case ReflectionKind::TokenSequence:
       break;
     }
   }
 })
 DEF_TRAVERSE_STMT(CXXMetafunctionExpr, {})
+DEF_TRAVERSE_STMT(CXXTokenSequenceExpr, {})
 DEF_TRAVERSE_STMT(CXXSpliceExpr, {
   TRY_TO(TraverseSpliceSpecifier(S->getSplice()));
 })

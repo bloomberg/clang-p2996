@@ -1800,6 +1800,19 @@ let CategoryName = "Reflection Issue" in {
 
 def err_cannot_reflect_operand : Error<
   "cannot reflect the provided operand">;
+def err_token_sequence_unterminated : Error<
+  "expected '}' to end token sequence">;
+def err_expected_interpolator : Error<
+  "expected an interpolator ('\\[', '\\[:', '\\{', '\\val(' or '\\str(') "
+  "after '\\'">;
+def err_interpolator_outside_token_sequence : Error<
+  "interpolator cannot appear outside of a token sequence">;
+def err_token_sequence_annotation_token : Error<
+  "token sequence cannot be formed here: its tokens were already interpreted "
+  "while disambiguating the enclosing construct">;
+def err_injected_tokens_extraneous : Error<
+  "extraneous tokens in token sequence injected as "
+  "%select{a declaration|a member declaration|a statement}0">;
 def err_expansion_statements_disabled : Error<
   "'template for' statements are not enabled; use '-fexpansion-statements'">;
 def err_annotation_with_using : Error<

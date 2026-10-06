@@ -478,6 +478,11 @@ Parser::ParseScopeFlags::~ParseScopeFlags() {
 //===----------------------------------------------------------------------===//
 
 Parser::~Parser() {
+  if (Actions.OpaqueTokenInjectionParser == this)
+    Actions.SetTokenInjectionParser(nullptr, nullptr, nullptr, nullptr);
+  for (auto &Entry : InjectedParsingClasses)
+    DeallocateParsedClasses(Entry.second);
+
   // If we still have scopes active, delete the scope tree.
   delete getCurScope();
   Actions.CurScope = nullptr;
@@ -500,6 +505,12 @@ void Parser::Initialize() {
   assert(getCurScope() == nullptr && "A scope is already active?");
   EnterScope(Scope::DeclScope);
   Actions.ActOnTranslationUnitScope(getCurScope());
+
+  // Let Sema call back into the parser to inject token sequences (P3294).
+  if (getLangOpts().TokenInjection)
+    Actions.SetTokenInjectionParser(TokenInjectionCallback,
+                                    ClassTokenInjectionCallback,
+                                    FinishClassTokenInjectionCallback, this);
 
   // Initialization for Objective-C context sensitive keywords recognition.
   // Referenced in Parser::ParseObjCTypeQualifierList.
@@ -632,6 +643,11 @@ bool Parser::ParseTopLevelDecl(DeclGroupPtrTy &Result,
   DestroyTemplateIdAnnotationsRAIIObj CleanupRAII(*this);
 
   Result = nullptr;
+
+  // Start, or finish, parsing tokens injected at namespace scope (P3294).
+  if (HandleTokenInjectionBoundary(TokenInjectionKind::Declaration))
+    return false;
+
   switch (Tok.getKind()) {
   case tok::annot_pragma_unused:
     HandlePragmaUnused();

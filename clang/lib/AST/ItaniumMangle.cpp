@@ -5067,6 +5067,18 @@ void CXXNameMangler::mangleReflection(const APValue &R) {
     mangleExpression(R.getReflectedAnnotation()->getArg());
     break;
   }
+  case ReflectionKind::TokenSequence: {
+    // There is no mangling for token sequences: they only exist during
+    // constant evaluation.
+    DiagnosticsEngine &Diags = Context.getDiags();
+    unsigned DiagID = Diags.getCustomDiagID(
+        DiagnosticsEngine::Error, "cannot yet mangle a token sequence");
+    Diags.Report(DiagID);
+    Out << "ts";
+    break;
+  }
+  default:
+    break;
   }
   Out << 'E';
 }
@@ -5172,6 +5184,7 @@ recurse:
   case Expr::CXXInheritedCtorInitExprClass:
   case Expr::CXXParenListInitExprClass:
   case Expr::CXXMetafunctionExprClass:
+  case Expr::CXXTokenSequenceExprClass:
   case Expr::CXXSpliceExprClass:
   case Expr::CXXDependentMemberSpliceExprClass:
   case Expr::StackLocationExprClass:

@@ -328,6 +328,7 @@ FEATURE(expansion_statements, LangOpts.ExpansionStatements)
 FEATURE(annotation_attributes, LangOpts.AnnotationAttributes)
 FEATURE(entity_proxy_reflection, LangOpts.EntityProxyReflection)
 FEATURE(reflection_latest, LangOpts.ReflectionLatest)
+FEATURE(token_injection, LangOpts.TokenInjection)
 
 // CUDA/HIP Features
 FEATURE(cuda_noinline_keyword, LangOpts.CUDA)

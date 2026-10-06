@@ -496,6 +496,40 @@ void ASTStmtWriter::VisitCXXMetafunctionExpr(CXXMetafunctionExpr *E) {
   Code = serialization::EXPR_METAFUNCTION;
 }
 
+void ASTStmtWriter::VisitCXXTokenSequenceExpr(CXXTokenSequenceExpr *E) {
+  VisitExpr(E);
+  Record.writeUInt32(E->tokens().size());
+  Record.writeUInt32(E->interpolators().size());
+  Record.writeUInt32(E->getNumOperands());
+  Record.AddSourceLocation(E->getOperatorLoc());
+  Record.AddSourceLocation(E->getLBraceLoc());
+  Record.AddSourceLocation(E->getRBraceLoc());
+
+  // The tokens of the expression come straight from the source: none of them
+  // is an annotation token.
+  for (const Token &Tok : E->tokens())
+    Writer.AddToken(Tok, Record.getRecordData());
+
+  for (const auto &Interp : E->interpolators()) {
+    Record.writeUInt32(Interp.Kind);
+    Record.writeUInt32(Interp.TokenPos);
+    Record.writeUInt32(Interp.FirstOperand);
+    Record.writeUInt32(Interp.NumOperands);
+    Record.AddSourceLocation(Interp.BeginLoc);
+    Record.AddSourceLocation(Interp.EndLoc);
+  }
+
+  for (unsigned I = 0; I < E->getNumOperands(); ++I) {
+    const auto &SO = E->getStringOperand(I);
+    Record.AddStmt(E->getOperand(I));
+    Record.AddStmt(SO.Opaque);
+    Record.AddStmt(SO.Size);
+    Record.AddStmt(SO.Data);
+  }
+
+  Code = serialization::EXPR_TOKEN_SEQUENCE;
+}
+
 void ASTStmtWriter::VisitCXXSpliceExpr(CXXSpliceExpr *E) {
   VisitExpr(E);
   Record.AddSourceLocation(E->getTemplateKWLoc());

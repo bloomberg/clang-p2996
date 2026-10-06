@@ -8367,6 +8367,115 @@ private:
   ExprResult ParseCXXReflectExpression(SourceLocation OpLoc);
   ExprResult ParseCXXMetafunctionExpression();
 
+  //===--------------------------------------------------------------------===//
+  // Token sequences and code injection [P3294]
+  ExprResult ParseCXXTokenSequenceExpression(SourceLocation OpLoc);
+  bool ParseTokenSequenceInterpolator(
+      unsigned TokenPos,
+      SmallVectorImpl<CXXTokenSequenceExpr::Interpolator> &Interpolators,
+      SmallVectorImpl<Expr *> &Operands);
+
+  /// The kind of construct that a sequence of injected tokens is parsed as.
+  enum class TokenInjectionKind { Declaration, Member, Statement };
+
+  /// A token sequence that is currently being parsed, having been injected
+  /// by 'std::meta::queue_injection' or 'std::meta::namespace_inject'.
+  struct ActiveTokenInjection {
+    /// Identifies the 'eof' token terminating the injected tokens.
+    const void *EofTag;
+    /// The scope whose declarations (or statements) the tokens are parsed as.
+    Scope *Owner;
+    /// The access specifier to restore once the tokens have been parsed.
+    AccessSpecifier SavedAS;
+    /// Injections requested before this one started must wait for it to be
+    /// over; those requested while it is being parsed are nested into it.
+    unsigned StartSeq;
+  };
+  SmallVector<ActiveTokenInjection, 2> ActiveTokenInjections;
+  unsigned NumTokenInjections = 0;
+
+  /// Pushes the tokens of 'Tokens' in front of the current token, followed
+  /// by an 'eof' token carrying 'EofTag'.
+  void EnterInjectedTokens(const TokenSequence *Tokens, const void *EofTag);
+
+  /// Starts parsing 'Tokens', which were injected at 'Loc', as declarations
+  /// (or statements) of the current scope.
+  void StartTokenInjection(const TokenSequence *Tokens, SourceLocation Loc,
+                           AccessSpecifier AS);
+
+  /// Whether the current token is the 'eof' terminating the innermost
+  /// active token injection.
+  bool isAtEndOfTokenInjection() const {
+    return !ActiveTokenInjections.empty() && Tok.is(tok::eof) &&
+           Tok.getEofData() == ActiveTokenInjections.back().EofTag;
+  }
+
+  bool HandleTokenInjectionBoundarySlow(TokenInjectionKind Kind,
+                                        AccessSpecifier *AS);
+
+  /// To be called between two declarations (resp. member declarations,
+  /// statements) of a namespace (resp. class, compound statement): starts
+  /// parsing a token sequence queued for injection into the current context,
+  /// or finishes parsing such a token sequence. Returns true if it did
+  /// either, in which case the current token changed.
+  bool HandleTokenInjectionBoundary(TokenInjectionKind Kind,
+                                    AccessSpecifier *AS = nullptr) {
+    if (ActiveTokenInjections.empty() && !Actions.hasPendingTokenInjections())
+      return false;
+    return HandleTokenInjectionBoundarySlow(Kind, AS);
+  }
+
+  /// Handles token injection boundaries, then returns whether the sequence
+  /// of declarations (or statements) of the current scope is over.
+  bool isAtEndOfInjectableSequence(TokenInjectionKind Kind,
+                                   AccessSpecifier *AS = nullptr) {
+    while (HandleTokenInjectionBoundary(Kind, AS))
+      ;
+    return Tok.is(tok::r_brace) || Tok.is(tok::eof);
+  }
+
+  /// Parses 'Tokens' right away as declarations of the namespace 'NS' (or of
+  /// the translation unit). Invoked by Sema on behalf of
+  /// 'std::meta::namespace_inject'.
+  Sema::TokenInjectionStatus
+  InjectTokensIntoNamespace(DeclContext *NS, const TokenSequence *Tokens,
+                            SourceLocation Loc);
+  static Sema::TokenInjectionStatus
+  TokenInjectionCallback(void *P, DeclContext *NS, const TokenSequence *Tokens,
+                         SourceLocation Loc);
+
+  /// Parses 'Tokens' right away as member declarations of 'RD', a class that
+  /// is being instantiated from a template. Whatever has to wait for the
+  /// class to be complete (e.g., the bodies of member functions) is parsed by
+  /// 'FinishTokenInjectionIntoClass'.
+  Sema::TokenInjectionStatus
+  InjectTokensIntoClass(CXXRecordDecl *RD, const TokenSequence *Tokens,
+                        SourceLocation Loc, AccessSpecifier AS);
+  void FinishTokenInjectionIntoClass(CXXRecordDecl *RD);
+  static Sema::TokenInjectionStatus
+  ClassTokenInjectionCallback(void *P, CXXRecordDecl *RD,
+                              const TokenSequence *Tokens, SourceLocation Loc,
+                              AccessSpecifier AS);
+  static void FinishClassTokenInjectionCallback(void *P, CXXRecordDecl *RD);
+
+  /// The late-parsed parts of the members injected into classes that are
+  /// being instantiated.
+  llvm::DenseMap<CXXRecordDecl *, ParsingClass *> InjectedParsingClasses;
+
+  /// Sets aside the state of the parser, so that it can parse something
+  /// unrelated to what it is in the middle of.
+  class ReentrantParseRAII;
+  friend class ReentrantParseRAII;
+
+  bool EnterScopesOfInjectedClass(MultiParseScope &Scopes, CXXRecordDecl *RD);
+
+  /// Parses the injected tokens that the innermost scope owns as external
+  /// declarations (resp. as member declarations of 'RD').
+  void ParseInjectedDeclarations(const TokenSequence *Tokens,
+                                 SourceLocation Loc, bool HandToConsumer);
+  void ParseInjectedMembers(CXXRecordDecl *RD, const TokenSequence *Tokens,
+                            SourceLocation Loc, AccessSpecifier AS);
+
   bool ParseSpliceSpecifier(bool TryParseSpecialization = false);
 
   ExprResult ParseCXXSpliceAsExpr(SourceLocation TemplateKWLoc,

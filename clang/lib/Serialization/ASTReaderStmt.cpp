@@ -525,6 +525,57 @@ void ASTStmtReader::VisitCXXMetafunctionExpr(CXXMetafunctionExpr *E) {
   E->setArgs(Args, NumArgs);
 }
 
+void ASTStmtReader::VisitCXXTokenSequenceExpr(CXXTokenSequenceExpr *E) {
+  VisitExpr(E);
+  ASTContext &C = Record.getContext();
+  unsigned NumTokens = Record.readUInt32();
+  unsigned NumInterpolators = Record.readUInt32();
+  unsigned NumOperands = Record.readUInt32();
+  E->allocateStorage(C, NumTokens, NumInterpolators, NumOperands);
+  E->setOperatorLoc(Record.readSourceLocation());
+  E->setLBraceLoc(Record.readSourceLocation());
+  E->setRBraceLoc(Record.readSourceLocation());
+
+  const SourceManager &SM = C.getSourceManager();
+  for (Token &Tok : E->tokens()) {
+    Tok = Record.readToken();
+    // The spelling of a literal is not serialized with the token: recover it
+    // from the source buffer.
+    if (Tok.isLiteral()) {
+      bool Invalid = false;
+      const char *Data =
+          SM.getCharacterData(SM.getSpellingLoc(Tok.getLocation()), &Invalid);
+      if (Invalid) {
+        Tok.setKind(tok::unknown);
+        continue;
+      }
+      Tok.setLiteralData(Data);
+    }
+  }
+
+  for (auto &Interp : E->interpolators()) {
+    Interp.Kind = static_cast<CXXTokenSequenceExpr::InterpolatorKind>(
+        Record.readUInt32());
+    Interp.TokenPos = Record.readUInt32();
+    Interp.FirstOperand = Record.readUInt32();
+    Interp.NumOperands = Record.readUInt32();
+    Interp.BeginLoc = Record.readSourceLocation();
+    Interp.EndLoc = Record.readSourceLocation();
+  }
+
+  for (unsigned I = 0; I < NumOperands; ++I) {
+    CXXTokenSequenceExpr::StringOperand SO;
+    E->setOperand(I, Record.readSubExpr());
+    SO.Opaque = cast_or_null<OpaqueValueExpr>(Record.readSubExpr());
+    SO.Size = Record.readSubExpr();
+    SO.Data = Record.readSubExpr();
+    E->setStringOperand(I, SO);
+  }
+
+  if (NumInterpolators == 0)
+    E->setEvaluated(TokenSequence::Create(C, E->tokens()));
+}
+
 void ASTStmtReader::VisitCXXSpliceExpr(CXXSpliceExpr *E) {
   VisitExpr(E);
   E->setTemplateKWLoc(Record.readSourceLocation());
@@ -4660,6 +4711,10 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
     }
     case EXPR_METAFUNCTION: {
       S = CXXMetafunctionExpr::CreateEmpty(Context);
+      break;
+    }
+    case EXPR_TOKEN_SEQUENCE: {
+      S = CXXTokenSequenceExpr::CreateEmpty(Context);
       break;
     }
     case EXPR_SPLICE: {

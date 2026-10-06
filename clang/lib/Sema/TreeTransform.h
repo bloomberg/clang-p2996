@@ -9093,6 +9093,7 @@ TreeTransform<Derived>::TransformCXXReflectExpr(CXXReflectExpr *E) {
   case ReflectionKind::Object:
   case ReflectionKind::Value:
   case ReflectionKind::Attribute:
+  case ReflectionKind::TokenSequence:
     return E;
   case ReflectionKind::Null:
   case ReflectionKind::BaseSpecifier:
@@ -9124,6 +9125,29 @@ TreeTransform<Derived>::TransformCXXMetafunctionExpr(CXXMetafunctionExpr *E) {
                                             E->getRParenLoc(),
                                             E->getMetaFnID(), E->getImpl(),
                                             Args);
+}
+
+template <typename Derived>
+ExprResult
+TreeTransform<Derived>::TransformCXXTokenSequenceExpr(CXXTokenSequenceExpr *E) {
+  // A token sequence without interpolators denotes the same value in every
+  // instantiation.
+  if (E->getNumOperands() == 0)
+    return E;
+
+  SmallVector<Expr *, 4> Operands(E->getNumOperands());
+  for (unsigned I = 0; I < E->getNumOperands(); ++I) {
+    ExprResult Operand = getDerived().TransformExpr(E->getOperand(I));
+    if (Operand.isInvalid())
+      return ExprError();
+    Operands[I] = Operand.get();
+  }
+
+  Sema::ConstevalOnlyRecorder RecordConstevalOnly(getSema());
+  return RecordConstevalOnly.RecordAndReturn(
+      getSema().BuildCXXTokenSequenceExpr(
+          E->getOperatorLoc(), E->getLBraceLoc(), E->getRBraceLoc(),
+          E->tokens(), E->interpolators(), Operands));
 }
 
 template <typename Derived>

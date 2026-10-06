@@ -1167,8 +1167,8 @@ StmtResult Parser::ParseCompoundStatementBody(bool isStmtExpr) {
       (isStmtExpr ? ParsedStmtContext::InStmtExpr : ParsedStmtContext());
 
   bool LastIsError = false;
-  while (!tryParseMisplacedModuleImport() && Tok.isNot(tok::r_brace) &&
-         Tok.isNot(tok::eof)) {
+  while (!tryParseMisplacedModuleImport() &&
+         !isAtEndOfInjectableSequence(TokenInjectionKind::Statement)) {
     if (Tok.is(tok::annot_pragma_unused)) {
       HandlePragmaUnused();
       continue;

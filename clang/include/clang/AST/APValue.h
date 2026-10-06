@@ -600,6 +600,10 @@ public:
   bool isReflectedAttribute() const {
     return isReflection() && getReflectionKind() == ReflectionKind::Attribute;
   }
+  bool isReflectedTokenSequence() const {
+    return isReflection() &&
+           getReflectionKind() == ReflectionKind::TokenSequence;
+  }
 
   void dump() const;
   void dump(raw_ostream &OS, const ASTContext &Context) const;
@@ -794,6 +798,7 @@ public:
   EnumeratorSpec *getReflectedEnumeratorSpec() const;
   CXX26AnnotationAttr *getReflectedAnnotation() const;
   ParsedAttr *getReflectedAttribute() const;
+  const TokenSequence *getReflectedTokenSequence() const;
 
   void setInt(APSInt I) {
     assert(isInt() && "Invalid accessor");

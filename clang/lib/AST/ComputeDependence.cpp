@@ -1012,6 +1012,7 @@ ExprDependence clang::computeDependence(CXXReflectExpr *E,
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::EnumeratorSpec:
   case ReflectionKind::Attribute:
+  case ReflectionKind::TokenSequence:
     return ExprDependence::None;
   case ReflectionKind::EntityProxy:
     llvm_unreachable("should already have been unwrapped");
@@ -1028,6 +1029,19 @@ ExprDependence clang::computeDependence(CXXMetafunctionExpr *E) {
     return D & ~ExprDependence::UnexpandedPack;
 }
 
+
+ExprDependence clang::computeDependence(CXXTokenSequenceExpr *E) {
+  // The type of a token sequence is always 'std::meta::info'. Its value
+  // depends on the values of the operands of its interpolators.
+  auto D = ExprDependence::None;
+  for (unsigned I = 0; I < E->getNumOperands(); ++I) {
+    auto OD = E->getOperand(I)->getDependence();
+    if (OD & ExprDependence::TypeValueInstantiation)
+      D |= ExprDependence::ValueInstantiation;
+    D |= OD & (ExprDependence::UnexpandedPack | ExprDependence::Error);
+  }
+  return D;
+}
 
 ExprDependence clang::computeDependence(CXXSpliceExpr *E) {
   auto D = toExprDependence(E->getSplice()->getDependence());

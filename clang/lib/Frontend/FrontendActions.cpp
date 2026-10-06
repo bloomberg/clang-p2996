@@ -476,6 +476,8 @@ private:
       return "PartialOrderingTTP";
     case CodeSynthesisContext::ExpansionStmtInstantiation:
       return "ExpansionStmtInstantiation";
+    case CodeSynthesisContext::TokenInjection:
+      return "TokenInjection";
     }
     return "";
   }

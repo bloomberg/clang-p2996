@@ -2020,6 +2020,56 @@ CXXMetafunctionExpr *CXXMetafunctionExpr::CreateEmpty(ASTContext &C) {
   return new (C) CXXMetafunctionExpr(EmptyShell());
 }
 
+CXXTokenSequenceExpr::CXXTokenSequenceExpr(
+    const ASTContext &C, QualType ResultTy, SourceLocation OperatorLoc,
+    SourceLocation LBraceLoc, SourceLocation RBraceLoc, ArrayRef<Token> Toks,
+    ArrayRef<Interpolator> Interps, ArrayRef<Expr *> Ops,
+    ArrayRef<StringOperand> StringOps)
+    : Expr(CXXTokenSequenceExprClass, ResultTy, VK_PRValue, OK_Ordinary),
+      OperatorLoc(OperatorLoc), LBraceLoc(LBraceLoc), RBraceLoc(RBraceLoc) {
+  assert(Ops.size() == StringOps.size() &&
+         "every operand needs a string operand slot");
+  allocateStorage(C, Toks.size(), Interps.size(), Ops.size());
+  std::copy(Toks.begin(), Toks.end(), Tokens);
+  std::copy(Interps.begin(), Interps.end(), Interpolators);
+  std::copy(Ops.begin(), Ops.end(), Operands);
+  std::copy(StringOps.begin(), StringOps.end(), StringOperands);
+
+  // A token sequence without interpolators is a constant.
+  if (Interps.empty())
+    Evaluated = TokenSequence::Create(C, Toks);
+
+  setDependence(computeDependence(this));
+}
+
+void CXXTokenSequenceExpr::allocateStorage(const ASTContext &C,
+                                           unsigned NumToks,
+                                           unsigned NumInterps,
+                                           unsigned NumOps) {
+  NumTokens = NumToks;
+  NumInterpolators = NumInterps;
+  NumOperands = NumOps;
+  Tokens = new (C) Token[NumToks];
+  Interpolators = new (C) Interpolator[NumInterps];
+  Operands = new (C) Stmt *[NumOps];
+  StringOperands = new (C) StringOperand[NumOps];
+  std::fill(Operands, Operands + NumOps, nullptr);
+}
+
+CXXTokenSequenceExpr *CXXTokenSequenceExpr::Create(
+    const ASTContext &C, QualType ResultTy, SourceLocation OperatorLoc,
+    SourceLocation LBraceLoc, SourceLocation RBraceLoc, ArrayRef<Token> Tokens,
+    ArrayRef<Interpolator> Interpolators, ArrayRef<Expr *> Operands,
+    ArrayRef<StringOperand> StringOperands) {
+  return new (C) CXXTokenSequenceExpr(C, ResultTy, OperatorLoc, LBraceLoc,
+                                      RBraceLoc, Tokens, Interpolators,
+                                      Operands, StringOperands);
+}
+
+CXXTokenSequenceExpr *CXXTokenSequenceExpr::CreateEmpty(const ASTContext &C) {
+  return new (C) CXXTokenSequenceExpr(EmptyShell());
+}
+
 CXXSpliceExpr::CXXSpliceExpr(QualType ResultTy, ExprValueKind ValueKind,
                              SourceLocation TemplateKWLoc,
                              SpliceSpecifier *Splice, Expr *Model,

@@ -2787,6 +2787,49 @@ void StmtPrinter::VisitCXXMetafunctionExpr(CXXMetafunctionExpr *S) {
   OS << ")";
 }
 
+void StmtPrinter::VisitCXXTokenSequenceExpr(CXXTokenSequenceExpr *S) {
+  OS << "^^{";
+  ArrayRef<Token> Toks = S->tokens();
+  auto Interps = S->interpolators();
+  unsigned NextInterp = 0;
+  for (unsigned I = 0; I <= Toks.size(); ++I) {
+    for (; NextInterp < Interps.size() && Interps[NextInterp].TokenPos == I;
+         ++NextInterp) {
+      const auto &Interp = Interps[NextInterp];
+      const char *Open = "", *Close = "";
+      switch (Interp.Kind) {
+      case CXXTokenSequenceExpr::IK_Identifier:
+        Open = "\\[", Close = "]";
+        break;
+      case CXXTokenSequenceExpr::IK_Splice:
+        Open = "\\[: ", Close = " :]";
+        break;
+      case CXXTokenSequenceExpr::IK_Tokens:
+        Open = "\\{", Close = "}";
+        break;
+      case CXXTokenSequenceExpr::IK_Value:
+        Open = "\\val(", Close = ")";
+        break;
+      case CXXTokenSequenceExpr::IK_String:
+        Open = "\\str(", Close = ")";
+        break;
+      }
+      OS << ' ' << Open;
+      for (unsigned K = 0; K < Interp.NumOperands; ++K) {
+        if (K)
+          OS << ", ";
+        PrintExpr(S->getOperand(Interp.FirstOperand + K));
+      }
+      OS << Close;
+    }
+    if (I < Toks.size()) {
+      OS << ' ';
+      TokenSequence::printToken(OS, Toks[I], Policy, Context);
+    }
+  }
+  OS << " }";
+}
+
 void StmtPrinter::VisitCXXSpliceExpr(CXXSpliceExpr *S) {
   OS << "[: ... :]";
 }

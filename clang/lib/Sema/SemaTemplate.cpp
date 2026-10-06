@@ -7957,6 +7957,14 @@ static Expr *BuildExpressionFromNonTypeTemplateArgumentValue(
   llvm_unreachable("Unhandled APValue::ValueKind enum");
 }
 
+ExprResult Sema::ActOnTokenValueLiteral(const InterpolatedValue *TV,
+                                        SourceLocation Loc) {
+  // The value of an interpolator is lowered exactly like the value of a
+  // constant template parameter.
+  return BuildExpressionFromNonTypeTemplateArgumentValue(*this, TV->Ty,
+                                                         TV->Val, Loc);
+}
+
 ExprResult
 Sema::BuildExpressionFromNonTypeTemplateArgument(const TemplateArgument &Arg,
                                                  SourceLocation Loc) {

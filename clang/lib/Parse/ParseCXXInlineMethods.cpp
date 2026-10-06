@@ -1355,12 +1355,13 @@ bool Parser::ConsumeAndStoreInitializer(CachedTokens &Toks,
     default:
     consume_token:
       // If it's an annotation token, then we've run out of tokens and should
-      // bail out. Otherwise, cache the token and consume it.
-      if (Tok.isAnnotation())
+      // bail out. Otherwise, cache the token and consume it. (The value of an
+      // interpolator of an injected token sequence is a regular token.)
+      if (Tok.isAnnotation() && Tok.isNot(tok::annot_token_value))
         return false;
 
       Toks.push_back(Tok);
-      ConsumeToken();
+      ConsumeAnyToken();
       break;
     }
     IsFirstToken = false;

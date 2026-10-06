@@ -32,6 +32,7 @@
 #include "clang/AST/Stmt.h"
 #include "clang/AST/StmtCXX.h"
 #include "clang/AST/TemplateBase.h"
+#include "clang/AST/TokenSequence.h"
 #include "clang/AST/Type.h"
 #include "clang/AST/UnresolvedSet.h"
 #include "clang/Basic/ExceptionSpecificationType.h"
@@ -5637,6 +5638,155 @@ public:
 
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == CXXMetafunctionExprClass;
+  }
+};
+
+/// Represents a token sequence expression (P3294), e.g.,
+///
+///   ^^{ int \[name, idx] = \val(init); }
+///
+/// The value of such an expression is a 'std::meta::info' representing the
+/// sequence of tokens between the braces, in which every interpolator has
+/// been replaced by tokens computed from the value of its operands.
+///
+/// The node stores the tokens that were literally written between the braces
+/// (the tokens making up an interpolator are not stored: they are parsed as
+/// ordinary expressions when the token sequence is parsed), and a description
+/// of each interpolator together with the position at which its expansion is
+/// to be inserted.
+class CXXTokenSequenceExpr : public Expr {
+public:
+  enum InterpolatorKind : unsigned {
+    /// '\[a, b, ...]': an identifier formed by concatenating the operands.
+    IK_Identifier,
+    /// '\[: r :]': a splice of the reflection 'r'.
+    IK_Splice,
+    /// '\{ts}': the tokens of the token sequence 'ts'.
+    IK_Tokens,
+    /// '\val(e)': a pseudo-literal having the value of 'e'.
+    IK_Value,
+    /// '\str(s)': a string literal having the contents of 's'.
+    IK_String,
+  };
+
+  struct Interpolator {
+    InterpolatorKind Kind;
+    /// The number of stored tokens preceding the interpolator.
+    unsigned TokenPos;
+    /// The range of operands belonging to this interpolator.
+    unsigned FirstOperand;
+    unsigned NumOperands;
+    /// The location of the backslash, and of the closing delimiter.
+    SourceLocation BeginLoc;
+    SourceLocation EndLoc;
+  };
+
+  /// How to read the characters of a string-like operand of class type (e.g.,
+  /// 'std::string_view'). The operand is bound to 'Opaque', and 'Size' and
+  /// 'Data' are calls of its 'size()' and 'data()' members. All three are
+  /// null for any other operand.
+  struct StringOperand {
+    OpaqueValueExpr *Opaque = nullptr;
+    Expr *Size = nullptr;
+    Expr *Data = nullptr;
+  };
+
+private:
+  SourceLocation OperatorLoc;
+  SourceLocation LBraceLoc;
+  SourceLocation RBraceLoc;
+
+  unsigned NumTokens = 0;
+  unsigned NumInterpolators = 0;
+  unsigned NumOperands = 0;
+
+  Token *Tokens = nullptr;
+  Interpolator *Interpolators = nullptr;
+  Stmt **Operands = nullptr;
+  StringOperand *StringOperands = nullptr;
+
+  /// The value of the expression, if it has no interpolators.
+  const TokenSequence *Evaluated = nullptr;
+
+  CXXTokenSequenceExpr(const ASTContext &C, QualType ResultTy,
+                       SourceLocation OperatorLoc, SourceLocation LBraceLoc,
+                       SourceLocation RBraceLoc, ArrayRef<Token> Tokens,
+                       ArrayRef<Interpolator> Interpolators,
+                       ArrayRef<Expr *> Operands,
+                       ArrayRef<StringOperand> StringOperands);
+
+  CXXTokenSequenceExpr(EmptyShell Empty)
+      : Expr(CXXTokenSequenceExprClass, Empty) {}
+
+public:
+  static CXXTokenSequenceExpr *Create(const ASTContext &C, QualType ResultTy,
+                                      SourceLocation OperatorLoc,
+                                      SourceLocation LBraceLoc,
+                                      SourceLocation RBraceLoc,
+                                      ArrayRef<Token> Tokens,
+                                      ArrayRef<Interpolator> Interpolators,
+                                      ArrayRef<Expr *> Operands,
+                                      ArrayRef<StringOperand> StringOperands);
+
+  static CXXTokenSequenceExpr *CreateEmpty(const ASTContext &C);
+
+  /// Allocates the storage of an empty node read from an AST file.
+  void allocateStorage(const ASTContext &C, unsigned NumTokens,
+                       unsigned NumInterpolators, unsigned NumOperands);
+
+  ArrayRef<Token> tokens() const { return {Tokens, NumTokens}; }
+  MutableArrayRef<Token> tokens() { return {Tokens, NumTokens}; }
+
+  ArrayRef<Interpolator> interpolators() const {
+    return {Interpolators, NumInterpolators};
+  }
+  MutableArrayRef<Interpolator> interpolators() {
+    return {Interpolators, NumInterpolators};
+  }
+
+  unsigned getNumOperands() const { return NumOperands; }
+  Expr *getOperand(unsigned I) const {
+    assert(I < NumOperands && "operand out-of-range");
+    return cast<Expr>(Operands[I]);
+  }
+  void setOperand(unsigned I, Expr *E) {
+    assert(I < NumOperands && "operand out-of-range");
+    Operands[I] = E;
+  }
+
+  const StringOperand &getStringOperand(unsigned I) const {
+    assert(I < NumOperands && "operand out-of-range");
+    return StringOperands[I];
+  }
+  void setStringOperand(unsigned I, const StringOperand &SO) {
+    assert(I < NumOperands && "operand out-of-range");
+    StringOperands[I] = SO;
+  }
+
+  /// The value of the expression, when it does not depend on the evaluation
+  /// of any interpolator.
+  const TokenSequence *getEvaluated() const { return Evaluated; }
+  void setEvaluated(const TokenSequence *TS) { Evaluated = TS; }
+
+  SourceLocation getOperatorLoc() const { return OperatorLoc; }
+  void setOperatorLoc(SourceLocation Loc) { OperatorLoc = Loc; }
+  SourceLocation getLBraceLoc() const { return LBraceLoc; }
+  void setLBraceLoc(SourceLocation Loc) { LBraceLoc = Loc; }
+  SourceLocation getRBraceLoc() const { return RBraceLoc; }
+  void setRBraceLoc(SourceLocation Loc) { RBraceLoc = Loc; }
+
+  SourceLocation getBeginLoc() const { return OperatorLoc; }
+  SourceLocation getEndLoc() const { return RBraceLoc; }
+
+  child_range children() {
+    return child_range(Operands, Operands + NumOperands);
+  }
+  const_child_range children() const {
+    return const_child_range(Operands, Operands + NumOperands);
+  }
+
+  static bool classof(const Stmt *T) {
+    return T->getStmtClass() == CXXTokenSequenceExprClass;
   }
 };
 

@@ -131,6 +131,7 @@ add_clang_library(clangAST
   TemplateBase.cpp
   TemplateName.cpp
   TextNodeDumper.cpp
+  TokenSequence.cpp
   Type.cpp
   TypeLoc.cpp
   TypePrinter.cpp

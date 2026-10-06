@@ -590,6 +590,7 @@ bool Sema::CodeSynthesisContext::isInstantiationRecord() const {
   case BuildingDeductionGuides:
   case TypeAliasTemplateInstantiation:
   case PartialOrderingTTP:
+  case TokenInjection:
     return false;
 
   // This function should never be called when Kind's value is Memoization.
@@ -1289,6 +1290,10 @@ void Sema::PrintInstantiationStack(InstantiationContextDiagFuncRef DiagFunc) {
                                << /*isTemplateTemplateParam=*/true
                                << Active->InstantiationRange);
       break;
+    case CodeSynthesisContext::TokenInjection:
+      DiagFunc(Active->PointOfInstantiation,
+               PDiag(diag::note_token_sequence_injected_here));
+      break;
     case CodeSynthesisContext::ExpansionStmtInstantiation:
       Diags.Report(Active->PointOfInstantiation,
                    diag::note_expansion_stmt_instantiation_here);
@@ -1361,6 +1366,7 @@ std::optional<TemplateDeductionInfo *> Sema::isSFINAEContext() const {
     case CodeSynthesisContext::MarkingClassDllexported:
     case CodeSynthesisContext::BuildingBuiltinDumpStructCall:
     case CodeSynthesisContext::BuildingDeductionGuides:
+    case CodeSynthesisContext::TokenInjection:
       // This happens in a context unrelated to template instantiation, so
       // there is no SFINAE.
       return std::nullopt;
@@ -3813,10 +3819,24 @@ Sema::InstantiateClass(SourceLocation PointOfInstantiation,
     }
   }
 
+  // Members injected by consteval blocks (P3294) were not seen by the loop
+  // above: collect the fields anew.
+  bool HasInjectedTokens = ClassesWithInjectedTokens.erase(Instantiation);
+  if (HasInjectedTokens) {
+    Fields.clear();
+    for (FieldDecl *Field : Instantiation->fields())
+      Fields.push_back(Field);
+  }
+
   // Finish checking fields.
   ActOnFields(nullptr, Instantiation->getLocation(), Instantiation, Fields,
               SourceLocation(), SourceLocation(), ParsedAttributesView());
   CheckCompletedCXXClass(nullptr, Instantiation);
+
+  // Now that the class is complete, parse the parts of the injected members
+  // that had to wait for that (e.g., the bodies of member functions).
+  if (HasInjectedTokens && FinishClassTokenInjection)
+    FinishClassTokenInjection(OpaqueTokenInjectionParser, Instantiation);
 
   // Default arguments are parsed, if not instantiated. We can go instantiate
   // default arg exprs for default constructors if necessary now. Unless we're

@@ -232,6 +232,8 @@ static Cl::Kinds ClassifyInternal(ASTContext &Ctx, const Expr *E) {
     return Cl::CL_PRValue;
 
   case Expr::CXXMetafunctionExprClass:
+
+  case Expr::CXXTokenSequenceExprClass:
     return E->getValueKind() == VK_LValue ? Cl::CL_LValue : Cl::CL_PRValue;
 
   case Expr::EmbedExprClass:

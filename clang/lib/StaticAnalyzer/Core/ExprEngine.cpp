@@ -1722,6 +1722,7 @@ void ExprEngine::Visit(const Stmt *S, ExplodedNode *Pred,
     case Stmt::CXXDependentScopeMemberExprClass:
     case Stmt::CXXReflectExprClass:
     case Stmt::CXXMetafunctionExprClass:
+    case Stmt::CXXTokenSequenceExprClass:
     case Stmt::CXXSpliceExprClass:
     case Stmt::CXXDependentMemberSpliceExprClass:
     case Stmt::StackLocationExprClass:

@@ -33,6 +33,7 @@
 #include "clang/Sema/SemaSwift.h"
 #include "clang/Sema/Template.h"
 #include "clang/Sema/TemplateInstCallback.h"
+#include "llvm/Support/SaveAndRestore.h"
 #include "llvm/Support/TimeProfiler.h"
 #include <optional>
 
@@ -2070,8 +2071,18 @@ Decl *TemplateDeclInstantiator::VisitConstevalBlockDecl(ConstevalBlockDecl *D) {
   if (InstantiatedEvaluatingExpr.isInvalid())
     return nullptr;
 
-  return SemaRef.BuildConstevalBlockDeclaration(
-       D->getLocation(), InstantiatedEvaluatingExpr.get());
+  // Let the evaluation of the block know that the parser is not at the point
+  // where the block appears (P3294).
+  llvm::SaveAndRestore InstantiatingBlock(SemaRef.InstantiatingConstevalBlock,
+                                          true);
+  llvm::SaveAndRestore BlockAccess(SemaRef.ConstevalBlockAccess,
+                                   D->getAccess());
+
+  Decl *Inst = SemaRef.BuildConstevalBlockDeclaration(
+      D->getLocation(), InstantiatedEvaluatingExpr.get());
+  if (Inst)
+    Inst->setAccess(D->getAccess());
+  return Inst;
 }
 
 Decl *TemplateDeclInstantiator::VisitExpansionStmtDecl(ExpansionStmtDecl *D) {

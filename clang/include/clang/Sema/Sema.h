@@ -13078,6 +13078,9 @@ public:
 
       /// We are instantiating an expansion statement.
       ExpansionStmtInstantiation,
+
+      /// We are parsing an injected token sequence (P3294).
+      TokenInjection,
     } Kind;
 
     /// Was the enclosing context a non-instantiation SFINAE context?
@@ -15663,6 +15666,111 @@ public:
                                       SmallVectorImpl<Expr *> &Args);
 
   ExprResult BuildExplDependentCallExpr(Expr *SubExpr, unsigned TemplateDepth);
+
+  //===--------------------------------------------------------------------===//
+  // Token sequences and code injection [P3294]
+
+  /// Called when a token sequence expression, e.g. '^^{ int x; }', has been
+  /// parsed. 'Operands' are the operands of the interpolators, in order.
+  ExprResult ActOnCXXTokenSequenceExpr(
+      SourceLocation OperatorLoc, SourceLocation LBraceLoc,
+      SourceLocation RBraceLoc, ArrayRef<Token> Tokens,
+      ArrayRef<CXXTokenSequenceExpr::Interpolator> Interpolators,
+      MutableArrayRef<Expr *> Operands);
+  ExprResult BuildCXXTokenSequenceExpr(
+      SourceLocation OperatorLoc, SourceLocation LBraceLoc,
+      SourceLocation RBraceLoc, ArrayRef<Token> Tokens,
+      ArrayRef<CXXTokenSequenceExpr::Interpolator> Interpolators,
+      MutableArrayRef<Expr *> Operands);
+
+  /// A token sequence whose injection into 'Target' was requested by
+  /// 'std::meta::queue_injection', and which the parser has not yet got
+  /// round to.
+  struct PendingTokenInjection {
+    DeclContext *Target;
+    const TokenSequence *Tokens;
+    SourceLocation Loc;
+    /// Serial number: injections are performed in the order they were
+    /// requested.
+    unsigned Seq;
+  };
+  SmallVector<PendingTokenInjection, 4> PendingTokenInjections;
+  unsigned NextTokenInjectionSeq = 0;
+
+  void queueTokenInjection(DeclContext *Target, const TokenSequence *Tokens,
+                           SourceLocation Loc) {
+    PendingTokenInjections.push_back(
+        {Target, Tokens, Loc, NextTokenInjectionSeq++});
+  }
+
+  bool hasPendingTokenInjections() const {
+    return !PendingTokenInjections.empty();
+  }
+
+  /// Removes and returns the oldest token sequence awaiting its injection
+  /// into 'DC' that was requested no earlier than 'MinSeq', if any.
+  std::optional<PendingTokenInjection>
+  takePendingTokenInjection(const DeclContext *DC, unsigned MinSeq = 0);
+
+  /// Notes that the tokens being parsed until the matching call of
+  /// 'popCodeSynthesisContext' were injected at 'Loc'.
+  void pushTokenInjectionContext(SourceLocation Loc);
+
+  /// Outcome of an immediate token injection performed by the parser.
+  enum class TokenInjectionStatus { Success, UnsupportedParserState, Failed };
+
+  /// Removes and returns the oldest token sequence awaiting its injection
+  /// into a namespace (or into the translation unit), if any.
+  std::optional<PendingTokenInjection> takePendingNamespaceTokenInjection();
+
+  /// Callback to the parser to parse a token sequence right away as a
+  /// sequence of declarations of the given namespace (or of the translation
+  /// unit).
+  typedef TokenInjectionStatus
+  TokenInjectionParserCB(void *P, DeclContext *NS, const TokenSequence *Tokens,
+                         SourceLocation Loc);
+  /// Callback to the parser to parse a token sequence right away as a
+  /// sequence of member declarations of the given class, which is being
+  /// instantiated from a template.
+  typedef TokenInjectionStatus
+  ClassTokenInjectionParserCB(void *P, CXXRecordDecl *RD,
+                              const TokenSequence *Tokens, SourceLocation Loc,
+                              AccessSpecifier AS);
+  /// Callback to the parser to parse whatever part of the members injected
+  /// into the given class had to wait for the class to be complete (e.g.,
+  /// the bodies of member functions).
+  typedef void FinishClassTokenInjectionCB(void *P, CXXRecordDecl *RD);
+
+  TokenInjectionParserCB *TokenInjectionParser = nullptr;
+  ClassTokenInjectionParserCB *ClassTokenInjectionParser = nullptr;
+  FinishClassTokenInjectionCB *FinishClassTokenInjection = nullptr;
+  void *OpaqueTokenInjectionParser = nullptr;
+
+  void SetTokenInjectionParser(TokenInjectionParserCB *NamespaceCB,
+                               ClassTokenInjectionParserCB *ClassCB,
+                               FinishClassTokenInjectionCB *FinishClassCB,
+                               void *P) {
+    TokenInjectionParser = NamespaceCB;
+    ClassTokenInjectionParser = ClassCB;
+    FinishClassTokenInjection = FinishClassCB;
+    OpaqueTokenInjectionParser = P;
+  }
+
+  /// Whether the consteval block being evaluated is instantiated from a
+  /// template (as opposed to being parsed), in which case the parser is not
+  /// at the point where the block appears.
+  bool InstantiatingConstevalBlock = false;
+
+  /// The access specifier in effect where the consteval block that is being
+  /// instantiated appears.
+  AccessSpecifier ConstevalBlockAccess = AS_none;
+
+  /// The classes being instantiated that tokens were injected into.
+  llvm::SmallPtrSet<CXXRecordDecl *, 4> ClassesWithInjectedTokens;
+
+  /// Called when the parser encounters the value of a '\\val' interpolator in
+  /// an injected token sequence: builds an expression having that value.
+  ExprResult ActOnTokenValueLiteral(const InterpolatedValue *TV, SourceLocation Loc);
 
   SpliceResult BuildSpliceSpecifier(
       SourceLocation LSpliceLoc, Expr *Operand, SourceLocation RSpliceLoc,

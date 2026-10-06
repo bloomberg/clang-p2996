@@ -51,11 +51,13 @@
 #include "clang/AST/OptionalDiagnostic.h"
 #include "clang/AST/RecordLayout.h"
 #include "clang/AST/StmtVisitor.h"
+#include "clang/AST/TokenSequence.h"
 #include "clang/AST/TypeLoc.h"
 #include "clang/Basic/Builtins.h"
 #include "clang/Basic/DiagnosticSema.h"
 #include "clang/Basic/TargetBuiltins.h"
 #include "clang/Basic/TargetInfo.h"
+#include "clang/Lex/Lexer.h"
 #include "llvm/ADT/APFixedPoint.h"
 #include "llvm/ADT/Sequence.h"
 #include "llvm/ADT/SmallBitVector.h"
@@ -892,7 +894,7 @@ namespace {
     /// ContainingDecl - This is the declaration within which the expression
     /// under evaluation appears. Used to verify rules around injected
     /// declarations that may be produced by plainly constant evaluations.
-    Decl *ContainingDecl;
+    Decl *ContainingDecl = nullptr;
 
     enum class EvaluatingDeclKind {
       None,
@@ -16927,6 +16929,7 @@ public:
   bool VisitCXXReflectExpr(const CXXReflectExpr *E);
   bool VisitCXXMetafunctionExpr(const CXXMetafunctionExpr *E);
   bool VisitCXXSpliceExpr(const CXXSpliceExpr *E);
+  bool VisitCXXTokenSequenceExpr(const CXXTokenSequenceExpr *E);
 };
 
 bool ReflectionEvaluator::VisitCXXReflectExpr(const CXXReflectExpr *E) {
@@ -16941,6 +16944,177 @@ bool ReflectionEvaluator::VisitCXXMetafunctionExpr(
 
 bool ReflectionEvaluator::VisitCXXSpliceExpr(const CXXSpliceExpr *E) {
   return BaseType::VisitCXXSpliceExpr(E);
+}
+
+/// Reads characters starting at the given pointer: 'Size' of them, or all
+/// those preceding the first null character if no size is given.
+static bool readInterpolatedChars(EvalInfo &Info, const Expr *PtrExpr,
+                                  std::optional<uint64_t> Size,
+                                  SmallVectorImpl<char> &Out) {
+  LValue String;
+  if (!EvaluatePointer(PtrExpr, String, Info))
+    return false;
+
+  QualType CharTy = PtrExpr->getType()->getPointeeType();
+  for (uint64_t I = 0; !Size || I < *Size; ++I) {
+    APValue Char;
+    if (!handleLValueToRValueConversion(Info, PtrExpr, CharTy, String, Char))
+      return false;
+    if (!Char.isInt())
+      return false;
+
+    char C = static_cast<char>(Char.getInt().getExtValue());
+    if (!Size && C == '\0')
+      break;
+    Out.push_back(C);
+
+    if (!HandleLValueArrayAdjustment(Info, PtrExpr, String, CharTy, 1))
+      return false;
+  }
+  return true;
+}
+
+/// Evaluates an operand of a '\[...]' or '\str(...)' interpolator, and
+/// appends its textual form to 'Out'.
+static bool evaluateInterpolatedText(EvalInfo &Info,
+                                     const CXXTokenSequenceExpr *E,
+                                     unsigned OperandIdx,
+                                     SmallVectorImpl<char> &Out) {
+  const Expr *Operand = E->getOperand(OperandIdx);
+  const auto &SO = E->getStringOperand(OperandIdx);
+
+  // A string-like class object: read 'size()' characters from 'data()'.
+  if (SO.Opaque) {
+    // Bind the operand to the opaque value, so that it is only evaluated once.
+    LValue OperandLV;
+    if (!Evaluate(Info.CurrentCall->createTemporary(
+                      SO.Opaque, getStorageType(Info.Ctx, SO.Opaque),
+                      ScopeKind::FullExpression, OperandLV),
+                  Info, Operand))
+      return false;
+
+    APSInt Size;
+    if (!EvaluateInteger(SO.Size, Size, Info))
+      return false;
+    return readInterpolatedChars(Info, SO.Data, Size.getZExtValue(), Out);
+  }
+
+  // A pointer to a null-terminated string.
+  if (Operand->getType()->isPointerType())
+    return readInterpolatedChars(Info, Operand, std::nullopt, Out);
+
+  // An integer, which contributes its decimal representation.
+  APSInt Value;
+  if (!EvaluateInteger(Operand, Value, Info))
+    return false;
+  Value.toString(Out, 10);
+  return true;
+}
+
+bool ReflectionEvaluator::VisitCXXTokenSequenceExpr(
+    const CXXTokenSequenceExpr *E) {
+  // Without interpolators, the value was computed once and for all.
+  if (const TokenSequence *TS = E->getEvaluated())
+    return Success(APValue(ReflectionKind::TokenSequence, TS), E);
+
+  ASTContext &Ctx = Info.Ctx;
+  ArrayRef<Token> Written = E->tokens();
+  SmallVector<Token, 32> Toks;
+  unsigned Pos = 0;
+
+  for (const auto &Interp : E->interpolators()) {
+    assert(Interp.TokenPos >= Pos && Interp.TokenPos <= Written.size() &&
+           "interpolators are not sorted");
+    Toks.append(Written.begin() + Pos, Written.begin() + Interp.TokenPos);
+    Pos = Interp.TokenPos;
+
+    SourceLocation Loc = Interp.BeginLoc;
+    switch (Interp.Kind) {
+    case CXXTokenSequenceExpr::IK_Identifier: {
+      SmallString<64> Name;
+      for (unsigned I = 0; I < Interp.NumOperands; ++I)
+        if (!evaluateInterpolatedText(Info, E, Interp.FirstOperand + I, Name))
+          return false;
+
+      std::string NameStr(Name.str());
+      Lexer Lex(Loc, Ctx.getLangOpts(), NameStr.data(), NameStr.data(),
+                NameStr.data() + NameStr.size(), false);
+      if (!Lex.validateIdentifier(NameStr)) {
+        Info.FFDiag(Loc, diag::note_interpolated_id_not_identifier)
+            << NameStr << 0;
+        return false;
+      }
+
+      IdentifierInfo &II = Ctx.Idents.get(NameStr);
+      if (II.getTokenID() != tok::identifier) {
+        Info.FFDiag(Loc, diag::note_interpolated_id_not_identifier)
+            << NameStr << 1;
+        return false;
+      }
+      Toks.push_back(TokenSequence::makeIdentifier(&II, Loc));
+      break;
+    }
+    case CXXTokenSequenceExpr::IK_String: {
+      SmallString<64> Str;
+      if (!evaluateInterpolatedText(Info, E, Interp.FirstOperand, Str))
+        return false;
+      Toks.push_back(TokenSequence::makeStringLiteral(Ctx, Str, Loc));
+      break;
+    }
+    case CXXTokenSequenceExpr::IK_Splice: {
+      const Expr *Operand = E->getOperand(Interp.FirstOperand);
+      APValue Value;
+      if (!Evaluate(Value, Info, Operand))
+        return false;
+      if (!Value.isReflection())
+        return Error(Operand);
+
+      Toks.push_back(TokenSequence::makePunctuator(tok::l_splice, Loc));
+      Toks.push_back(
+          TokenSequence::makeValue(Ctx, Operand->getType(), Value, Loc));
+      Toks.push_back(
+          TokenSequence::makePunctuator(tok::r_splice, Interp.EndLoc));
+      break;
+    }
+    case CXXTokenSequenceExpr::IK_Tokens: {
+      const Expr *Operand = E->getOperand(Interp.FirstOperand);
+      APValue Value;
+      if (!Evaluate(Value, Info, Operand))
+        return false;
+      if (!Value.isReflectedTokenSequence()) {
+        Info.FFDiag(Operand, diag::note_interpolated_not_token_sequence);
+        return false;
+      }
+      ArrayRef<Token> Inner = Value.getReflectedTokenSequence()->tokens();
+      Toks.append(Inner.begin(), Inner.end());
+      break;
+    }
+    case CXXTokenSequenceExpr::IK_Value: {
+      const Expr *Operand = E->getOperand(Interp.FirstOperand);
+      QualType Ty = Operand->getType();
+      APValue Value;
+      if (!Evaluate(Value, Info, Operand))
+        return false;
+
+      // The value must be usable as a constant wherever the tokens end up
+      // being injected, exactly like a template argument.
+      ConstantExprKind Kind = Ty->isRecordType()
+                                  ? ConstantExprKind::ClassTemplateArgument
+                                  : ConstantExprKind::NonClassTemplateArgument;
+      if (!CheckConstantExpression(Info, Operand->getExprLoc(), Ty, Value,
+                                   Kind))
+        return false;
+
+      Toks.push_back(TokenSequence::makeValue(Ctx, Ty, Value, Loc));
+      break;
+    }
+    }
+  }
+  Toks.append(Written.begin() + Pos, Written.end());
+
+  return Success(
+      APValue(ReflectionKind::TokenSequence, TokenSequence::Create(Ctx, Toks)),
+      E);
 }
 }  // end anonymous namespace
 
@@ -17772,6 +17946,7 @@ static ICEDiag CheckICE(const Expr* E, const ASTContext &Ctx) {
   case Expr::CXXNoexceptExprClass:
   case Expr::CXXReflectExprClass:
   case Expr::CXXMetafunctionExprClass:
+  case Expr::CXXTokenSequenceExprClass:
   case Expr::CXXSpliceExprClass:
   case Expr::StackLocationExprClass:
   case Expr::ExtractLValueExprClass:

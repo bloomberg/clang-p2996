@@ -22,6 +22,7 @@
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/LocInfoType.h"
 #include "clang/AST/Reflection.h"
+#include "clang/AST/TokenSequence.h"
 #include "clang/AST/Type.h"
 #include "clang/Sema/ParsedAttr.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -582,6 +583,10 @@ static void profileReflection(llvm::FoldingSetNodeID &ID, APValue V) {
     attr->profile(ID);
     return;
   }
+  case ReflectionKind::TokenSequence:
+    // Token sequences compare equal iff they consist of the same tokens.
+    V.getReflectedTokenSequence()->Profile(ID);
+    return;
   case ReflectionKind::DataMemberSpec: {
     TagDataMemberSpec *TDMS = V.getReflectedDataMemberSpec();
     TDMS->Ty.Profile(ID);
@@ -1043,6 +1048,12 @@ ParsedAttr *APValue::getReflectedAttribute() const {
           const_cast<void *>(getOpaqueReflectionData()));
 }
 
+const TokenSequence *APValue::getReflectedTokenSequence() const {
+  assert(getReflectionKind() == ReflectionKind::TokenSequence &&
+         "not a token sequence");
+  return reinterpret_cast<const TokenSequence *>(getOpaqueReflectionData());
+}
+
 static double GetApproxValue(const llvm::APFloat &F) {
   llvm::APFloat V = F;
   bool ignored;
@@ -1408,6 +1419,11 @@ void APValue::printPretty(raw_ostream &Out, const PrintingPolicy &Policy,
     case ReflectionKind::Attribute:
       Repr = "attribute";
       break;
+    case ReflectionKind::TokenSequence:
+      Out << "^^{ ";
+      getReflectedTokenSequence()->print(Out, Policy, Ctx);
+      Out << (getReflectedTokenSequence()->empty() ? "}" : " }");
+      return;
     }
     Out << "^^(" << Repr << ")";
     return;
@@ -1748,6 +1764,7 @@ void APValue::setReflection(ReflectionKind RK, const void *Ptr) {
   case ReflectionKind::EnumeratorSpec:
   case ReflectionKind::Annotation:
   case ReflectionKind::Attribute:
+  case ReflectionKind::TokenSequence:
     SelfData.Kind = RK;
     SelfData.Data = Ptr;
     return;

@@ -3621,6 +3621,11 @@ defm entity_proxy_reflection : BoolFOption<"entity-proxy-reflection",
   PosFlag<SetTrue, [], [ClangOption, CC1Option],
           "Enable proposed reflection of entity proxies as described by P3XYZ">,
   NegFlag<SetFalse>>;
+defm token_injection : BoolFOption<"token-injection",
+  LangOpts<"TokenInjection">, DefaultFalse,
+  PosFlag<SetTrue, [], [ClangOption, CC1Option],
+          "Enable token sequences and code injection as described by P3294">,
+  NegFlag<SetFalse>>;
 defm reflection_latest : BoolFOption<"reflection-latest",
   LangOpts<"ReflectionLatest">, DefaultFalse,
   PosFlag<SetTrue, [], [ClangOption, CC1Option],

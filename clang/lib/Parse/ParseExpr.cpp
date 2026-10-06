@@ -840,6 +840,17 @@ ExprResult Parser::ParseCastExpression(CastParseKind ParseKind,
     Res = Actions.ActOnCXXNullPtrLiteral(ConsumeToken());
     break;
 
+  case tok::annot_token_value: {
+    // The value of an interpolator of an injected token sequence (P3294).
+    auto *TV = static_cast<const InterpolatedValue *>(Tok.getAnnotationValue());
+    Sema::ConstevalOnlyRecorder RecordConstevalOnly(Actions);
+    SourceLocation Loc = ConsumeAnnotationToken();
+    Res = Actions.ActOnTokenValueLiteral(TV, Loc);
+    if (!Res.isInvalid() && Res.get()->getType()->isConstevalOnly())
+      Res = RecordConstevalOnly.RecordAndReturn(Res);
+    break;
+  }
+
   case tok::annot_primary_expr:
   case tok::annot_overload_set:
     Res = getExprAnnotation(Tok);

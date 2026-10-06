@@ -619,7 +619,9 @@ static bool FixupInvocation(CompilerInvocation &Invocation,
       Diags.Report(diag::err_fe_entity_proxy_reflection_without_reflection);
     } else if (LangOpts.AttributeReflection) {
       Diags.Report(diag::err_fe_attribute_reflection_without_reflection);
-   }
+    } else if (LangOpts.TokenInjection) {
+      Diags.Report(diag::err_fe_token_injection_without_reflection);
+    }
   }
 
   // The -f[no-]raw-string-literals option is only valid in C and in C++

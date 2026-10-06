@@ -4501,7 +4501,8 @@ LexStart:
       }
     }
 
-    Kind = tok::unknown;
+    // A lone backslash introduces a token sequence interpolator (P3294).
+    Kind = LangOpts.TokenInjection ? tok::backslash : tok::unknown;
     break;
 
   default: {

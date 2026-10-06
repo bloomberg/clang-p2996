@@ -7421,6 +7421,10 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
                     options::OPT_fno_annotation_attributes);
   Args.addOptInFlag(CmdArgs, options::OPT_fentity_proxy_reflection,
                     options::OPT_fno_entity_proxy_reflection);
+  // -ftoken-injection (P3294) is off by default, and is deliberately not
+  // implied by -freflection-latest.
+  Args.addOptInFlag(CmdArgs, options::OPT_ftoken_injection,
+                    options::OPT_fno_token_injection);
   // -freflection-latest is likewise off by default.
   Args.addOptInFlag(CmdArgs, options::OPT_freflection_latest,
                     options::OPT_fno_reflection_latest);

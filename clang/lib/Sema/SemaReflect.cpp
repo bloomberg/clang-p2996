@@ -20,10 +20,12 @@
 #include "clang/AST/MetaActions.h"
 #include "clang/AST/Metafunction.h"
 #include "clang/AST/Reflection.h"
+#include "clang/AST/TokenSequence.h"
 #include "clang/AST/Type.h"
 #include "clang/Basic/AttributeCommonInfo.h"
 #include "clang/Basic/DiagnosticSema.h"
 #include "clang/Sema/EnterExpressionEvaluationContext.h"
+#include "clang/Sema/Initialization.h"
 #include "clang/Sema/Lookup.h"
 #include "clang/Sema/ParsedAttr.h"
 #include "clang/Sema/ParsedTemplate.h"
@@ -31,6 +33,7 @@
 #include "clang/Sema/Sema.h"
 #include "clang/Sema/Template.h"
 #include "clang/Sema/TemplateDeduction.h"
+#include "llvm/Support/SaveAndRestore.h"
 #include "llvm/Support/raw_ostream.h"
 
 using namespace clang;
@@ -927,6 +930,121 @@ public:
     return Annot;
   }
 
+  // Returns the context designated by the target of a token injection.
+  static DeclContext *getInjectionTarget(Decl *Target) {
+    if (auto *Alias = dyn_cast<NamespaceAliasDecl>(Target))
+      return Alias->getNamespace();
+    if (isa<TranslationUnitDecl, NamespaceDecl, CXXRecordDecl, FunctionDecl>(
+            Target))
+      return cast<DeclContext>(Target);
+    return nullptr;
+  }
+
+  // The location that an injection is attributed to: the declaration (e.g.,
+  // the consteval block) whose evaluation requested it, rather than some
+  // location inside of the standard library.
+  static SourceLocation getInjectionLoc(Decl *ContainingDecl,
+                                        SourceLocation Loc) {
+    if (ContainingDecl && ContainingDecl->getLocation().isValid())
+      return ContainingDecl->getLocation();
+    return Loc;
+  }
+
+  TokenInjectionResult QueueTokenInjection(Decl *Target,
+                                           const TokenSequence *Tokens,
+                                           Decl *ContainingDecl,
+                                           SourceLocation Loc) override {
+    DeclContext *DC = getInjectionTarget(Target);
+    if (!DC)
+      return TokenInjectionResult::BadContext;
+
+    SourceLocation InjectLoc = getInjectionLoc(ContainingDecl, Loc);
+
+    // When the consteval block is instantiated from a template, the parser
+    // is not at the point where the block appears: there is no telling when
+    // it will come back to the target, if ever.
+    if (S.InstantiatingConstevalBlock) {
+      // The local scopes of an instantiated function do not exist as far as
+      // the parser is concerned.
+      if (isa<FunctionDecl>(DC))
+        return TokenInjectionResult::BlockInInstantiation;
+
+      // Members are added right away to the class being instantiated.
+      if (auto *RD = dyn_cast<CXXRecordDecl>(DC)) {
+        bool IsOwnClass =
+            ContainingDecl && ContainingDecl->getDeclContext()->Equals(RD);
+        if (!IsOwnClass || !RD->isBeingDefined() ||
+            !S.ClassTokenInjectionParser)
+          return TokenInjectionResult::BadContext;
+
+        S.ClassesWithInjectedTokens.insert(RD);
+        return convertStatus(S.ClassTokenInjectionParser(
+            S.OpaqueTokenInjectionParser, RD, Tokens, InjectLoc,
+            S.ConstevalBlockAccess));
+      }
+
+      // Namespace-scope declarations are injected as soon as the parser is
+      // in between two declarations of the namespace.
+      S.queueTokenInjection(DC, Tokens, InjectLoc);
+      return TokenInjectionResult::Success;
+    }
+
+    // Tokens can only be queued for a context that the parser will come back
+    // to, i.e., one of the scopes that are currently being parsed.
+
+    bool IsBeingParsed = false;
+    for (Scope *Sc = S.getCurScope(); Sc && !IsBeingParsed;
+         Sc = Sc->getParent())
+      if (DeclContext *Entity = Sc->getEntity())
+        IsBeingParsed = Entity->getPrimaryContext() == DC->getPrimaryContext();
+    if (!IsBeingParsed)
+      return TokenInjectionResult::BadContext;
+
+    // The members of a class cannot be added to once the class is complete
+    // (e.g., from the body of one of its member functions).
+    if (auto *RD = dyn_cast<CXXRecordDecl>(DC); RD && !RD->isBeingDefined())
+      return TokenInjectionResult::BadContext;
+
+    S.queueTokenInjection(DC, Tokens, InjectLoc);
+    return TokenInjectionResult::Success;
+  }
+
+  static TokenInjectionResult convertStatus(Sema::TokenInjectionStatus Status) {
+    switch (Status) {
+    case Sema::TokenInjectionStatus::Success:
+      return TokenInjectionResult::Success;
+    case Sema::TokenInjectionStatus::UnsupportedParserState:
+      return TokenInjectionResult::UnsupportedParserState;
+    case Sema::TokenInjectionStatus::Failed:
+      return TokenInjectionResult::Failed;
+    }
+    llvm_unreachable("unknown token injection status");
+  }
+
+  TokenInjectionResult InjectIntoNamespace(Decl *NS,
+                                           const TokenSequence *Tokens,
+                                           Decl *ContainingDecl,
+                                           SourceLocation Loc) override {
+    DeclContext *DC = getInjectionTarget(NS);
+    if (!DC || !DC->isFileContext())
+      return TokenInjectionResult::BadContext;
+    if (!S.TokenInjectionParser)
+      return TokenInjectionResult::UnsupportedParserState;
+
+    return convertStatus(
+        S.TokenInjectionParser(S.OpaqueTokenInjectionParser, DC, Tokens,
+                               getInjectionLoc(ContainingDecl, Loc)));
+  }
+
+  void ReportTokens(const TokenSequence *Tokens, SourceLocation Loc) override {
+    std::string Str;
+    {
+      llvm::raw_string_ostream OS(Str);
+      Tokens->print(OS, S.getPrintingPolicy(), &S.Context);
+    }
+    S.Diag(Loc, diag::warn_report_tokens) << Str;
+  }
+
   AttributeCommonInfo *SynthesizeAnnotation(Expr *CE,
                                             SourceLocation Loc) override {
     AttributeFactory AttrFactory;
@@ -1312,8 +1430,259 @@ bool Sema::ActOnCXXSpliceScopeSpecifier(CXXScopeSpec &SS,
   return false;
 }
 
+std::optional<Sema::PendingTokenInjection>
+Sema::takePendingTokenInjection(const DeclContext *DC, unsigned MinSeq) {
+  const DeclContext *Primary = DC->getPrimaryContext();
+  for (auto It = PendingTokenInjections.begin();
+       It != PendingTokenInjections.end(); ++It) {
+    if (It->Seq < MinSeq || It->Target->getPrimaryContext() != Primary)
+      continue;
+    PendingTokenInjection Result = *It;
+    PendingTokenInjections.erase(It);
+    return Result;
+  }
+  return std::nullopt;
+}
+
+std::optional<Sema::PendingTokenInjection>
+Sema::takePendingNamespaceTokenInjection() {
+  for (auto It = PendingTokenInjections.begin();
+       It != PendingTokenInjections.end(); ++It) {
+    if (!It->Target->isFileContext())
+      continue;
+    PendingTokenInjection Result = *It;
+    PendingTokenInjections.erase(It);
+    return Result;
+  }
+  return std::nullopt;
+}
+
+void Sema::pushTokenInjectionContext(SourceLocation Loc) {
+  CodeSynthesisContext Ctx;
+  Ctx.Kind = CodeSynthesisContext::TokenInjection;
+  Ctx.PointOfInstantiation = Loc;
+  pushCodeSynthesisContext(Ctx);
+}
+
+ExprResult Sema::ActOnCXXTokenSequenceExpr(
+    SourceLocation OperatorLoc, SourceLocation LBraceLoc,
+    SourceLocation RBraceLoc, ArrayRef<Token> Tokens,
+    ArrayRef<CXXTokenSequenceExpr::Interpolator> Interpolators,
+    MutableArrayRef<Expr *> Operands) {
+  return BuildCXXTokenSequenceExpr(OperatorLoc, LBraceLoc, RBraceLoc, Tokens,
+                                   Interpolators, Operands);
+}
+
+static StringRef getInterpolatorSpelling(
+    CXXTokenSequenceExpr::InterpolatorKind Kind) {
+  switch (Kind) {
+  case CXXTokenSequenceExpr::IK_Identifier:
+    return "\\[";
+  case CXXTokenSequenceExpr::IK_Splice:
+    return "\\[:";
+  case CXXTokenSequenceExpr::IK_Tokens:
+    return "\\{";
+  case CXXTokenSequenceExpr::IK_Value:
+    return "\\val";
+  case CXXTokenSequenceExpr::IK_String:
+    return "\\str";
+  }
+  llvm_unreachable("unknown interpolator kind");
+}
+
+/// Converts the operand of a '\\[: :]' or '\\{ }' interpolator to
+/// 'std::meta::info'. Explicit conversion functions are considered.
+static ExprResult
+CheckReflectionInterpolatorOperand(Sema &S, Expr *Operand,
+                                   CXXTokenSequenceExpr::InterpolatorKind IK) {
+  SourceLocation Loc = Operand->getExprLoc();
+  InitializedEntity Entity =
+      InitializedEntity::InitializeTemporary(S.Context.MetaInfoTy);
+  InitializationKind Kind = InitializationKind::CreateDirect(Loc, Loc, Loc);
+  InitializationSequence Seq(S, Entity, Kind, Operand);
+  if (Seq.Failed()) {
+    S.Diag(Loc, diag::err_interpolator_expected_reflection)
+        << getInterpolatorSpelling(IK) << Operand->getType()
+        << Operand->getSourceRange();
+    return ExprError();
+  }
+  return Seq.Perform(S, Entity, Kind, Operand);
+}
+
+/// Checks the operand of a '\\val' interpolator, and turns it into a prvalue.
+static ExprResult CheckValueInterpolatorOperand(Sema &S, Expr *Operand) {
+  ExprResult Res = S.DefaultFunctionArrayConversion(Operand);
+  if (Res.isInvalid())
+    return ExprError();
+  Operand = Res.get();
+
+  QualType Ty = Operand->getType().getNonReferenceType().getUnqualifiedType();
+  if (Ty->isVoidType() ||
+      !(Ty->isStructuralType() || Ty->isReflectionType())) {
+    S.Diag(Operand->getExprLoc(), diag::err_interpolator_value_type)
+        << Operand->getType() << Operand->getSourceRange();
+    return ExprError();
+  }
+
+  return S.PerformCopyInitialization(
+      InitializedEntity::InitializeTemporary(Ty), Operand->getExprLoc(),
+      Operand);
+}
+
+/// Checks an operand of a '\\[ ]' or '\\str( )' interpolator. Such an operand
+/// is either a string (a pointer to a null-terminated string, or an object of
+/// a class offering 'size()' and 'data()', like 'std::string_view'), or, if
+/// 'AllowInteger' is set, an integer.
+static ExprResult
+CheckTextInterpolatorOperand(Sema &S, Expr *Operand,
+                             CXXTokenSequenceExpr::InterpolatorKind IK,
+                             bool AllowInteger,
+                             CXXTokenSequenceExpr::StringOperand &SO) {
+  ASTContext &Ctx = S.Context;
+  SourceLocation Loc = Operand->getExprLoc();
+  QualType Ty = Operand->getType().getNonReferenceType();
+
+  auto Fail = [&]() {
+    S.Diag(Loc, diag::err_interpolator_expected_string)
+        << getInterpolatorSpelling(IK) << AllowInteger << Operand->getType()
+        << Operand->getSourceRange();
+    S.Diag(Loc, diag::note_interpolator_string_requirements);
+    return ExprError();
+  };
+  auto IsNarrowChar = [](QualType T) {
+    return T->isCharType() || T->isChar8Type();
+  };
+
+  // An integer contributes its decimal representation.
+  if (Ty->isIntegerType() && !Ty->isBooleanType() &&
+      !Ty->isAnyCharacterType() && !Ty->isEnumeralType()) {
+    if (!AllowInteger)
+      return Fail();
+    return S.DefaultLvalueConversion(Operand);
+  }
+
+  // A (possibly decayed) pointer to a null-terminated string.
+  if (Ty->isArrayType() || Ty->isPointerType()) {
+    ExprResult Res = S.DefaultFunctionArrayLvalueConversion(Operand);
+    if (Res.isInvalid())
+      return ExprError();
+    QualType PtrTy = Res.get()->getType();
+    if (!PtrTy->isPointerType() || !IsNarrowChar(PtrTy->getPointeeType()))
+      return Fail();
+    return Res;
+  }
+
+  // Otherwise, a string-like class.
+  auto *RD = Ty->getAsCXXRecordDecl();
+  if (!RD || S.RequireCompleteType(Loc, Ty, diag::err_incomplete_type))
+    return RD ? ExprError() : Fail();
+
+  // Bind the operand to an opaque value, so that it is evaluated only once
+  // although both of 'size()' and 'data()' are called on it.
+  ExprResult Base = Operand;
+  if (Operand->isPRValue())
+    Base = S.TemporaryMaterializationConversion(Operand);
+  if (Base.isInvalid())
+    return ExprError();
+  Operand = Base.get();
+
+  auto *Opaque = new (Ctx) OpaqueValueExpr(
+      Loc, Operand->getType(), Operand->getValueKind(), OK_Ordinary, Operand);
+
+  auto BuildMemberCall = [&](StringRef Member, QualType ResultTy) {
+    DeclarationName Name = &Ctx.Idents.get(Member);
+    LookupResult LR(S, Name, Loc, Sema::LookupMemberName);
+    S.LookupQualifiedName(LR, RD);
+    if (LR.empty())
+      return ExprError();
+    // Failing to call the member is not worth more than one diagnostic.
+    Sema::SFINAETrap Trap(S);
+    ExprResult Res = S.BuildMemberReferenceExpr(
+        Opaque, Opaque->getType(), Loc, /*IsArrow=*/false, CXXScopeSpec(),
+        SourceLocation(), nullptr, LR, nullptr, nullptr);
+    if (Res.isInvalid())
+      return ExprError();
+    Res = S.BuildCallExpr(nullptr, Res.get(), Loc, {}, Loc, nullptr,
+                          /*IsExecConfig=*/false, /*AllowRecovery=*/false);
+    if (Res.isInvalid() || Res.get()->isTypeDependent())
+      return ExprError();
+    Res = S.PerformImplicitConversion(Res.get(), ResultTy,
+                                      AssignmentAction::Converting);
+    if (Res.isInvalid() || Trap.hasErrorOccurred())
+      return ExprError();
+    return Res;
+  };
+
+  ExprResult Size = BuildMemberCall("size", Ctx.getSizeType());
+  ExprResult Data =
+      BuildMemberCall("data", Ctx.getPointerType(Ctx.CharTy.withConst()));
+  if (Size.isInvalid() || Data.isInvalid())
+    return Fail();
+
+  SO.Opaque = Opaque;
+  SO.Size = Size.get();
+  SO.Data = Data.get();
+  return Operand;
+}
+
+ExprResult Sema::BuildCXXTokenSequenceExpr(
+    SourceLocation OperatorLoc, SourceLocation LBraceLoc,
+    SourceLocation RBraceLoc, ArrayRef<Token> Tokens,
+    ArrayRef<CXXTokenSequenceExpr::Interpolator> Interpolators,
+    MutableArrayRef<Expr *> Operands) {
+  SmallVector<CXXTokenSequenceExpr::StringOperand, 4> StringOperands(
+      Operands.size());
+
+  bool Invalid = false;
+  for (const auto &Interp : Interpolators) {
+    for (unsigned I = 0; I < Interp.NumOperands; ++I) {
+      unsigned Idx = Interp.FirstOperand + I;
+      Expr *Operand = Operands[Idx];
+
+      // Analysis of a dependent operand has to wait for its instantiation.
+      if (Operand->isTypeDependent())
+        continue;
+
+      ExprResult Res;
+      switch (Interp.Kind) {
+      case CXXTokenSequenceExpr::IK_Splice:
+      case CXXTokenSequenceExpr::IK_Tokens:
+        Res = CheckReflectionInterpolatorOperand(*this, Operand, Interp.Kind);
+        break;
+      case CXXTokenSequenceExpr::IK_Value:
+        Res = CheckValueInterpolatorOperand(*this, Operand);
+        break;
+      case CXXTokenSequenceExpr::IK_Identifier:
+      case CXXTokenSequenceExpr::IK_String:
+        Res = CheckTextInterpolatorOperand(
+            *this, Operand, Interp.Kind,
+            /*AllowInteger=*/Interp.Kind ==
+                                 CXXTokenSequenceExpr::IK_Identifier &&
+                             I > 0,
+            StringOperands[Idx]);
+        break;
+      }
+
+      if (Res.isInvalid()) {
+        Invalid = true;
+        continue;
+      }
+      Operands[Idx] = Res.get();
+    }
+  }
+  if (Invalid)
+    return ExprError();
+
+  return CXXTokenSequenceExpr::Create(Context, Context.MetaInfoTy, OperatorLoc,
+                                      LBraceLoc, RBraceLoc, Tokens,
+                                      Interpolators, Operands, StringOperands);
+}
+
 Decl *Sema::ActOnConstevalBlockDeclaration(SourceLocation ConstevalLoc,
                                            Expr *EvaluatingExpr) {
+  // The block is being parsed, even if the parser was invoked from within a
+  // template instantiation (i.e., to parse injected tokens).
+  llvm::SaveAndRestore ParsingBlock(InstantiatingConstevalBlock, false);
   return BuildConstevalBlockDeclaration(ConstevalLoc, EvaluatingExpr);
 }
 
@@ -1958,6 +2327,8 @@ ExprResult Sema::BuildReflectionSpliceExpr(SourceLocation TemplateKWLoc,
     case ReflectionKind::DataMemberSpec:
     case ReflectionKind::Annotation:
     case ReflectionKind::Attribute:
+    case ReflectionKind::EnumeratorSpec:
+    case ReflectionKind::TokenSequence:
       Diag(Splice->getBeginLoc(),
            diag::err_unexpected_reflection_kind_in_splice)
           << 1 << Splice->getSourceRange();
@@ -2095,6 +2466,8 @@ DeclContext *Sema::TryFindDeclContextOf(SpliceSpecifier *Splice) {
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
   case ReflectionKind::Attribute:
+  case ReflectionKind::EnumeratorSpec:
+  case ReflectionKind::TokenSequence:
     Diag(Splice->getBeginLoc(), diag::err_expected_class_or_namespace)
         << "spliced entity" << getLangOpts().CPlusPlus;
     return nullptr;

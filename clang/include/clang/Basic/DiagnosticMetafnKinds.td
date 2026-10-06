@@ -116,6 +116,19 @@ def metafn_name_invalid_identifier : Note<
 def metafn_already_complete_type : Note<"%0 is already a complete type">;
 def metafn_duplicate_member_names : Note<
   "cannot produce a class definition with multiple members named '%0'">;
+def metafn_not_a_token_sequence : Note<
+  "expected a reflection of a token sequence, but got %0">;
+def metafn_bad_injection_context : Note<
+  "cannot inject tokens into %0: it is not a namespace, class or function "
+  "whose body is currently being parsed">;
+def metafn_injection_not_a_namespace : Note<
+  "cannot inject tokens into %0, which is not a namespace">;
+def metafn_injection_block_in_instantiation : Note<
+  "cannot inject tokens into a block scope during template instantiation">;
+def metafn_injection_unsupported_parser_state : Note<
+  "cannot inject tokens while the parser is disambiguating a construct">;
+def metafn_injection_failed : Note<
+  "injected tokens are ill-formed">;
 def metafn_injected_decl_non_plainly_consteval : Note<
   "cannot produce an injected declaration from a non-plainly "
   "constant-evaluated context">;

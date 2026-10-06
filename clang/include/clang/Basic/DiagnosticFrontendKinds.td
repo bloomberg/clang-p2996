@@ -105,6 +105,9 @@ def err_fe_parameter_reflection_without_reflection : Error<
 def err_fe_attribute_reflection_without_reflection : Error<
     "cannot specify '-fattribute-reflection' without '-freflection'">,
     DefaultFatal;
+def err_fe_token_injection_without_reflection : Error<
+    "cannot specify '-ftoken-injection' without '-freflection'">,
+    DefaultFatal;
 def err_fe_entity_proxy_reflection_without_reflection : Error<
     "cannot specify '-fentity-proxy-reflection' without '-freflection'">,
     DefaultFatal;

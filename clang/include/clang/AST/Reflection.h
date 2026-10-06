@@ -31,6 +31,7 @@ class ParsedAttr;
 class ValueDecl;
 
 struct TagDataMemberSpec;
+class TokenSequence;
 
 /// \brief The kind of construct reflected.
 enum class ReflectionKind {
@@ -119,6 +120,11 @@ enum class ReflectionKind {
 
   /// \brief A reflection of an attribute (P3385).
   Attribute,
+
+  /// \brief A token sequence (P3294).
+  ///
+  /// Corresponds to a TokenSequence.
+  TokenSequence,
 };
 
 /// \brief Representation of a hypothetical data member, which could be used to

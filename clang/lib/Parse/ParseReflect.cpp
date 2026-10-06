@@ -20,9 +20,14 @@
 #include "clang/Sema/EnterExpressionEvaluationContext.h"
 #include "clang/Sema/Ownership.h"
 #include "clang/Sema/ParsedAttr.h"
+#include "llvm/ADT/ScopeExit.h"
 using namespace clang;
 
 ExprResult Parser::ParseCXXReflectExpression(SourceLocation OpLoc) {
+  // A '^^' followed by a brace introduces a token sequence (P3294).
+  if (getLangOpts().TokenInjection && Tok.is(tok::l_brace))
+    return ParseCXXTokenSequenceExpression(OpLoc);
+
   SourceLocation OperandLoc = Tok.getLocation();
 
   Sema::ConstevalOnlyRecorder RecordConstevalOnly(Actions);
@@ -156,6 +161,186 @@ ExprResult Parser::ParseCXXReflectExpression(SourceLocation OpLoc) {
 
   Diag(OperandLoc, diag::err_cannot_reflect_operand);
   return ExprError();
+}
+
+/// Parse an interpolator of a token sequence, after the backslash has been
+/// seen (but not consumed):
+///
+///   interpolator:
+///     '\' '[' assignment-expression-list ']'
+///     '\' '[:' assignment-expression ':]'
+///     '\' '{' assignment-expression '}'
+///     '\' 'val' '(' assignment-expression ')'
+///     '\' 'str' '(' assignment-expression ')'
+///
+/// The operands are ordinary expressions of the context in which the token
+/// sequence appears. Returns true on error, in which case the tokens of the
+/// malformed interpolator have been skipped.
+bool Parser::ParseTokenSequenceInterpolator(
+    unsigned TokenPos,
+    SmallVectorImpl<CXXTokenSequenceExpr::Interpolator> &Interpolators,
+    SmallVectorImpl<Expr *> &Operands) {
+  assert(Tok.is(tok::backslash) && "expected an interpolator");
+
+  CXXTokenSequenceExpr::Interpolator Interp;
+  Interp.TokenPos = TokenPos;
+  Interp.FirstOperand = Operands.size();
+  Interp.NumOperands = 0;
+  Interp.BeginLoc = ConsumeToken();
+
+  tok::TokenKind Open;
+  bool AllowList = false;
+  if (Tok.is(tok::l_square)) {
+    Interp.Kind = CXXTokenSequenceExpr::IK_Identifier;
+    Open = tok::l_square;
+    AllowList = true;
+  } else if (Tok.is(tok::l_splice)) {
+    Interp.Kind = CXXTokenSequenceExpr::IK_Splice;
+    Open = tok::l_splice;
+  } else if (Tok.is(tok::l_brace)) {
+    Interp.Kind = CXXTokenSequenceExpr::IK_Tokens;
+    Open = tok::l_brace;
+  } else if (Tok.is(tok::identifier) && NextToken().is(tok::l_paren) &&
+             (Tok.getIdentifierInfo()->isStr("val") ||
+              Tok.getIdentifierInfo()->isStr("str"))) {
+    Interp.Kind = Tok.getIdentifierInfo()->isStr("val")
+                      ? CXXTokenSequenceExpr::IK_Value
+                      : CXXTokenSequenceExpr::IK_String;
+    ConsumeToken();
+    Open = tok::l_paren;
+  } else {
+    Diag(Tok, diag::err_expected_interpolator);
+    return true;
+  }
+
+  bool Invalid = false;
+  if (Open == tok::l_splice) {
+    // There is no balanced delimiter tracker for splice brackets.
+    SourceLocation LSpliceLoc = ConsumeSplice();
+    ExprResult Operand = ParseAssignmentExpression();
+    if (Operand.isInvalid()) {
+      Invalid = true;
+      SkipUntil(tok::r_splice, StopAtSemi | StopBeforeMatch);
+    } else {
+      Operands.push_back(Operand.get());
+    }
+    if (Tok.is(tok::r_splice)) {
+      Interp.EndLoc = ConsumeSplice();
+    } else {
+      Diag(Tok, diag::err_expected) << tok::r_splice;
+      Diag(LSpliceLoc, diag::note_matching) << tok::l_splice;
+      Invalid = true;
+    }
+  } else {
+    BalancedDelimiterTracker T(*this, Open);
+    T.consumeOpen();
+    do {
+      ExprResult Operand = ParseAssignmentExpression();
+      if (Operand.isInvalid()) {
+        Invalid = true;
+        break;
+      }
+      Operands.push_back(Operand.get());
+    } while (AllowList && TryConsumeToken(tok::comma));
+
+    if (Invalid)
+      T.skipToEnd();
+    else if (T.consumeClose())
+      Invalid = true;
+    Interp.EndLoc = T.getCloseLocation();
+  }
+
+  if (Invalid) {
+    Operands.truncate(Interp.FirstOperand);
+    return true;
+  }
+
+  Interp.NumOperands = Operands.size() - Interp.FirstOperand;
+  Interpolators.push_back(Interp);
+  return false;
+}
+
+/// Parse a token sequence expression, after the '^^' has been consumed:
+///
+///   token-sequence-expression:
+///     '^^' '{' balanced-brace-token-seq[opt] '}'
+///
+/// Only braces have to be balanced within the sequence. The tokens are not
+/// analyzed in any way until the sequence is injected, with the exception of
+/// interpolators, whose operands are parsed and analyzed right away.
+ExprResult Parser::ParseCXXTokenSequenceExpression(SourceLocation OpLoc) {
+  assert(Tok.is(tok::l_brace) && "expected '{'");
+
+  Sema::ConstevalOnlyRecorder RecordConstevalOnly(Actions);
+
+  // Parentheses and brackets need not be balanced in a token sequence, so do
+  // not let the tokens consumed below unbalance the enclosing construct.
+  unsigned short SavedParenCount = ParenCount;
+  unsigned short SavedBracketCount = BracketCount;
+  unsigned short SavedBraceCount = BraceCount;
+  unsigned short SavedSpliceCount = SpliceCount;
+  auto RestoreCounts = llvm::make_scope_exit([&] {
+    ParenCount = SavedParenCount;
+    BracketCount = SavedBracketCount;
+    BraceCount = SavedBraceCount;
+    SpliceCount = SavedSpliceCount;
+  });
+
+  SourceLocation LBraceLoc = ConsumeBrace();
+
+  SmallVector<Token, 32> Toks;
+  SmallVector<CXXTokenSequenceExpr::Interpolator, 4> Interpolators;
+  SmallVector<Expr *, 4> Operands;
+  unsigned Depth = 0;
+  bool Invalid = false;
+
+  while (true) {
+    if (Tok.isOneOf(tok::eof, tok::annot_module_begin, tok::annot_module_end,
+                    tok::annot_module_include, tok::annot_repl_input_end)) {
+      Diag(Tok, diag::err_token_sequence_unterminated);
+      Diag(LBraceLoc, diag::note_matching) << tok::l_brace;
+      return ExprError();
+    }
+    if (Tok.is(tok::code_completion)) {
+      cutOffParsing();
+      return ExprError();
+    }
+
+    if (Tok.is(tok::backslash)) {
+      if (ParseTokenSequenceInterpolator(Toks.size(), Interpolators, Operands))
+        Invalid = true;
+      continue;
+    }
+
+    if (Tok.is(tok::l_brace)) {
+      ++Depth;
+    } else if (Tok.is(tok::r_brace)) {
+      if (Depth == 0)
+        break;
+      --Depth;
+    } else if (Tok.isAnnotation() && Tok.isNot(tok::annot_token_value)) {
+      // The only annotation that can be part of a token sequence is the value
+      // of an interpolator of an enclosing token sequence that is being
+      // injected. Anything else was produced by a tentative parse of the
+      // tokens of the sequence.
+      if (!Invalid)
+        Diag(Tok, diag::err_token_sequence_annotation_token);
+      Invalid = true;
+      ConsumeAnyToken();
+      continue;
+    }
+
+    Toks.push_back(Tok);
+    ConsumeAnyToken();
+  }
+
+  SourceLocation RBraceLoc = ConsumeBrace();
+  if (Invalid)
+    return ExprError();
+
+  return RecordConstevalOnly.RecordAndReturn(
+      Actions.ActOnCXXTokenSequenceExpr(OpLoc, LBraceLoc, RBraceLoc, Toks,
+                                        Interpolators, Operands));
 }
 
 ExprResult Parser::ParseCXXMetafunctionExpression() {

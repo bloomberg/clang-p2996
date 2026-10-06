@@ -2381,6 +2381,23 @@ void StmtProfiler::VisitCXXMetafunctionExpr(const CXXMetafunctionExpr *E) {
   VisitExpr(E);
 }
 
+void StmtProfiler::VisitCXXTokenSequenceExpr(const CXXTokenSequenceExpr *E) {
+  VisitExpr(E);
+  ID.AddInteger(E->tokens().size());
+  for (const Token &Tok : E->tokens()) {
+    ID.AddInteger(static_cast<unsigned>(Tok.getKind()));
+    if (Tok.isLiteral() && Tok.getLiteralData())
+      ID.AddString(StringRef(Tok.getLiteralData(), Tok.getLength()));
+    else if (!Tok.isAnnotation())
+      ID.AddPointer(Tok.getIdentifierInfo());
+  }
+  for (const auto &Interp : E->interpolators()) {
+    ID.AddInteger(Interp.Kind);
+    ID.AddInteger(Interp.TokenPos);
+    ID.AddInteger(Interp.NumOperands);
+  }
+}
+
 void StmtProfiler::VisitCXXSpliceExpr(const CXXSpliceExpr *E) {
   VisitExpr(E);
 }

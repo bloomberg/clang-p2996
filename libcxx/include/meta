@@ -602,6 +602,16 @@ enum : unsigned {
 
   // P3867: define_encoded_static_string
   __metafn_define_encoded_static_string,
+
+  // P3294: token sequences and code injection
+  __metafn_is_token_sequence,
+  __metafn_is_empty_token_sequence,
+  __metafn_nearest_token_queuing_context,
+  __metafn_nearest_class_or_namespace,
+  __metafn_nearest_namespace,
+  __metafn_report_tokens,
+  __metafn_queue_injection,
+  __metafn_namespace_inject,
 };
 
 consteval auto __workaround_expand_compiler_builtins(info type) -> info;
@@ -2416,6 +2426,96 @@ consteval auto define_unscoped_enum(info targetEnum, R&& members) {
     ranges::data(members)
   );
 }
+
+#if __has_feature(token_injection)
+
+// -----------------------------------------------------------------------------
+// P3294: Code injection with token sequences
+// -----------------------------------------------------------------------------
+
+// Returns whether the reflection represents a token sequence, i.e., the value
+// of an expression of the form '^^{ ... }'.
+consteval auto is_token_sequence(info r) -> bool {
+  return __metafunction(detail::__metafn_is_token_sequence, r);
+}
+
+// Returns whether the reflection represents a token sequence having no token.
+consteval auto is_empty_token_sequence(info r) -> bool {
+  return __metafunction(detail::__metafn_is_empty_token_sequence, r);
+}
+
+// Returns a reflection of the innermost function, class or namespace enclosing
+// the construct (e.g., the consteval block) whose evaluation is underway.
+consteval auto nearest_token_queuing_context() -> info {
+  return __metafunction(detail::__metafn_nearest_token_queuing_context);
+}
+
+// Returns a reflection of the innermost class or namespace enclosing the
+// construct whose evaluation is underway.
+consteval auto nearest_class_or_namespace() -> info {
+  return __metafunction(detail::__metafn_nearest_class_or_namespace);
+}
+
+// Returns a reflection of the innermost namespace enclosing the construct
+// whose evaluation is underway.
+consteval auto nearest_namespace() -> info {
+  return __metafunction(detail::__metafn_nearest_namespace);
+}
+
+// Prints the tokens of a token sequence as a compiler diagnostic.
+consteval auto __report_tokens(info tokens) -> void {
+  (void) __metafunction(detail::__metafn_report_tokens, tokens);
+}
+
+// Queues 'tokens' for injection into 'context' (a namespace, a class that is
+// being defined, or a function whose body is being parsed). The tokens are
+// parsed as declarations (resp. member declarations, statements) of that
+// context once the construct whose evaluation is underway has been fully
+// parsed.
+consteval auto queue_injection(info context, info tokens) -> void {
+  (void) __metafunction(detail::__metafn_queue_injection, context, tokens);
+}
+
+consteval auto queue_injection(info tokens) -> void {
+  queue_injection(nearest_token_queuing_context(), tokens);
+}
+
+// Parses 'tokens' right away as declarations of the namespace 'ns'.
+consteval auto namespace_inject(info ns, info tokens) -> void {
+  (void) __metafunction(detail::__metafn_namespace_inject, ns, tokens);
+}
+
+consteval auto namespace_inject(info tokens) -> void {
+  namespace_inject(nearest_namespace(), tokens);
+}
+
+// Accumulates a token sequence, in which the pieces added with '+=' are
+// separated by the given separator (a comma by default).
+struct list_builder {
+  consteval list_builder() {}
+  consteval list_builder(info separator) : separator(separator) {}
+
+  consteval operator info() const { return tokens; }
+
+  consteval auto operator+=(info next_tokens) -> void {
+    if (is_empty_token_sequence(next_tokens))
+      return;
+
+    if (first) {
+      tokens = next_tokens;
+      first = false;
+    } else {
+      tokens = ^^{ \{tokens} \{separator} \{next_tokens} };
+    }
+  }
+
+private:
+  bool first = true;
+  info tokens = ^^{};
+  info separator = ^^{,};
+};
+
+#endif  // __has_feature(token_injection)
 
 // Returns a reflection representing a description of a data member, which may
 // be used with 'define_aggregate' to define a record type.

@@ -259,6 +259,9 @@ PUNCTUATOR(coloncolon,          "::")
 PUNCTUATOR(l_splice,            "[:")
 PUNCTUATOR(r_splice,            ":]")
 
+// Token sequence interpolators (P3294). Only produced with -ftoken-injection.
+PUNCTUATOR(backslash,           "\\")
+
 // Objective C support.
 PUNCTUATOR(at,                  "@")
 
@@ -899,6 +902,8 @@ ANNOTATION(pack_indexing_type) // annotation for an indexed pack of type,
 ANNOTATION(splice)       // annotation for a splice specifier
 ANNOTATION(splice_specialization) // annotation for a splice specialization
                                   // specifier
+ANNOTATION(token_value)  // annotation for a constant value interpolated into
+                         // a token sequence (P3294), e.g., "\val(expr)"
 
 // Annotation for #pragma unused(...)
 // For each argument inside the parentheses the pragma handler will produce

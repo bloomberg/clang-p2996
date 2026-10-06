@@ -39,6 +39,7 @@ class FunctionTemplateDecl;
 class NamedDecl;
 struct TagDataMemberSpec;
 class TemplateDecl;
+class TokenSequence;
 class TypeAliasTemplateDecl;
 class VarDecl;
 class VarTemplateDecl;
@@ -162,6 +163,43 @@ public:
 
   virtual AttributeCommonInfo *SynthesizeAnnotation(Expr *CE,
                                                     SourceLocation Loc) = 0;
+
+  // ================================
+  // Token Injection Support (P3294)
+  // ================================
+
+  // Outcome of a request to inject a token sequence.
+  enum class TokenInjectionResult {
+    // The tokens were queued or injected.
+    Success,
+    // The target is not a namespace, class or function whose body is
+    // currently being parsed.
+    BadContext,
+    // Tokens cannot be injected into a block scope from a template
+    // instantiation.
+    BlockInInstantiation,
+    // The parser is not in a state from which it can be re-entered.
+    UnsupportedParserState,
+    // The injected tokens were ill-formed (already diagnosed).
+    Failed,
+  };
+
+  // Queues the token sequence 'Tokens' for injection into 'Target' (a
+  // namespace, class or function) once the declaration being parsed is
+  // complete.
+  virtual TokenInjectionResult
+  QueueTokenInjection(Decl *Target, const TokenSequence *Tokens,
+                      Decl *ContainingDecl, SourceLocation Loc) = 0;
+
+  // Parses the token sequence 'Tokens' right away as a sequence of
+  // declarations of the namespace 'NS'.
+  virtual TokenInjectionResult
+  InjectIntoNamespace(Decl *NS, const TokenSequence *Tokens,
+                      Decl *ContainingDecl, SourceLocation Loc) = 0;
+
+  // Prints the tokens of 'Tokens' as a diagnostic.
+  virtual void ReportTokens(const TokenSequence *Tokens,
+                            SourceLocation Loc) = 0;
 };
 } // namespace clang
 

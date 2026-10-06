@@ -468,6 +468,23 @@ let Class = PropertyTypeCase<APValue, "Reflection"> in {
       if (TDMS->Name.has_value())
         baseTdmsNameArray = ArrayRef(TDMS->Name->data(), TDMS->Name->size());
     }
+
+    // A token sequence is written as text, and lexed again when read.
+    std::string baseTokenTextStorage;
+    if (baseKind == ReflectionKind::TokenSequence) {
+      const TokenSequence *TS = base.getReflectedTokenSequence();
+      if (TS->hasInterpolatedValues()) {
+        DiagnosticsEngine &Diags = getASTContext().getDiagnostics();
+        Diags.Report(Diags.getCustomDiagID(
+            DiagnosticsEngine::Error,
+            "cannot yet serialize a token sequence that contains the value "
+            "of an interpolator"));
+      }
+      llvm::raw_string_ostream OS(baseTokenTextStorage);
+      TS->print(OS, getASTContext().getPrintingPolicy(), &getASTContext());
+    }
+    ArrayRef<char> baseTokenTextArray(baseTokenTextStorage.data(),
+                                      baseTokenTextStorage.size());
   }]>;
 
   def : Property<"depth", UInt32> {
@@ -553,9 +570,19 @@ let Class = PropertyTypeCase<APValue, "Reflection"> in {
     let Read = [{ base.getReflectedDataMemberSpec()->NoUniqueAddress }];
   }
 
+  def : Property<"baseTokenText", Array<Char>> {
+    let Conditional = [{ kind == ReflectionKind::TokenSequence }];
+    let Read = [{ baseTokenTextArray }];
+  }
+
   def : Creator<[{
     APValue V;
     switch (kind) {
+    case ReflectionKind::TokenSequence:
+      V = APValue(kind, TokenSequence::CreateFromText(
+                            ctx, StringRef(baseTokenText->data(),
+                                           baseTokenText->size())));
+      break;
     case ReflectionKind::Null:
       V = APValue(kind, nullptr);
       break;
