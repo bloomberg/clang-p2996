@@ -57,12 +57,12 @@ consteval { namespace_inject(^^Complete, ^^{ int x; }); }
 
 consteval { queue_injection(^^int); }
 // expected-error@-1 {{must be a constant expression}}
-// expected-note@-2 {{expected a reflection of a token sequence, but got a type}}
+// expected-note@meta:* {{expected a reflection of a token sequence, but got a type}}
 
 // Injection is only possible from a consteval block.
 constexpr int not_plain = (queue_injection(^^{ int y; }), 0);
 // expected-error@-1 {{must be initialized by a constant expression}}
-// expected-note@-2 {{cannot produce an injected declaration from a non-plainly constant-evaluated context}}
+// expected-note@meta:* {{cannot produce an injected declaration from a non-plainly constant-evaluated context}}
 }  // namespace bad_injection_sites
 
                              // ===================

@@ -17069,9 +17069,11 @@ bool ReflectionEvaluator::VisitCXXTokenSequenceExpr(
       if (!Value.isReflection())
         return Error(Operand);
 
+      // The parser tells tokens apart by their locations when it annotates
+      // the splice: give the value a location of its own (that of the '[').
       Toks.push_back(TokenSequence::makePunctuator(tok::l_splice, Loc));
-      Toks.push_back(
-          TokenSequence::makeValue(Ctx, Operand->getType(), Value, Loc));
+      Toks.push_back(TokenSequence::makeValue(Ctx, Operand->getType(), Value,
+                                              Loc.getLocWithOffset(1)));
       Toks.push_back(
           TokenSequence::makePunctuator(tok::r_splice, Interp.EndLoc));
       break;
