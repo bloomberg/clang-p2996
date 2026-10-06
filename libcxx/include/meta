@@ -600,6 +600,9 @@ enum : unsigned {
   // P4033 extension: completing unscoped (C-style) enums
   __metafn_define_unscoped_enum,
 
+  // P3867: define_encoded_static_string
+  __metafn_define_encoded_static_string,
+
   // P3294: token sequences and code injection
   __metafn_is_token_sequence,
   __metafn_is_empty_token_sequence,
@@ -609,8 +612,6 @@ enum : unsigned {
   __metafn_report_tokens,
   __metafn_queue_injection,
   __metafn_namespace_inject,
-  // P3867: define_encoded_static_string
-  __metafn_define_encoded_static_string,
 };
 
 consteval auto __workaround_expand_compiler_builtins(info type) -> info;

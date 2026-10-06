@@ -626,6 +626,13 @@ static bool define_unscoped_enum(APValue &Result, ASTContext &C,
                              QualType ResultTy, SourceRange Range,
                              ArrayRef<Expr *> Args, Decl *ContainingDecl);
 
+static bool define_encoded_static_string(APValue &Result, ASTContext &C,
+                                         MetaActions &Meta, EvalFn Evaluator,
+                                         DiagFn Diagnoser, bool AllowInjection,
+                                         QualType ResultTy, SourceRange Range,
+                                         ArrayRef<Expr *> Args,
+                                         Decl *ContainingDecl);
+
 // Token sequences and code injection (P3294).
 static bool is_token_sequence(APValue &Result, ASTContext &C, MetaActions &Meta,
         EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
@@ -666,13 +673,6 @@ static bool namespace_inject(APValue &Result, ASTContext &C, MetaActions &Meta,
         EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
         QualType ResultTy, SourceRange Range, ArrayRef<Expr *> Args,
         Decl *ContainingDecl);
-
-static bool define_encoded_static_string(APValue &Result, ASTContext &C,
-                                         MetaActions &Meta, EvalFn Evaluator,
-                                         DiagFn Diagnoser, bool AllowInjection,
-                                         QualType ResultTy, SourceRange Range,
-                                         ArrayRef<Expr *> Args,
-                                         Decl *ContainingDecl);
 
 static bool offset_of(APValue &Result, ASTContext &C, MetaActions &Meta,
                       EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
@@ -1011,6 +1011,9 @@ static constexpr Metafunction Metafunctions[] = {
   // P4033 extension: completing unscoped (C-style) enums
   { Metafunction::MFRK_metaInfo, 3, 3, define_unscoped_enum },
 
+  // P3867: define_encoded_static_string
+  { Metafunction::MFRK_spliceFromArg, 3, 3, define_encoded_static_string },
+
   // P3294: token sequences and code injection
   { Metafunction::MFRK_bool, 1, 1, is_token_sequence },
   { Metafunction::MFRK_bool, 1, 1, is_empty_token_sequence },
@@ -1020,8 +1023,6 @@ static constexpr Metafunction Metafunctions[] = {
   { Metafunction::MFRK_bool, 1, 1, report_tokens },
   { Metafunction::MFRK_bool, 2, 2, queue_injection },
   { Metafunction::MFRK_bool, 2, 2, namespace_inject },
-  // P3867: define_encoded_static_string
-  { Metafunction::MFRK_spliceFromArg, 3, 3, define_encoded_static_string },
 };
 constexpr const unsigned NumMetafunctions = sizeof(Metafunctions) /
                                             sizeof(Metafunction);
