@@ -3034,6 +3034,12 @@ DEF_TRAVERSE_STMT(CXXReflectExpr, {
   if (S->hasDependentSubExpr()) {
     TRY_TO(TraverseStmt(S->getDependentSubExpr()));
   } else {
+    // A reflection refers to an entity declared elsewhere: like a DeclRefExpr,
+    // it does not contain the declaration of that entity. Traversing the
+    // reflected declaration would, e.g., walk the body of a function from a
+    // reflection of the function appearing in that very body. Types and
+    // template names are traversed, as they may mention template parameters
+    // (in particular, unexpanded parameter packs).
     APValue RV = S->getReflection();
     assert(RV.isReflection());
     switch (RV.getReflectionKind()) {
@@ -3041,34 +3047,22 @@ DEF_TRAVERSE_STMT(CXXReflectExpr, {
       TRY_TO(TraverseType(RV.getReflectedType()));
       break;
     }
-    case ReflectionKind::Declaration: {
-      TRY_TO(TraverseDecl(RV.getReflectedDecl()));
-      break;
-    }
     case ReflectionKind::Template: {
       TRY_TO(TraverseTemplateName(RV.getReflectedTemplate()));
-      break;
-    }
-    case ReflectionKind::EntityProxy: {
-      TRY_TO(TraverseDecl(RV.getReflectedEntityProxy()));
-      break;
-    }
-    case ReflectionKind::Parameter: {
-      TRY_TO(TraverseDecl(RV.getReflectedParameter()));
-      break;
-    }
-    case ReflectionKind::Annotation: {
-      TRY_TO(TraverseStmt(RV.getReflectedAnnotation()->getArg()));
       break;
     }
     case ReflectionKind::Null:
     case ReflectionKind::Object:
     case ReflectionKind::Value:
+    case ReflectionKind::Declaration:
     case ReflectionKind::Namespace:
+    case ReflectionKind::EntityProxy:
+    case ReflectionKind::Parameter:
     case ReflectionKind::BaseSpecifier:
     case ReflectionKind::DataMemberSpec:
-    case ReflectionKind::Attribute:
+    case ReflectionKind::Annotation:
     case ReflectionKind::EnumeratorSpec:
+    case ReflectionKind::Attribute:
     case ReflectionKind::TokenSequence:
       break;
     }

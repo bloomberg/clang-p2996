@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/AST/ASTContext.h"
+#include "clang/Frontend/ASTUnit.h"
 #include "MatchVerifier.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
 #include "clang/ASTMatchers/ASTMatchers.h"
@@ -195,6 +196,52 @@ void F(const Decomposable& d) {
 }
 )",
       varDecl(hasName("x"), hasAncestor(decompositionDecl())), Lang_CXX20));
+}
+
+// A reflection of an entity (P2996) is a reference to it, not a parent of its
+// declaration: building the parent map must not traverse the reflected
+// declaration, which may be the very one being traversed.
+TEST(GetParents, ReflectionOfEnclosingEntity) {
+  std::unique_ptr<ASTUnit> AU = tooling::buildASTFromCodeWithArgs(
+      R"cpp(
+int f() {
+  constexpr auto r = ^^f;
+  return 0;
+}
+struct S {
+  static constexpr auto r = ^^S;
+  void m() { constexpr auto q = ^^m; }
+};
+template <typename... Ts> struct Pack {
+  static constexpr int n = sizeof...(Ts);
+  void m() { constexpr auto r = ^^Pack; }
+};
+int use = Pack<int, long>::n;
+)cpp",
+      {"-std=c++26", "-freflection"});
+  ASSERT_TRUE(AU);
+  ASSERT_FALSE(AU->getDiagnostics().hasErrorOccurred());
+  ASTContext &Ctx = AU->getASTContext();
+
+  auto Matches = match(varDecl(hasName("r")).bind("r"), Ctx);
+  ASSERT_EQ(Matches.size(), 3u);
+  for (const auto &M : Matches) {
+    const auto *VD = M.getNodeAs<VarDecl>("r");
+    ASSERT_TRUE(VD);
+    // Building the parent map traverses the whole translation unit.
+    DynTypedNodeList Parents = Ctx.getParents(*VD);
+    ASSERT_EQ(Parents.size(), 1u);
+    EXPECT_TRUE(Parents[0].get<DeclStmt>() || Parents[0].get<CXXRecordDecl>());
+  }
+
+  // The reflected function is not reached through its own body: it has its
+  // single, real parent.
+  auto F = match(functionDecl(hasName("f")).bind("f"), Ctx);
+  ASSERT_EQ(F.size(), 1u);
+  DynTypedNodeList FParents =
+      Ctx.getParents(*F[0].getNodeAs<FunctionDecl>("f"));
+  ASSERT_EQ(FParents.size(), 1u);
+  EXPECT_TRUE(FParents[0].get<TranslationUnitDecl>());
 }
 
 } // end namespace ast_matchers
