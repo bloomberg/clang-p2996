@@ -910,9 +910,9 @@ consteval auto has_identifier(info r) -> bool {
 // Returns the string representation of the operator.
 consteval auto symbol_of(operators op) -> string_view {
   static constexpr string_view op_names[45] = {
-      {}, "new", "delete", "new[]", "delete[]", "coawait", "()", "[]", "->",
+      {}, "new", "delete", "new[]", "delete[]", "co_await", "()", "[]", "->",
       "->*", "~", "!", "+", "-", "*", "/", "%", "^", "&", "|", "=", "+=", "-=",
-      "*=", "/=", "%=", "^", "&=", "|=", "==", "!=", "<", ">", "<=", ">=",
+      "*=", "/=", "%=", "^=", "&=", "|=", "==", "!=", "<", ">", "<=", ">=",
       "<=>", "&&", "||", "<<", ">>", "<<=", ">>=", "++", "--", ","
   };
   return op_names[int(op)];
@@ -920,10 +920,10 @@ consteval auto symbol_of(operators op) -> string_view {
 
 consteval auto u8symbol_of(operators op) -> u8string_view {
   static constexpr u8string_view op_names[45] = {
-      {}, u8"new", u8"delete", u8"new[]", u8"delete[]", u8"coawait", u8"()",
+      {}, u8"new", u8"delete", u8"new[]", u8"delete[]", u8"co_await", u8"()",
       u8"[]", u8"->", u8"->*", u8"~", u8"!", u8"+", u8"-", u8"*", u8"/", u8"%",
       u8"^", u8"&", u8"|", u8"=", u8"+=", u8"-=", u8"*=", u8"/=", u8"%=",
-      u8"^", u8"&=", u8"|=", u8"==", u8"!=", u8"<", u8">", u8"<=", u8">=",
+      u8"^=", u8"&=", u8"|=", u8"==", u8"!=", u8"<", u8">", u8"<=", u8">=",
       u8"<=>", u8"&&", u8"||", u8"<<", u8">>", u8"<<=", u8">>=", u8"++",
       u8"--", u8","
   };

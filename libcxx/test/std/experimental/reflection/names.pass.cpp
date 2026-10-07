@@ -298,6 +298,9 @@ struct S {
   operator bool();
 
   template <typename T> S& operator-(T &);
+
+  S &operator^=(const S &);
+  int operator co_await();
 };
 int operator+(const S&, const S&);
 int operator,(const S&, const S&);
@@ -306,6 +309,21 @@ static_assert(display_string_of(^^operator+) == "operator+");
 static_assert(display_string_of(^^operator,) == "operator,");
 static_assert(display_string_of(template_of(^^S::operator-<int>)) == "operator-");
 static_assert(display_string_of(^^S::operator new) == "operator new");
+static_assert(display_string_of(^^S::operator^=) == "operator^=");
+static_assert(display_string_of(^^S::operator co_await) == "operator co_await");
+
+// [meta.reflection.operators], Table "Operator representations".
+using std::meta::operators;
+static_assert(symbol_of(operators::op_co_await) == "co_await");
+static_assert(u8symbol_of(operators::op_co_await) == u8"co_await");
+static_assert(symbol_of(operators::op_caret) == "^");
+static_assert(u8symbol_of(operators::op_caret) == u8"^");
+static_assert(symbol_of(operators::op_caret_equals) == "^=");
+static_assert(u8symbol_of(operators::op_caret_equals) == u8"^=");
+static_assert(symbol_of(operators::op_ampersand_equals) == "&=");
+static_assert(symbol_of(operators::op_comma) == ",");
+static_assert(operator_of(^^S::operator co_await) == operators::op_co_await);
+static_assert(operator_of(^^S::operator^=) == operators::op_caret_equals);
 }  // namespace Ops
 
 namespace DataMemberSpecs {
