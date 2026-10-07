@@ -119,3 +119,24 @@ int e = dependent<E, ^^C::pub>({});
   // expected-note@-1 {{in instantiation of function template specialization}}
 
 }  // namespace member_access_through_inaccessible_base
+
+                     // ==================================
+                     // specialization_of_non_template
+                     // ==================================
+
+namespace specialization_of_non_template {
+// The splice-specifier of a splice-specialization-specifier shall designate
+// a template ([basic.splice]/2).
+struct NT { static constexpr int v = 1; using type = int; };
+template <typename> struct TB {};
+int x;
+
+using T1 = [:^^NT:]<int>;
+  // expected-error@-1 {{cannot specialize a splice that does not designate a template}}
+using T2 = typename [:^^int:]<char>;
+  // expected-error@-1 {{cannot specialize a splice that does not designate a template}}
+using T3 = [:^^TB<int>:]<char>;
+  // expected-error@-1 {{cannot specialize a splice that does not designate a template}}
+int v2 = template [:^^x:]<int>;
+  // expected-error@-1 {{reflection not usable in a template splice}}
+}  // namespace specialization_of_non_template

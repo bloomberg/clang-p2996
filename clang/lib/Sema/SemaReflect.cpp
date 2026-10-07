@@ -1703,6 +1703,12 @@ QualType Sema::BuildReflectionSpliceType(SourceLocation TypenameKWLoc,
       Diag(Splice->getBeginLoc(),
            diag::err_unexpected_reflection_kind_in_splice) << 0;
     return QualType();
+  } else if (Splice->isSpecialization()) {
+    // [basic.splice]/2: the splice-specifier of a
+    // splice-specialization-specifier shall designate a template.
+    Diag(Splice->getBeginLoc(), diag::err_splice_specialization_not_template)
+        << Splice->getSourceRange();
+    return QualType();
   } else {
     ReflectedTy = Refl.getReflectedType();
   }
@@ -2044,6 +2050,12 @@ DeclContext *Sema::TryFindDeclContextOf(SpliceSpecifier *Splice) {
 
   switch (Refl.getReflectionKind()) {
   case ReflectionKind::Type: {
+    if (Splice->isSpecialization()) {
+      Diag(Splice->getBeginLoc(), diag::err_splice_specialization_not_template)
+          << Splice->getSourceRange();
+      return nullptr;
+    }
+
     QualType QT = Refl.getReflectedType();
     if (auto *RD = QT->getAsTagDecl())
       return RD;

@@ -3226,6 +3226,8 @@ def err_unexpected_reflection_template_kind : Error<
   "%select{type|expression}0">;
 def err_unexpected_splice_specialization : Error<
   "cannot specialize a splice of a namespace">;
+def err_splice_specialization_not_template : Error<
+  "cannot specialize a splice that does not designate a template">;
 def err_splice_global_scope_as_namespace : Error<
   "splice of global scope can only appear in a nested-name-specifier">;
 def err_member_access_splice_not_class_member : Error<
