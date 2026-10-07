@@ -1501,6 +1501,8 @@ void MicrosoftCXXNameMangler::mangleCXXDtorType(CXXDtorType T) {
   // it.
   case Dtor_Comdat:
     llvm_unreachable("not expecting a COMDAT");
+  case Dtor_Unified:
+    llvm_unreachable("unified destructors only name Itanium reflections");
   }
   llvm_unreachable("Unsupported dtor type?");
 }
