@@ -1042,10 +1042,19 @@ consteval auto substitute(info templ, R &&args) -> info {
 }
 
 // Returns the value or object from 'r' if 'r' is a reflection of a value
-// or object having type 'T'.
-template <typename Ty> requires (!is_rvalue_reference_v<Ty>)
+// or object having type 'T', or a reference to the object represented by
+// 'r' if 'T' is a reference type ([meta.reflection.extract]).
+template <typename Ty>
 consteval auto extract(info r) -> Ty {
-  return __metafunction(detail::__metafn_extract, ^^Ty, r);
+  if constexpr (is_rvalue_reference_v<Ty>) {
+    // The builtin cannot produce an xvalue; bind an lvalue reference to the
+    // same object (subject to the same qualification check) and convert it.
+    return static_cast<Ty>(
+        __metafunction(detail::__metafn_extract, ^^remove_reference_t<Ty> &,
+                       r));
+  } else {
+    return __metafunction(detail::__metafn_extract, ^^Ty, r);
+  }
 }
 
 consteval auto is_class_type(info r) -> bool {

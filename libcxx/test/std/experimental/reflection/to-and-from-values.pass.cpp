@@ -182,6 +182,35 @@ namespace extract_ref_semantics {
   const int &constGlobalRef = constGlobal;
   static_assert(&extract<const int &>(^^constGlobalRef) == &constGlobal);
 
+  // [meta.reflection.extract]: T may also be an rvalue reference type, in
+  // which case the result is an xvalue designating the same object that the
+  // lvalue reference form designates.
+  consteval const void *addr(auto &&r) { return &r; }
+  static_assert(addr(extract<int &&>(^^nonConstGlobal)) == &nonConstGlobal);
+  static_assert(addr(extract<int &&>(std::meta::reflect_object(nonConstGlobal)))
+                == &nonConstGlobal);
+  static_assert(addr(extract<const int &&>(^^constGlobal)) == &constGlobal);
+  static_assert(addr(extract<const int &&>(^^constGlobalRef)) == &constGlobal);
+  static_assert(extract<const int &&>(^^constGlobalRef) == 2);
+  static_assert(std::is_same_v<decltype(extract<int &&>(^^nonConstGlobal)),
+                               int &&>);
+  static_assert(std::is_same_v<decltype(extract<const int &&>(^^constGlobal)),
+                               const int &&>);
+
+  struct Obj { int m; };
+  constexpr Obj obj{7};
+  static_assert(extract<const Obj &&>(^^obj).m == 7);
+  static_assert(extract<const Obj &&>(std::meta::reflect_object(obj)).m == 7);
+  static_assert(addr(extract<const Obj &&>(^^obj)) == &obj);
+
+  consteval int rvalueRefToLocal() {
+    int val = 3;
+    int &&ref = extract<int &&>(^^val);
+    ref = 4;
+    return val;
+  }
+  static_assert(rvalueRefToLocal() == 4);
+
   // TODO(P2996): Need to decide whether 'extract' should be legal on locals
   // within an immediate function context. It isn't legal as spec'd by P2996R3,
   // but we may want to make it work. Not going to sink more time into making
