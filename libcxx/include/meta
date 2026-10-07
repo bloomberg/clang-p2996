@@ -172,7 +172,7 @@ struct member_offset {
   ptrdiff_t bytes;
   ptrdiff_t bits;
 
-  constexpr size_t total_bits() const;
+  constexpr ptrdiff_t total_bits() const;
   auto operator<=>(member_offset const&) const = default;
 };
 consteval auto offset_of(info) -> member_offset;
@@ -1504,7 +1504,7 @@ struct member_offset {
   ptrdiff_t bytes;
   ptrdiff_t bits;
 
-  constexpr auto total_bits() -> ptrdiff_t {
+  constexpr auto total_bits() const -> ptrdiff_t {
     return bytes * CHAR_BIT + bits;
   }
 

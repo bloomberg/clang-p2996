@@ -35,6 +35,13 @@ static_assert(alignment_of(^^int &) == alignof(int *));
 static_assert(alignment_of(^^int_alias) == alignof(int));
 
 
+// [meta.reflection.layout]: total_bits is a const member function returning
+// ptrdiff_t, so it must be callable on a const member_offset.
+constexpr std::meta::member_offset const_off{3, 5};
+static_assert(const_off.total_bits() == 3 * CHAR_BIT + 5);
+static_assert(std::meta::member_offset{0, 0}.total_bits() == 0);
+static_assert(std::is_same_v<decltype(const_off.total_bits()), std::ptrdiff_t>);
+
 struct S1 { char mem; };
 static_assert(offset_of(^^S1::mem) == std::meta::member_offset{0, 0});
 static_assert(size_of(^^S1::mem) == 1);
