@@ -285,7 +285,7 @@ constexpr auto func_first = std::meta::constant_of(std::meta::annotations_of(^^f
 constexpr auto func2_first = std::meta::constant_of(std::meta::annotations_of(^^func2)[0]);
 
 static_assert(std::meta::constant_of(^^test) == std::meta::reflect_constant(test));
-static_assert(std::same_as<decltype([:func_first:]), const test_struct &>);
+static_assert(std::same_as<decltype([:func_first:]), const test_struct>);
 static_assert(func2_first == std::meta::reflect_constant(1));
 static_assert(func_first == std::meta::reflect_constant(test));
 }  // namespace bb_clang_p2996_issue_143_regression_test

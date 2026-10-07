@@ -331,6 +331,43 @@ static_assert(static_cast<Enum>([:rClsB:]) == B);
 
 }  // namespace with_enums
 
+                              // ==================
+                              // decltype_of_splice
+                              // ==================
+
+namespace decltype_of_splice {
+// decltype of an unparenthesized splice-expression is the type of the
+// designated entity ([dcl.type.decltype]/1.4).
+int g;
+const int cg = 1;
+int &rg = g;
+int &&rrg = 1;
+struct S { int m; static int sm; };
+constexpr S cs{1};
+template <auto V> constexpr int vt = V;
+enum E { A };
+void fn();
+
+static_assert(__is_same(decltype([:^^g:]), int));
+static_assert(__is_same(decltype([:^^cg:]), const int));
+static_assert(__is_same(decltype([:^^rg:]), int &));
+static_assert(__is_same(decltype([:^^rrg:]), int &&));
+static_assert(__is_same(decltype([:^^S::sm:]), int));
+static_assert(__is_same(decltype(cs.[:^^S::m:]), int));
+static_assert(__is_same(decltype([:^^A:]), E));
+static_assert(__is_same(decltype([:^^fn:]), void ()));
+static_assert(__is_same(decltype(template [:^^vt:]<1>), const int));
+
+// A parenthesized splice-expression follows the rules for other expressions.
+static_assert(__is_same(decltype(([:^^g:])), int &));
+static_assert(__is_same(decltype(([:^^rrg:])), int &));
+static_assert(__is_same(decltype(([:^^A:])), E));
+
+template <info R> using type_of_splice = decltype([:R:]);
+static_assert(__is_same(type_of_splice<^^g>, int));
+static_assert(__is_same(type_of_splice<^^rrg>, int &&));
+}  // namespace decltype_of_splice
+
                             // ====================
                             // address_of_bit_field
                             // ====================
