@@ -400,6 +400,11 @@ consteval auto has_inaccessible_bases(
         info r,
         access_context cls) -> vector<info>;
 
+// scope identification ([meta.reflection.scope])
+consteval auto current_function() -> info;
+consteval auto current_class() -> info;
+consteval auto current_namespace() -> info;
+
 // other bespoke functions (not proposed at this time)
 consteval auto is_access_specified(info) -> bool;
 
@@ -2315,6 +2320,49 @@ consteval auto has_inaccessible_nonstatic_data_members(
 
 consteval auto has_inaccessible_bases(info r, access_context ctx) -> bool {
   return __any_inaccessible(bases_of(r, access_context::unchecked()), ctx);
+}
+
+                           // =======================
+                           // scope identification
+                           // =======================
+
+// [meta.reflection.scope]: Each of these returns information about the scope
+// (CURRENT-SCOPE(P)) in which the call lexically appears, like
+// access_context::current(). The metafunction must be invoked directly from
+// the body of each function, since it identifies the scope as the caller of
+// the function that evaluates it; and like access_context::current(), each is
+// value-dependent when it appears within a templated entity.
+
+// Returns a reflection of the function in which the invocation appears.
+[[clang::instantiation_dependent]]
+consteval auto current_function() -> info {
+  info s = __metafunction(detail::__metafn_access_context);
+  if (!is_function(s))
+    throw "current_function() must be invoked from within a function";
+  return s;
+}
+
+// Returns a reflection of the class in whose scope the invocation appears,
+// either directly or within one of its member functions.
+[[clang::instantiation_dependent]]
+consteval auto current_class() -> info {
+  info s = __metafunction(detail::__metafn_access_context);
+  if (is_type(s))
+    return s;
+  if (is_function(s) && is_class_member(s))
+    return parent_of(s);
+  throw "current_class() must be invoked from within a class or a member "
+        "function";
+}
+
+// Returns a reflection of the nearest enclosing namespace of the point at
+// which the invocation appears.
+[[clang::instantiation_dependent]]
+consteval auto current_namespace() -> info {
+  info s = __metafunction(detail::__metafn_access_context);
+  while (!is_namespace(s))
+    s = parent_of(s);
+  return s;
 }
 
              // ===================================================
