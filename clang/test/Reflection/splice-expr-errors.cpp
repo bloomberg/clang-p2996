@@ -84,3 +84,38 @@ void fn() {
   };
 }
 }  // namespace enclosing_lambdas
+
+                   // =======================================
+                   // member_access_through_inaccessible_base
+                   // =======================================
+
+namespace member_access_through_inaccessible_base {
+struct C {
+  int pub = 1;
+  int fn() const { return 2; }
+};
+struct E : private C {};  // expected-note 2 {{declared private here}}
+struct F : protected C {};  // expected-note 2 {{declared protected here}}
+struct G : C, E {};
+  // expected-warning@-1 {{direct base 'C' is inaccessible due to ambiguity}}
+
+// The member is accessible however it is designated, but the object
+// expression must be convertible to a pointer to the designating class.
+int a = E{}.[:^^C::pub:];
+  // expected-error@-1 {{cannot cast 'E' to its private base class}}
+int b = F{}.[:^^C::pub:];
+  // expected-error@-1 {{cannot cast 'F' to its protected base class}}
+int c = (new F)->[:^^C::fn:]();
+  // expected-error@-1 {{cannot cast 'F' to its protected base class}}
+int d = G{}.[:^^C::pub:];
+  // expected-error@-1 {{ambiguous conversion from derived class 'G' to base class}}
+
+template <typename T, info R>
+int dependent(T t) {
+  return t.[:R:];
+    // expected-error@-1 {{to its private base class}}
+}
+int e = dependent<E, ^^C::pub>({});
+  // expected-note@-1 {{in instantiation of function template specialization}}
+
+}  // namespace member_access_through_inaccessible_base

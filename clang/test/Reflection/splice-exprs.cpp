@@ -189,9 +189,41 @@ consteval int getMem(const S *s, int S::* mem) {
 constexpr info rJ = ^^S::j;
 static_assert(getMem(&instance, &[:rJ:]) == 1);
 
-// Member access through a splice of a private member.
-class WithPrivateBase : S {} d;
+// Member access through a splice of a private member of a base class.
+struct WithPublicBase : S {} d;
 int dK = d.[:^^S::k:];
+
+// Member access through a splice does not check the access of the member
+// ([class.access.base]/5.3), but the designating class must be an accessible
+// base of the class of the object expression.
+class WithProtectedMember {
+protected:
+  int prot = 1;
+  constexpr int getProt() const { return 2; }
+public:
+  static constexpr info rProt = ^^prot;
+  static constexpr info rGetProt = ^^WithProtectedMember::getProt;
+};
+struct DerivedFromProtected : WithProtectedMember {};
+class HasPrivateBase : WithProtectedMember {
+  friend consteval int fnPrivateBase();
+};
+consteval int fnPrivateBase() {
+  HasPrivateBase h;
+  return h.[:WithProtectedMember::rProt:] +
+         (&h)->[:WithProtectedMember::rGetProt:]();
+}
+static_assert(fnPrivateBase() == 3);
+consteval int fnProtectedMember() {
+  DerivedFromProtected p;
+  return p.[:WithProtectedMember::rProt:] +
+         (&p)->[:WithProtectedMember::rGetProt:]();
+}
+static_assert(fnProtectedMember() == 3);
+template <typename T, info R>
+consteval int fnDependent(T t) { return t.[:R:] + (&t)->[:R:]; }
+static_assert(fnDependent<DerivedFromProtected,
+                         WithProtectedMember::rProt>({}) == 2);
 
 }  // namespace with_member_access
 
@@ -296,6 +328,7 @@ constexpr info rB = ^^B, rClsB = ^^EnumCls::B;
 static_assert(rB != rClsB);
 static_assert(int([:rB:]) == int([:rClsB:]));
 static_assert(static_cast<Enum>([:rClsB:]) == B);
+
 }  // namespace with_enums
 
                             // ====================

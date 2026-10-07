@@ -1243,11 +1243,17 @@ Sema::BuildMemberReferenceExpr(Scope *S, Expr *Base, SourceLocation OpLoc,
   DeclarationNameInfo NameInfo(cast<NamedDecl>(ND)->getDeclName(),
                                ND->getLocation());
   {
-    CXXRecordDecl *DerivedRecord = [](QualType QT) {
-      if (QualType PT = QT->getPointeeType(); !PT.isNull())
-        QT = PT;
-      return QT->getAsCXXRecordDecl()->getCanonicalDecl();
-    }(Base->getType());
+    // A member designated by a splice is accessible from any point
+    // ([class.access.base]/5.3), but the class member access is still
+    // ill-formed if the object expression, considered as a pointer, cannot be
+    // implicitly converted to a pointer to the designating class
+    // ([expr.prim.splice]/4): the designating class must be an unambiguous
+    // and accessible base of the class of the object expression.
+    QualType DerivedType = Base->getType();
+    if (QualType PT = DerivedType->getPointeeType(); !PT.isNull())
+      DerivedType = PT;
+    CXXRecordDecl *DerivedRecord =
+        DerivedType->getAsCXXRecordDecl()->getCanonicalDecl();
     CXXRecordDecl *BaseRecord = [](NamedDecl *ND) {
       DeclContext *DC = ND->getDeclContext();
       while (!isa<CXXRecordDecl>(DC)) {
@@ -1256,12 +1262,17 @@ Sema::BuildMemberReferenceExpr(Scope *S, Expr *Base, SourceLocation OpLoc,
       }
       return cast<CXXRecordDecl>(DC)->getCanonicalDecl();
     }(ND);
-    if (BaseRecord != DerivedRecord &&
-        !IsDerivedFrom(Base->getExprLoc(), DerivedRecord, BaseRecord)) {
-      Diag(Base->getExprLoc(), diag::err_class_not_derived_from_base)
-          << DerivedRecord << BaseRecord << SourceRange(Base->getBeginLoc(),
-                                                        RHS->getEndLoc());
-      return ExprError();
+    if (BaseRecord != DerivedRecord) {
+      SourceRange Range(Base->getBeginLoc(), RHS->getEndLoc());
+      if (!IsDerivedFrom(Base->getExprLoc(), DerivedRecord, BaseRecord)) {
+        Diag(Base->getExprLoc(), diag::err_class_not_derived_from_base)
+            << DerivedRecord << BaseRecord << Range;
+        return ExprError();
+      }
+      if (CheckDerivedToBaseConversion(DerivedType.getUnqualifiedType(),
+                                       Context.getTypeDeclType(BaseRecord),
+                                       Base->getExprLoc(), Range))
+        return ExprError();
     }
   }
 
