@@ -161,8 +161,14 @@ consteval auto is_user_provided(info) -> bool;
 consteval auto is_user_declared(info) -> bool;
 
 // define_aggregate
-struct data_member_options;
-consteval auto data_member_spec(info class_type,
+struct data_member_options {
+  struct name_type;                      // exposition only
+  optional<name_type> name;
+  optional<int> alignment;
+  optional<int> bit_width;
+  bool no_unique_address = false;
+};
+consteval auto data_member_spec(info type,
                                 data_member_options = {}) -> info;
 template <reflection_range R = initializer_list<info>>
   consteval auto define_aggregate(info class_type, R &&members) -> info;
@@ -2340,29 +2346,39 @@ consteval auto reflect_invoke(info target, R1 &&targs, R2 &&args) -> info {
 }
 
 
-// Representation of a data member which may be passed to 'data_member_spec'.
-struct data_member_options {
-  struct name_type {
-    bool is_u8;
-    u8string u8;
-    string s;
+struct data_member_options;
+consteval auto data_member_spec(info member_type,
+                                data_member_options options) -> info;
 
+// Representation of a data member which may be passed to 'data_member_spec'
+// ([meta.reflection.define.aggregate]).
+struct data_member_options {
+  // Exposition-only in the standard: accepts either an ordinary or a UTF-8
+  // string-like argument. Its contents are only readable by data_member_spec.
+  struct name_type {
     template <typename T> requires constructible_from<u8string, T>
     consteval name_type(T &&in) : is_u8(true), u8((T&&)in) {}
 
     template <typename T> requires constructible_from<string, T>
     consteval name_type(T &&in) : is_u8(false), s((T&&)in) {}
 
-    private:
+  private:
+    friend consteval auto data_member_spec(info, data_member_options) -> info;
+
+    bool is_u8;
+    u8string u8;
+    string s;
+
+    // Makes name_type (and hence data_member_options) a consteval-only type.
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-private-field"
-      info unused = ^^::;
+    info unused = ^^::;
 #pragma clang diagnostic pop
   };
 
   optional<name_type> name = nullopt;
   optional<int> alignment = nullopt;
-  optional<int> width = nullopt;
+  optional<int> bit_width = nullopt;
 #if __has_feature(attribute_reflection)
   [[deprecated("Use .attributes = { ^^[[no_unique_address]] }")]] bool no_unique_address = false;
   vector<meta::info> attributes = {};
@@ -2434,7 +2450,7 @@ consteval auto data_member_spec(info member_type,
 
   bool has_name = options.name.has_value();
   int alignment = options.alignment.value_or(0);
-  int width = options.width.value_or(0);
+  int width = options.bit_width.value_or(0);
   // 'no_unique_address' is intentionally deprecated in favor of
   // '.attributes = { ^^[[no_unique_address]] }', but is still honored here for
   // backward compatibility; suppress the deprecation warning at this read site.
@@ -2445,15 +2461,16 @@ consteval auto data_member_spec(info member_type,
 
   if (width) {
     if (alignment)
-      throw "Cannot specify both width and alignment for data member";
+      throw "Cannot specify both bit_width and alignment for data member";
     if (no_unique_address)
-      throw "Cannot specify both width and no_unique_address for data member";
+      throw "Cannot specify both bit_width and no_unique_address for data "
+            "member";
     if (width < 0)
-      throw "Cannot specify a negative width for data member";
+      throw "Cannot specify a negative bit_width for data member";
     if (!is_integral_type(member_type) && !is_enum_type(member_type))
       throw "Bit field must have integral or enumeration type";
   } else {
-    if (options.width.has_value() && has_name)
+    if (options.bit_width.has_value() && has_name)
       throw "Bit-fields of zero width must be unnamed";
   }
 
@@ -2471,7 +2488,7 @@ consteval auto data_member_spec(info member_type,
                             member_type,
                             !s.empty(), s.size(), ^^const char8_t, s.data(),
                             options.alignment.has_value(), alignment,
-                            options.width.has_value(), width,
+                            options.bit_width.has_value(), width,
                             no_unique_address,
 #if __has_feature(attribute_reflection)
                             options.attributes.size(), options.attributes.data()
@@ -2485,7 +2502,7 @@ consteval auto data_member_spec(info member_type,
                             member_type,
                             !s.empty(), s.size(), ^^const char, s.data(),
                             options.alignment.has_value(), alignment,
-                            options.width.has_value(), width,
+                            options.bit_width.has_value(), width,
                             no_unique_address,
 #if __has_feature(attribute_reflection)
                             options.attributes.size(), options.attributes.data()
@@ -2499,7 +2516,7 @@ consteval auto data_member_spec(info member_type,
       member_type,
       false, 0, ^^const char, "",
       options.alignment.has_value(), alignment,
-      options.width.has_value(), width,
+      options.bit_width.has_value(), width,
       no_unique_address,
 #if __has_feature(attribute_reflection)
       options.attributes.size(), options.attributes.data()

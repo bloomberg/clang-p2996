@@ -59,14 +59,38 @@ U u;
                                // ==============
 
 namespace test_all_flags {
+using std::meta::data_member_options;
+
+// [meta.reflection.define.aggregate]: the bit-field width member is named
+// 'bit_width', and the contents of the exposition-only name type are not
+// publicly accessible.
+static_assert(std::is_same_v<decltype(data_member_options::bit_width),
+                             std::optional<int>>);
+template <class O = data_member_options>
+constexpr bool has_width = requires { O::width; };
+static_assert(!has_width<>);
+
+template <class O = data_member_options>
+constexpr bool name_contents_accessible =
+    requires(O o) { o.name->is_u8; } || requires(O o) { o.name->s; } ||
+    requires(O o) { o.name->u8; };
+static_assert(!name_contents_accessible<>);
+
+static_assert(requires(data_member_options o) {
+  o.name = "ordinary";
+  o.name = u8"utf8";
+  o.name = std::string("s");
+  o.name = std::u8string(u8"u8");
+});
+
 struct S;
 static_assert(!is_complete_type(^^S));
 consteval {
   define_aggregate(^^S, {
     data_member_spec(^^int, {.name="count", .alignment=16}),
     data_member_spec(^^bool, {.name="flag"}),
-    data_member_spec(^^int, {.width=0}),
-    data_member_spec(^^int, {.width=5}),
+    data_member_spec(^^int, {.bit_width=0}),
+    data_member_spec(^^int, {.bit_width=5}),
   });
 }
 static_assert(is_complete_type(^^S));
