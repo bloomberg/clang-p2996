@@ -73,6 +73,8 @@ consteval auto static_data_members_of(info class_type,
                                       access_context ctx) -> vector<info>;
 consteval auto nonstatic_data_members_of(info class_type,
                                          access_context ctx) -> vector<info>;
+consteval auto subobjects_of(info class_type,
+                             access_context ctx) -> vector<info>;
 consteval auto enumerators_of(info enum_type) -> vector<info>;
 
 // substitute
@@ -395,10 +397,10 @@ struct access_context {
 consteval auto is_accessible(info r, access_context ctx) -> bool;
 consteval auto has_inaccessible_nonstatic_data_members(
        info r,
-       access_context cls) -> vector<info>;
-consteval auto has_inaccessible_bases(
-        info r,
-        access_context cls) -> vector<info>;
+       access_context ctx) -> bool;
+consteval auto has_inaccessible_bases(info r, access_context ctx) -> bool;
+consteval auto has_inaccessible_subobjects(info r,
+                                           access_context ctx) -> bool;
 
 // scope identification ([meta.reflection.scope])
 consteval auto current_function() -> info;
@@ -1181,6 +1183,16 @@ consteval auto nonstatic_data_members_of(info r,
     throw "Namespaces cannot have non-static data members";
 
   return __filtered(members_of(r, ctx), is_nonstatic_data_member);
+}
+
+// Returns the direct base class relationships of the reflected class followed
+// by its non-static data members, each as accessible from 'ctx'
+// ([meta.reflection.member.queries]).
+consteval auto subobjects_of(info r, access_context ctx) -> vector<info> {
+  vector<info> result = bases_of(r, ctx);
+  vector<info> members = nonstatic_data_members_of(r, ctx);
+  result.insert(result.end(), members.begin(), members.end());
+  return result;
 }
 
 // Returns true if the reflected entity is an enumerable type.
@@ -2320,6 +2332,12 @@ consteval auto has_inaccessible_nonstatic_data_members(
 
 consteval auto has_inaccessible_bases(info r, access_context ctx) -> bool {
   return __any_inaccessible(bases_of(r, access_context::unchecked()), ctx);
+}
+
+consteval auto has_inaccessible_subobjects(info r,
+                                           access_context ctx) -> bool {
+  return has_inaccessible_bases(r, ctx) ||
+         has_inaccessible_nonstatic_data_members(r, ctx);
 }
 
                            // =======================
