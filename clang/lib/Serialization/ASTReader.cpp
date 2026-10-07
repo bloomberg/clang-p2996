@@ -12980,6 +12980,11 @@ void ASTRecordReader::readOpenACCClauseList(
     Clauses[I] = readOpenACCClause();
 }
 
+void ASTRecordReader::readCXX26AnnotationAttr(CXX26AnnotationAttr *A) {
+  A->setValue(readAPValue());
+  A->setEqLoc(readSourceLocation());
+}
+
 void ASTRecordReader::readOpenACCRoutineDeclAttr(OpenACCRoutineDeclAttr *A) {
   unsigned NumVars = readInt();
   A->Clauses.resize(NumVars);
