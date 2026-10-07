@@ -31,6 +31,7 @@
 #include "clang/Basic/DiagnosticOptions.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/TargetInfo.h"
+#include "clang/Sema/ParsedAttr.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/CRC.h"
@@ -149,8 +150,16 @@ class MicrosoftMangleContextImpl : public MicrosoftMangleContext {
   llvm::DenseMap<GlobalDecl, unsigned> SEHFilterIds;
   llvm::DenseMap<GlobalDecl, unsigned> SEHFinallyIds;
   SmallString<16> AnonymousNamespaceHash;
+  llvm::DenseMap<const CXX26AnnotationAttr *, unsigned> AnnotationIds;
 
 public:
+  /// Number annotations in the order they are first mangled. Only valid
+  /// because specializations with annotation arguments are TU-local (see
+  /// LinkageComputer::getLVForValue).
+  unsigned getAnnotationId(const CXX26AnnotationAttr *A) {
+    return AnnotationIds.try_emplace(A, AnnotationIds.size()).first->second;
+  }
+
   MicrosoftMangleContextImpl(ASTContext &Context, DiagnosticsEngine &Diags,
                              bool IsAux = false);
   bool shouldMangleCXXName(const NamedDecl *D) override;
@@ -476,6 +485,7 @@ private:
   void mangleTemplateArgValue(QualType T, const APValue &V, TplArgKind,
                               bool WithScalarType = false);
   void mangleReflection(const APValue &R);
+  void mangleReflectedAttribute(const ParsedAttr *PA);
 
   void mangleObjCProtocol(const ObjCProtocolDecl *PD);
   void mangleObjCLifetime(const QualType T, Qualifiers Quals,
@@ -2175,47 +2185,218 @@ void MicrosoftCXXNameMangler::mangleTemplateArgValue(QualType T,
   }
 
   case APValue::Reflection:
-    llvm_unreachable("reflection arguments should be separately handled");
+    mangleReflection(V);
+    return;
   }
 }
 
+// <template-arg> ::= $M <reflection> E   # $ written by the caller
 void MicrosoftCXXNameMangler::mangleReflection(const APValue &R) {
   Out << 'M';
 
   switch (R.getReflectionKind()) {
+  // <reflection> ::= 0
   case ReflectionKind::Null:
     Out << '0';
     break;
+  // <reflection> ::= y <qualifiers> <name>   # type alias
+  //              ::= t <type>
   case ReflectionKind::Type: {
-    Out << 't';
     QualType QT = R.getReflectedType();
     if (const LocInfoType *LIT = dyn_cast<LocInfoType>(QT)) {
       QT = LIT->getType();
     }
 
-    if (const ElaboratedType *UD = dyn_cast<ElaboratedType>(QT)) {
-      if (const TypedefType *TDT = dyn_cast<TypedefType>(UD->getNamedType())) {
-        mangleQualifiers(QT.getQualifiers(), false);
-        mangleName(TDT->getDecl());  // <- not sure if this is right.
-        break;
-      }
+    if (const auto *TDT = dyn_cast<TypedefType>(QT)) {
+      Out << 'y';
+      mangleQualifiers(QT.getQualifiers(), false);
+      mangleName(TDT->getDecl());
+      break;
     }
+    Out << 't';
     Context.mangleCanonicalTypeName(QT, Out, false);
     break;
   }
-  case ReflectionKind::Object:
+  // <reflection> ::= o <type> <value>
+  case ReflectionKind::Object: {
+    Out << 'o';
+    QualType QT = R.getTypeOfReflectedResult(getASTContext());
+    if (!QT->isReferenceType())
+      QT = getASTContext().getLValueReferenceType(QT);
+    mangleTemplateArgValue(QT, R.getReflectedObject(),
+                           TplArgKind::StructuralValue, true);
+    break;
+  }
+  // <reflection> ::= v <type> <value>
   case ReflectionKind::Value:
-  case ReflectionKind::Declaration:
+    Out << 'v';
+    mangleTemplateArgValue(R.getTypeOfReflectedResult(getASTContext()),
+                           R.getReflectedValue(), TplArgKind::StructuralValue,
+                           true);
+    break;
+  // <reflection> ::= d <source-name> <name>  # field, nearest named class
+  //              ::= d _ <name> <number>     # unnamed field, class + index
+  //              ::= d <name>                # enumerator, structured binding
+  //              ::= d ? <mangled-name>      # function, variable
+  case ReflectionKind::Declaration: {
+    Out << 'd';
+
+    Decl *D = R.getReflectedDecl();
+
+    if (auto *FD = dyn_cast<FieldDecl>(D)) {
+      if (FD->getIdentifier()) {
+        const DeclContext *DC = FD->getParent();
+        while (isa<RecordDecl>(DC) &&
+               cast<RecordDecl>(DC)->isAnonymousStructOrUnion())
+          DC = DC->getParent();
+        mangleSourceName(FD->getName());
+        mangleName(cast<RecordDecl>(DC));
+      } else {
+        Out << '_';
+        mangleName(FD->getParent());
+        mangleNumber(FD->getFieldIndex());
+      }
+
+    } else if (auto *ED = dyn_cast<EnumConstantDecl>(D)) {
+      mangleName(ED);
+    } else if (auto *CD = dyn_cast<CXXConstructorDecl>(D)) {
+      GlobalDecl GD(CD, Ctor_Complete);
+      mangle(GD, "?");
+    } else if (auto *DD = dyn_cast<CXXDestructorDecl>(D)) {
+      GlobalDecl GD(DD, Dtor_Complete);
+      mangle(GD, "?");
+    } else if (auto *BD = dyn_cast<BindingDecl>(D)) {
+      mangleName(BD);
+    } else {
+      mangle(cast<NamedDecl>(D), "?");
+    }
+
+    break;
+  }
+  // <reflection> ::= p ? <mangled-name> <number>   # function, parameter index
+  case ReflectionKind::Parameter: {
+    Out << 'p';
+    auto *PVD = R.getReflectedParameter();
+    const auto *Func = dyn_cast<FunctionDecl>(PVD->getDeclContext());
+    if (const auto *CD = dyn_cast<CXXConstructorDecl>(Func))
+      mangle(GlobalDecl(CD, Ctor_Complete), "?");
+    else if (const auto *DD = dyn_cast<CXXDestructorDecl>(Func))
+      mangle(GlobalDecl(DD, Dtor_Complete), "?");
+    else
+      mangle(Func, "?");
+    mangleNumber(PVD->getFunctionScopeIndex());
+    break;
+  }
+  // <reflection> ::= T <name>
   case ReflectionKind::Template:
+    Out << 'T';
+    mangleName(R.getReflectedTemplate().getAsTemplateDecl());
+    break;
+  // <reflection> ::= n [<name>]   # empty for the global namespace
   case ReflectionKind::Namespace:
+    Out << 'n';
+    if (auto *ND = dyn_cast<NamedDecl>(R.getReflectedNamespace()))
+      mangleName(ND);
+    break;
+  // <reflection> ::= u <name>
   case ReflectionKind::EntityProxy:
-  case ReflectionKind::Parameter:
-  case ReflectionKind::BaseSpecifier:
-  case ReflectionKind::DataMemberSpec:
-  case ReflectionKind::Annotation:
-    llvm_unreachable("unimplemented");
+    Out << 'u';
+    if (const auto *CUSD =
+            dyn_cast<ConstructorUsingShadowDecl>(R.getReflectedEntityProxy())) {
+      // The constructor's name in the using-declaration's scope; mangleName
+      // would treat the shadow declaration as a constructor itself.
+      const NamedDecl *Target = CUSD->getTargetDecl();
+      if (const auto *TD = dyn_cast<FunctionTemplateDecl>(Target))
+        Target = TD->getTemplatedDecl();
+      mangleUnqualifiedName(
+          GlobalDecl(cast<CXXConstructorDecl>(Target), Ctor_Complete));
+      mangleNestedName(CUSD);
+      Out << '@';
+      break;
+    }
+    mangleName(R.getReflectedEntityProxy());
+    break;
+  // <reflection> ::= b <name> (v | n) <type>   # derived class, virtual or not,
+  //                                             # base type
+  case ReflectionKind::BaseSpecifier: {
+    Out << 'b';
+    const CXXBaseSpecifier *B = R.getReflectedBaseSpecifier();
+    mangleName(B->getDerived());
+    Out << (B->isVirtual() ? 'v' : 'n');
+    Context.mangleCanonicalTypeName(B->getType(), Out, false);
+    break;
+  }
+  // <reflection> ::= s <type> [N <source-name>] [A <number>] [B <number>] [U]
+  //                  (T <attribute>)*
+  case ReflectionKind::DataMemberSpec: {
+    Out << 's';
+    const TagDataMemberSpec *TDMS = R.getReflectedDataMemberSpec();
+    Context.mangleCanonicalTypeName(TDMS->Ty, Out, false);
+    if (TDMS->Name) {
+      Out << 'N';
+      mangleSourceName(*TDMS->Name);
+    }
+    if (TDMS->Alignment) {
+      Out << 'A';
+      mangleNumber(static_cast<int64_t>(*TDMS->Alignment));
+    }
+    if (TDMS->BitWidth) {
+      Out << 'B';
+      mangleNumber(static_cast<int64_t>(*TDMS->BitWidth));
+    }
+    if (TDMS->NoUniqueAddress) {
+      Out << 'U';
+    }
+    for (const ParsedAttr *PA : TDMS->Attributes) {
+      Out << 'T';
+      mangleReflectedAttribute(PA);
+    }
+    break;
+  }
+  // <reflection> ::= q <number>   # per-TU index
+  case ReflectionKind::Annotation: {
+    Out << 'q';
+    mangleNumber(Context.getAnnotationId(R.getReflectedAnnotation()));
+    break;
+  }
+  // <reflection> ::= r <source-name> [v <number>] (Q <reflection>)*
+  //                  (T <reflection>)*   # annotations, attributes
+  case ReflectionKind::EnumeratorSpec: {
+    Out << 'r';
+    const EnumeratorSpec *ES = R.getReflectedEnumeratorSpec();
+    mangleSourceName(ES->name);
+    if (ES->hasValue) {
+      Out << 'v';
+      mangleNumber(ES->val);
+    }
+    for (const APValue *A : ES->annotations) {
+      Out << 'Q';
+      mangleReflection(*A);
+    }
+    for (const APValue *A : ES->attributes) {
+      Out << 'T';
+      mangleReflection(*A);
+    }
+    break;
+  }
+  // <reflection> ::= a <attribute>   # arguments not mangled
+  case ReflectionKind::Attribute: {
+    Out << 'a';
+    const ParsedAttr *PA = R.getReflectedAttribute();
+    mangleReflectedAttribute(PA);
+    break;
+  }
   }
   Out << 'E';
+}
+
+// <attribute> ::= [S <source-name>] <source-name>   # [scope] name
+void MicrosoftCXXNameMangler::mangleReflectedAttribute(const ParsedAttr *PA) {
+  if (const IdentifierInfo *Scope = PA->getScopeName()) {
+    Out << 'S';
+    mangleSourceName(Scope->getName());
+  }
+  mangleSourceName(PA->getAttrName()->getName());
 }
 
 void MicrosoftCXXNameMangler::mangleObjCProtocol(const ObjCProtocolDecl *PD) {

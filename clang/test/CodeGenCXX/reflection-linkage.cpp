@@ -1,4 +1,5 @@
 // RUN: %clang_cc1 %s -std=c++26 -freflection -triple x86_64-pc-linux-gnu -emit-llvm -o - | FileCheck %s
+// RUN: %clang_cc1 %s -std=c++26 -freflection -triple x86_64-pc-windows-msvc -emit-llvm -o - | FileCheck %s
 
 using info = decltype(^^int);
 template <info R> void mangled() {}
