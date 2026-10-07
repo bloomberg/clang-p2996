@@ -370,7 +370,7 @@ consteval auto attribute_namespace_of(info r) -> string_view;
 consteval auto attribute_token_of(info r) -> string_view;
 consteval auto has_attribute_namespace(info r) -> bool;
 
-// modeling access control (P3547)
+// access control context ([meta.reflection.access.context])
 struct access_context {
   access_context() = delete;
 
@@ -381,10 +381,7 @@ struct access_context {
   static consteval auto unprivileged() noexcept -> access_context;
   static consteval auto unchecked() noexcept -> access_context;
 
-  consteval auto via(info) const -> access_context;
-
-  // define_enum
-  // ...
+  consteval auto via(info cls) const -> access_context;
 };
 
 consteval auto is_accessible(info r, access_context ctx) -> bool;
@@ -1055,21 +1052,24 @@ consteval auto is_final(info r) -> bool {
   return __metafunction(detail::__metafn_is_final, r);
 }
 
-class access_context {
+// Returns whether the reflected entity is a type.
+consteval auto is_type(info r) -> bool {
+  return __metafunction(detail::__metafn_is_type, r);
+}
+
+// Represents a scope (namespace, class, or function) from which accessibility
+// queries are performed, together with a designating class, if any
+// ([meta.reflection.access.context]).
+struct access_context {
+private:
   consteval access_context(info scope, info designating_class) noexcept
-      : d_scope{scope}, d_designating_class{designating_class} { }
+      : __scope{scope}, __designating_class{designating_class} { }
 
 public:
-  const info d_scope;
-  const info d_designating_class;
+  access_context() = delete;
 
-  consteval access_context() = delete;
-
-  consteval access_context(const access_context &) noexcept = default;
-  consteval access_context(access_context &&) noexcept = default;
-
-  consteval info scope() const { return d_scope; }
-  consteval info designating_class() const { return d_designating_class; }
+  consteval info scope() const { return __scope; }
+  consteval info designating_class() const { return __designating_class; }
 
   [[clang::instantiation_dependent]]
   static consteval access_context current() noexcept {
@@ -1084,12 +1084,25 @@ public:
     return access_context{info{}, info{}};
   }
 
-  consteval access_context via(info new_designating_class) const {
-    if (!is_class_type(new_designating_class))
-      throw "designating class must be a reflection of a class type";
+  // Returns an access_context with the same scope whose designating class is
+  // 'cls', which must be either the null reflection or a reflection of a
+  // complete class type ([meta.reflection.access.context]/10-11).
+  consteval access_context via(info cls) const {
+    if (cls != info{} &&
+        (!is_type(cls) || !is_class_type(cls) || !is_complete_type(cls)))
+      throw "designating class must be the null reflection or a reflection of "
+            "a complete class type";
 
-    return access_context{d_scope, new_designating_class};
+    return access_context{__scope, cls};
   }
+
+  // Exposition-only data members. They are public because
+  // [meta.reflection.access.context]/3 requires access_context to be a
+  // structural type, which the compiler only grants to classes whose
+  // non-static data members are all public. Keep their order: the value is
+  // built positionally in 'current()'.
+  info __scope;
+  info __designating_class;
 };
 
 consteval auto is_accessible(info r, access_context ctx) -> bool {
@@ -1308,11 +1321,6 @@ consteval auto is_namespace_member(info r) -> bool {
 // Returns whether the reflected entity is a function.
 consteval auto is_function(info r) -> bool {
   return __metafunction(detail::__metafn_is_function, r);
-}
-
-// Returns whether the reflected entity is a type.
-consteval auto is_type(info r) -> bool {
-  return __metafunction(detail::__metafn_is_type, r);
 }
 
 // Returns true if the reflected entity is a type alias.
