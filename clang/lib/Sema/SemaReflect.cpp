@@ -1846,6 +1846,12 @@ ExprResult Sema::BuildReflectionSpliceExpr(SourceLocation TemplateKWLoc,
         return ExprError();
       auto * VD = normalizeSplicedMemberDecl(cast<ValueDecl>(TheDecl));
 
+      // A splice-expression refers to the designated entity like an
+      // id-expression does, so a deleted function ([dcl.fct.def.delete]) or an
+      // unavailable entity cannot be used through it.
+      if (DiagnoseUseOfDecl(VD, Splice->getBeginLoc()))
+        return ExprError();
+
       // Create a new DeclRefExpr, since the operand of the reflect expression
       // was parsed in an unevaluated context (but a splice expression is not
       // necessarily, and frequently not, in such a context).

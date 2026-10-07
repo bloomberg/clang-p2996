@@ -140,3 +140,29 @@ using T3 = [:^^TB<int>:]<char>;
 int v2 = template [:^^x:]<int>;
   // expected-error@-1 {{reflection not usable in a template splice}}
 }  // namespace specialization_of_non_template
+
+                          // ======================
+                          // use_of_deleted_through_splice
+                          // ======================
+
+namespace use_of_deleted_through_splice {
+void fn(int) = delete;  // expected-note 3 {{'fn' has been explicitly marked deleted here}}
+struct S {
+  void mfn() = delete;  // expected-note {{'mfn' has been explicitly marked deleted here}}
+};
+
+// A reflection of a deleted function may be formed ([expr.reflect]/7.2), but
+// a splice refers to the function and so cannot be used
+// ([dcl.fct.def.delete]/2).
+constexpr auto r = ^^fn;
+void use(S s) {
+  [:r:](1);  // expected-error {{attempt to use a deleted function}}
+  auto p = &[:r:];  // expected-error {{attempt to use a deleted function}}
+  s.[:^^S::mfn:]();  // expected-error {{attempt to use a deleted function}}
+}
+template <info R> void dependent() {
+  [:R:](1);  // expected-error {{attempt to use a deleted function}}
+}
+template void dependent<r>();
+  // expected-note@-1 {{in instantiation of function template specialization}}
+}  // namespace use_of_deleted_through_splice
