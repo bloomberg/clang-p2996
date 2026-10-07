@@ -455,6 +455,24 @@ static_assert(is_enumerable_type(^^Cls::Enum));
 static_assert(enumerators_of(^^Cls::Enum) ==
               std::vector{^^Cls::A, ^^Cls::B, ^^Cls::C});
 
+// Both queries apply dealias to their argument.
+using EnumAlias = EnumCls;
+using EnumAliasAlias = EnumAlias;
+using ClsAlias = Cls;
+using NestedAlias = Cls::Enum;
+struct Incomplete;
+using IncompleteAlias = Incomplete;
+static_assert(is_enumerable_type(^^EnumAlias));
+static_assert(is_enumerable_type(^^EnumAliasAlias));
+static_assert(is_enumerable_type(^^ClsAlias));
+static_assert(is_enumerable_type(^^NestedAlias));
+static_assert(!is_enumerable_type(^^IncompleteAlias));
+static_assert(enumerators_of(^^EnumAlias) ==
+              std::vector{^^EnumCls::A, ^^EnumCls::B, ^^EnumCls::C});
+static_assert(enumerators_of(^^EnumAliasAlias) == enumerators_of(^^EnumCls));
+static_assert(enumerators_of(^^NestedAlias) ==
+              std::vector{^^Cls::A, ^^Cls::B, ^^Cls::C});
+
 }  // namespace enumerators
 
                               // ================

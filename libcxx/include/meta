@@ -1195,13 +1195,20 @@ consteval auto subobjects_of(info r, access_context ctx) -> vector<info> {
   return result;
 }
 
-// Returns true if the reflected entity is an enumerable type.
+// Returns true if dealias(r) represents an enumerable type
+// ([meta.reflection.queries]).
 consteval auto is_enumerable_type(info r) -> bool {
-  return __metafunction(detail::__metafn_is_enumerable_type, r);
+  return __metafunction(detail::__metafn_is_enumerable_type,
+                        detail::__underlying_entity_of(r));
 }
 
+consteval auto is_enum_type(info r) -> bool;  // defined with the type traits
+
+// Returns the enumerators of the enumeration represented by dealias(r)
+// ([meta.reflection.member.queries]).
 consteval auto enumerators_of(info r) -> vector<info> {
-  if (!is_enumerable_type(r))
+  r = detail::__underlying_entity_of(r);
+  if (!is_type(r) || !is_enum_type(r) || !is_enumerable_type(r))
     throw "Reflection must represent an enumeration with a definition";
 
   using iterator =
