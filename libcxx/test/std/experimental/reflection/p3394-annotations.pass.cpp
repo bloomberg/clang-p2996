@@ -94,10 +94,26 @@ static_assert(is_annotation(annotations_of(^^TFn<int>)[0]));
 static_assert(type_of(annotations_of(^^fn)[0]) == ^^int);
 static_assert(type_of(annotations_of(^^fn)[3]) == ^^float);
 
-static_assert(annotations_of(^^fn, ^^int).size() == 3);
-static_assert(annotations_of(^^fn, ^^float).size() == 1);
+static_assert(annotations_of_with_type(^^fn, ^^int).size() == 3);
+static_assert(annotations_of_with_type(^^fn, ^^float).size() == 1);
+static_assert(annotations_of_with_type(^^fn, ^^char *).size() == 0);
+static_assert(annotations_of_with_type(^^fn, ^^int) ==
+              std::vector{annotations_of(^^fn)[0], annotations_of(^^fn)[1],
+                          annotations_of(^^fn)[2]});
 static_assert(annotation_of_type<float>(^^fn) == 1.0f);
 static_assert(annotation_of_type<char *>(^^fn) == std::nullopt);
+
+// Top-level const of either side is ignored, and aliases are looked through.
+using IntAlias = int;
+static_assert(annotations_of_with_type(^^fn, ^^const int).size() == 3);
+static_assert(annotations_of_with_type(^^fn, ^^IntAlias).size() == 3);
+
+// The pre-P3394R4 two-argument annotations_of remains as a deprecated alias.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+static_assert(annotations_of(^^fn, ^^int).size() == 3);
+static_assert(annotations_of(^^fn, ^^float).size() == 1);
+#pragma clang diagnostic pop
 
 static_assert(source_location_of(annotations_of(^^S)[0]).line() ==
               source_location_of(^^S).line());

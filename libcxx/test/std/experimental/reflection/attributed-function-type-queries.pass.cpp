@@ -23,7 +23,7 @@
 // reached the FunctionProtoType with a sugar-blind dyn_cast misbehaved on such
 // functions: is_const / is_volatile / is_lvalue_reference_qualified /
 // is_rvalue_reference_qualified silently answered false, and return_type_of /
-// parameters_of / has_ellipsis_parameter on the function's TYPE rejected it as
+// parameters_of / is_vararg_function on the function's TYPE rejected it as
 // not-a-function-type. They now desugar via getAs<FunctionProtoType>, like
 // is_noexcept always did.
 
@@ -76,7 +76,7 @@ static_assert(is_rvalue_reference_qualified(type_of(member_named(^^W, "r"))));
 static_assert(is_volatile(type_of(member_named(^^W, "cv"))));
 static_assert(return_type_of(type_of(member_named(^^W, "l"))) == ^^int&);
 static_assert(parameters_of(type_of(member_named(^^W, "l"))).size() == 0);
-static_assert(!has_ellipsis_parameter(type_of(member_named(^^W, "l"))));
+static_assert(!is_vararg_function(type_of(member_named(^^W, "l"))));
 
 // And through an entity proxy's underlying entity (the shape that exposed
 // this in the field: absl::StatusOr<int>'s re-exported accessors).

@@ -354,7 +354,7 @@ consteval auto is_entity_proxy(info) -> bool;
 
 // function parameters (P3096)
 consteval auto parameters_of(info) -> vector<info>;
-consteval auto has_ellipsis_parameter(info) -> bool;
+consteval auto is_vararg_function(info) -> bool;
 consteval auto has_default_argument(info) -> bool;
 consteval auto is_explicit_object_parameter(info) -> bool;
 consteval auto is_function_parameter(info) -> bool;
@@ -362,8 +362,8 @@ consteval auto return_type_of(info) -> info;
 consteval auto variable_of(info) -> info;
 
 // annotations (P3394)
-consteval auto annotations_of(info) -> vector<info>;
-consteval auto annotations_of(info, info) -> vector<info>;
+consteval auto annotations_of(info item) -> vector<info>;
+consteval auto annotations_of_with_type(info item, info type) -> vector<info>;
 template <typename T>
   consteval auto annotation_of_type(info) -> optional<info>;
 consteval auto is_annotation(info) -> bool;
@@ -2075,7 +2075,12 @@ consteval auto parameters_of(info r) -> vector<info> {
   return vector<info>{rng.begin(), rng.end()};
 }
 
-consteval auto has_ellipsis_parameter(info r) -> bool {
+// Returns whether the reflected function or function type is a vararg
+// function ([dcl.fct]); false for any other reflection.
+consteval auto is_vararg_function(info r) -> bool {
+  if (!is_function(r) && !(is_type(r) && is_function_type(r)))
+    return false;
+
   return __metafunction(detail::__metafn_has_ellipsis_parameter, r);
 }
 
@@ -2113,18 +2118,22 @@ consteval auto annotations_of(info r) -> vector<info> {
   return vector<info>{rng.begin(), rng.end()};
 }
 
-consteval auto annotations_of(info r, info ty) -> vector<info> {
-  if (!is_type(ty))
+// Returns the annotations of 'item' whose type, ignoring top-level const, is
+// the type represented by 'type' ([meta.reflection.annotation]).
+consteval auto annotations_of_with_type(info item, info type) -> vector<info> {
+  if (!is_type(type))
     throw "Expected a reflection of a type";
+  if (!is_complete_type(type))
+    throw "Expected a reflection of a complete type";
 
-  return __filtered(annotations_of(r), [=](info annot) {
-    return remove_const(type_of(annot)) == remove_const(ty);
+  return __filtered(annotations_of(item), [=](info annot) {
+    return remove_const(type_of(annot)) == remove_const(type);
   });
 }
 
 template<typename T>
 consteval optional<T> annotation_of_type(info r) {
-  auto v = annotations_of(r, ^^T);
+  auto v = annotations_of_with_type(r, ^^T);
   optional<T> result{};
   for (info a: v) {
     if (result.has_value()) {
@@ -2624,6 +2633,20 @@ consteval auto nonstatic_data_members_of(info r) -> vector<info> {
 consteval auto has_complete_definition(info r) -> bool {
   return __metafunction(detail::__metafn_has_complete_definition, r);
 }
+
+#if __has_feature(parameter_reflection)
+[[deprecated("renamed to 'is_vararg_function' in P4156R0")]]
+consteval auto has_ellipsis_parameter(info r) -> bool {
+  return is_vararg_function(r);
+}
+#endif  // __has_feature(parameter_reflection)
+
+#if __has_feature(annotation_attributes)
+[[deprecated("renamed to 'annotations_of_with_type' in P3394R4")]]
+consteval auto annotations_of(info item, info type) -> vector<info> {
+  return annotations_of_with_type(item, type);
+}
+#endif  // __has_feature(annotation_attributes)
 
 namespace __define_static {
 
