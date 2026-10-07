@@ -329,6 +329,19 @@ static_assert(rB != rClsB);
 static_assert(int([:rB:]) == int([:rClsB:]));
 static_assert(static_cast<Enum>([:rClsB:]) == B);
 
+// A splice of a member enumerator in a class member access ([expr.ref]/8.5):
+// the object expression is a discarded-value expression.
+struct S {
+  enum { E = 2 };
+  enum class Scoped { F = 3 };
+};
+struct D : S {};
+constexpr S s{};
+static_assert(s.[:^^S::E:] == 2);
+static_assert((&s)->[:^^S::E:] == 2);
+static_assert(D{}.[:^^S::Scoped::F:] == S::Scoped::F);
+template <info R> consteval int dependent(const S &obj) { return obj.[:R:]; }
+static_assert(dependent<^^S::E>(s) == 2);
 }  // namespace with_enums
 
                               // ==================

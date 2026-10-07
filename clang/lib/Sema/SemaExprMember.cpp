@@ -1221,8 +1221,13 @@ Sema::BuildMemberReferenceExpr(Scope *S, Expr *Base, SourceLocation OpLoc,
   TemplateArgumentListInfo TemplateArgs(RHS->getBeginLoc(), RHS->getEndLoc());
   if (auto *DRE = dyn_cast<DeclRefExpr>(RHS->getModel())) {
     ValueDecl *D = DRE->getDecl();
+    // [expr.ref]/6: the splice shall designate a member of the class of the
+    // object expression; that includes a member enumerator ([expr.ref]/8.5),
+    // for which the object expression is a discarded-value expression.
     if (isa<FieldDecl>(D) || isa<IndirectFieldDecl>(D) || isa<CXXMethodDecl>(D)
-     || (isa<VarDecl>(D) && DRE->getQualifierLoc())) {
+     || (isa<VarDecl>(D) && DRE->getQualifierLoc())
+     || (isa<EnumConstantDecl>(D) &&
+         isa<CXXRecordDecl>(D->getDeclContext()->getParent()))) {
       ND = D;
       // NOTE(P2996): Uncomment the following line for static dispatch.
       // SS.Adopt(DRE->getQualifierLoc());
