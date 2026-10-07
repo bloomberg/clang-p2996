@@ -119,6 +119,21 @@ static_assert(has_virtual_destructor(^^VDtor));
 
 static_assert(has_unique_object_representations(^^int));
 
+struct NontrivialDtor { ~NontrivialDtor(); };
+static_assert(is_implicit_lifetime_type(^^int));
+static_assert(is_implicit_lifetime_type(^^C));
+static_assert(!is_implicit_lifetime_type(^^NontrivialDtor));
+
+struct ExplicitToInt { explicit operator int() const; };
+static_assert(reference_constructs_from_temporary(^^const int &, ^^int));
+static_assert(!reference_constructs_from_temporary(^^const int &, ^^int &));
+static_assert(reference_constructs_from_temporary(^^const int &,
+                                                  ^^ExplicitToInt));
+static_assert(reference_converts_from_temporary(^^const int &, ^^int));
+static_assert(!reference_converts_from_temporary(^^const int &, ^^int &));
+static_assert(!reference_converts_from_temporary(^^const int &,
+                                                 ^^ExplicitToInt));
+
 static_assert(rank(^^int[4][2]) == 2);
 static_assert(extent(^^int[4][2], 1) == 2);
 
@@ -126,6 +141,47 @@ static_assert(is_same_type(^^int, ^^int));
 static_assert(is_base_of_type(^^C, ^^Child));
 static_assert(is_convertible_type(^^bool, ^^int));
 static_assert(is_nothrow_convertible_type(^^bool, ^^int));
+
+struct VirtualChild : virtual C {};
+static_assert(is_virtual_base_of_type(^^C, ^^VirtualChild));
+static_assert(!is_virtual_base_of_type(^^C, ^^Child));
+static_assert(!is_virtual_base_of_type(^^C, ^^C));
+
+struct LayoutA { int x; };
+struct LayoutB { int y; };
+struct LayoutAB { int x; int y; };
+static_assert(is_layout_compatible_type(^^LayoutA, ^^LayoutB));
+static_assert(!is_layout_compatible_type(^^LayoutA, ^^LayoutAB));
+static_assert(is_layout_compatible_type(^^int, ^^const int));
+static_assert(!is_layout_compatible_type(^^int, ^^unsigned));
+
+struct LayoutDerived : LayoutA {};
+static_assert(is_pointer_interconvertible_base_of_type(^^LayoutA,
+                                                       ^^LayoutDerived));
+static_assert(is_pointer_interconvertible_base_of_type(^^C, ^^Child));
+static_assert(!is_pointer_interconvertible_base_of_type(^^C, ^^VirtualChild));
+static_assert(!is_pointer_interconvertible_base_of_type(^^LayoutA, ^^LayoutB));
+
+// [meta.reflection.traits]: every predicate returns bool.
+static_assert(std::is_same_v<decltype(is_constructible_type(^^int, {})),
+                             bool>);
+static_assert(std::is_same_v<
+    decltype(is_trivially_constructible_type(^^int, {})), bool>);
+static_assert(std::is_same_v<
+    decltype(is_nothrow_constructible_type(^^int, {})), bool>);
+static_assert(std::is_same_v<decltype(is_invocable_type(type_of(^^fn),
+                                                        {^^bool, ^^char})),
+                             bool>);
+static_assert(std::is_same_v<decltype(is_invocable_r_type(^^int,
+                                                          type_of(^^fn),
+                                                          {^^bool, ^^char})),
+                             bool>);
+static_assert(std::is_same_v<decltype(is_nothrow_invocable_type(
+                                 type_of(^^fn), {^^bool, ^^char})),
+                             bool>);
+static_assert(std::is_same_v<decltype(is_nothrow_invocable_r_type(
+                                 ^^int, type_of(^^fn), {^^bool, ^^char})),
+                             bool>);
 
 static_assert(is_invocable_type(type_of(^^fn), {^^bool, ^^char}));
 static_assert(is_invocable_r_type(^^int, type_of(^^fn), {^^bool, ^^char}));

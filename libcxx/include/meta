@@ -201,7 +201,7 @@ consteval auto is_enum_type(info) -> bool;
 consteval auto is_union_type(info) -> bool;
 consteval auto is_class_type(info) -> bool;
 consteval auto is_function_type(info) -> bool;
-consetval auto is_reflection_type(info) -> bool;
+consteval auto is_reflection_type(info) -> bool;
 
 // composite type categories
 consteval auto is_reference_type(info) -> bool;
@@ -246,7 +246,7 @@ consteval auto is_swappable_type(info) -> bool;
 consteval auto is_destructible_type(info) -> bool;
 
 template <reflection_range R = initializer_list<info>>
-  consteval auto type_is_trivially_constructible(info, R &&args) -> bool;
+  consteval auto is_trivially_constructible_type(info, R &&args) -> bool;
 consteval auto is_trivially_default_constructible_type(info) -> bool;
 consteval auto is_trivially_copy_constructible_type(info) -> bool;
 consteval auto is_trivially_move_constructible_type(info) -> bool;
@@ -277,8 +277,8 @@ consteval auto has_virtual_destructor(info) -> bool;
 
 consteval auto has_unique_object_representations(info) -> bool;
 
-consteval auto reference_constructs_from_temporary(info) -> bool;
-consteval auto reference_converts_from_temporary(info) -> bool;
+consteval auto reference_constructs_from_temporary(info dst, info src) -> bool;
+consteval auto reference_converts_from_temporary(info dst, info src) -> bool;
 
 // type property queries
 consteval auto rank(info) -> size_t;
@@ -286,11 +286,13 @@ consteval auto extent(info type, unsigned i) -> size_t;
 
 // type relations
 consteval auto is_same_type(info, info) -> bool;
-consteval auto is_base_of_type(info, info) -> bool;
+consteval auto is_base_of_type(info base, info derived) -> bool;
+consteval auto is_virtual_base_of_type(info base, info derived) -> bool;
 consteval auto is_convertible_type(info, info) -> bool;
 consteval auto is_nothrow_convertible_type(info, info) -> bool;
 consteval auto is_layout_compatible_type(info, info) -> bool;
-consteval auto is_pointer_interconvertible_base_of_type(info, info) -> bool;
+consteval auto is_pointer_interconvertible_base_of_type(info base,
+                                                        info derived) -> bool;
 
 template <reflection_range R = initializer_list<info>>
   consteval auto is_invocable_type(info type, R &&args) -> bool;
@@ -1694,7 +1696,7 @@ consteval auto is_scoped_enum_type(info r) -> bool {
 }
 
 template <reflection_range R = initializer_list<info>>
-consteval auto is_constructible_type(info type, R &&type_args) {
+consteval auto is_constructible_type(info type, R &&type_args) -> bool {
   vector<info> args(from_range, type_args);
   args.insert(args.begin(), type);
 
@@ -1738,7 +1740,7 @@ consteval auto is_destructible_type(info r) -> bool {
 }
 
 template <reflection_range R = initializer_list<info>>
-consteval auto is_trivially_constructible_type(info type, R &&type_args) {
+consteval auto is_trivially_constructible_type(info type, R &&type_args) -> bool {
   vector<info> args(from_range, type_args);
   args.insert(args.begin(), type);
 
@@ -1777,7 +1779,7 @@ consteval auto is_trivially_destructible_type(info r) -> bool {
 }
 
 template <reflection_range R = initializer_list<info>>
-consteval auto is_nothrow_constructible_type(info type, R &&type_args) {
+consteval auto is_nothrow_constructible_type(info type, R &&type_args) -> bool {
   vector<info> args(from_range, type_args);
   args.insert(args.begin(), type);
 
@@ -1820,10 +1822,9 @@ consteval auto is_nothrow_destructible_type(info r) -> bool {
   return extract<bool>(substitute(^^is_nothrow_destructible_v, {r}));
 }
 
-// TODO(P2996): Not yet implemented in libc++.
-/*consteval auto is_implicit_lifetime_type(info r) -> bool {
+consteval auto is_implicit_lifetime_type(info r) -> bool {
   return extract<bool>(substitute(^^is_implicit_lifetime_v, {r}));
-}*/
+}
 
 consteval auto has_virtual_destructor(info r) -> bool {
   return extract<bool>(substitute(^^has_virtual_destructor_v, {r}));
@@ -1833,16 +1834,16 @@ consteval auto has_unique_object_representations(info r) -> bool {
   return extract<bool>(substitute(^^has_unique_object_representations_v, {r}));
 }
 
-// TODO(P2996): Not yet implemented in libc++.
-/*consteval auto reference_constructs_from_temporary(info r) -> bool {
+consteval auto reference_constructs_from_temporary(info dst,
+                                                   info src) -> bool {
   return extract<bool>(substitute(^^reference_constructs_from_temporary_v,
-                                  {r}));
-}*/
+                                  {dst, src}));
+}
 
-// TODO({2996): Not yet implemented in libc++.
-/*consteval auto reference_converts_from_temporary(info r) -> bool {
-  return extract<bool>(substitute(^^reference_converts_from_temporary_v, {r}));
-}*/
+consteval auto reference_converts_from_temporary(info dst, info src) -> bool {
+  return extract<bool>(substitute(^^reference_converts_from_temporary_v,
+                                  {dst, src}));
+}
 
 consteval auto rank(info r) -> size_t {
   return extract<size_t>(substitute(^^rank_v, {r}));
@@ -1860,6 +1861,10 @@ consteval auto is_base_of_type(info r, info s) -> bool {
   return extract<bool>(substitute(^^is_base_of_v, {r, s}));
 }
 
+consteval auto is_virtual_base_of_type(info base, info derived) -> bool {
+  return extract<bool>(substitute(^^is_virtual_base_of_v, {base, derived}));
+}
+
 consteval auto is_convertible_type(info r, info s) -> bool {
   return extract<bool>(substitute(^^is_convertible_v, {r, s}));
 }
@@ -1868,20 +1873,31 @@ consteval auto is_nothrow_convertible_type(info r, info s) -> bool {
   return extract<bool>(substitute(^^is_nothrow_convertible_v, {r, s}));
 }
 
-// TODO(P2996): Not yet implemented in libc++.
-/*consteval auto is_layout_compatible_type(info r, info s) -> bool {
-  return extract<bool>(substitute(^^is_layout_compatible_v, {r, s}));
-}*/
+// libc++ does not provide std::is_layout_compatible or
+// std::is_pointer_interconvertible_base_of; wrap the compiler builtins in
+// variable templates so these can be substituted like the other traits.
+namespace detail {
+template <class _Tp, class _Up>
+inline constexpr bool __is_layout_compatible_v = __is_layout_compatible(_Tp, _Up);
 
-// TODO(P2996): Not yet implemented in libc++.
-/*consteval auto is_pointer_interconvertible_base_of_type(info r,
-                                                        info s) -> bool {
-  return extract<bool>(substitute(^^is_pointer_interconvertible_base_of_v,
-                                  {r, s}));
-}*/
+template <class _Base, class _Derived>
+inline constexpr bool __is_pointer_interconvertible_base_of_v =
+    __is_pointer_interconvertible_base_of(_Base, _Derived);
+}  // namespace detail
+
+consteval auto is_layout_compatible_type(info r, info s) -> bool {
+  return extract<bool>(substitute(^^detail::__is_layout_compatible_v, {r, s}));
+}
+
+consteval auto is_pointer_interconvertible_base_of_type(info base,
+                                                        info derived) -> bool {
+  return extract<bool>(
+      substitute(^^detail::__is_pointer_interconvertible_base_of_v,
+                 {base, derived}));
+}
 
 template <reflection_range R = initializer_list<info>>
-consteval auto is_invocable_type(info type, R &&args) {
+consteval auto is_invocable_type(info type, R &&args) -> bool {
   vector<info> targs(from_range, args);
   targs.insert(targs.begin(), type);
 
@@ -1889,7 +1905,8 @@ consteval auto is_invocable_type(info type, R &&args) {
 }
 
 template <reflection_range R = initializer_list<info>>
-consteval auto is_invocable_r_type(info result, info type, R &&args) {
+consteval auto is_invocable_r_type(info result, info type,
+                                   R &&args) -> bool {
   vector<info> targs(from_range, args);
   targs.insert(targs.begin(), type);
   targs.insert(targs.begin(), result);
@@ -1898,7 +1915,7 @@ consteval auto is_invocable_r_type(info result, info type, R &&args) {
 }
 
 template <reflection_range R = initializer_list<info>>
-consteval auto is_nothrow_invocable_type(info type, R &&args) {
+consteval auto is_nothrow_invocable_type(info type, R &&args) -> bool {
   vector<info> targs(from_range, args);
   targs.insert(targs.begin(), type);
 
@@ -1907,7 +1924,7 @@ consteval auto is_nothrow_invocable_type(info type, R &&args) {
 
 template <reflection_range R = initializer_list<info>>
 consteval auto is_nothrow_invocable_r_type(info result, info type,
-                                           R &&args) {
+                                           R &&args) -> bool {
   vector<info> targs(from_range, args);
   targs.insert(targs.begin(), type);
   targs.insert(targs.begin(), result);
