@@ -1059,6 +1059,23 @@ ExprResult Sema::ActOnCXXReflectExpr(SourceLocation OpLoc,
   }
 
   NamedDecl *ND = Found.getRepresentativeDecl();
+  // [class.qual]/2: in a lookup in which function names are not ignored, the
+  // name specified after a nested-name-specifier that nominates a class C, if
+  // it is the injected-class-name of C, names the constructor of C. The
+  // constructors form an overload set for which '&C::C' is ill-formed
+  // ([expr.reflect]/7.2).
+  if (auto *RD = dyn_cast<CXXRecordDecl>(ND);
+      RD && RD->isInjectedClassName() && SS.isNotEmpty()) {
+    // The injected-class-name is a declaration of its own that shares the
+    // type of the class, so compare the types.
+    const Type *T = SS.getScopeRep()->getAsType();
+    if (T && Context.hasSameUnqualifiedType(QualType(T, 0),
+                                            Context.getTypeDeclType(RD))) {
+      Diag(NameInfo.getBeginLoc(), diag::err_reflect_constructor)
+          << QualType(T, 0) << Id.getSourceRange();
+      return ExprError();
+    }
+  }
 
   if (auto *USD = dyn_cast<UsingShadowDecl>(ND)) {
     if (getLangOpts().EntityProxyReflection)
