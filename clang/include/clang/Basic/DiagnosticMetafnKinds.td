@@ -19,6 +19,10 @@ def metafn_no_associated_property : Note<
 def metafn_cannot_query_property : Note<"cannot query the "
   "%select{type|object|value|size|alignment|parameters|return type|"
            "annotations|attributes}0 of %1">;
+def metafn_object_of_non_static : Note<
+  "cannot query the object of %0 that "
+  "%select{has thread storage duration|has automatic storage duration|"
+           "does not refer to an object with static storage duration}1">;
 
 // Ranges of entities.
 def metafn_cannot_introspect_type : Note<

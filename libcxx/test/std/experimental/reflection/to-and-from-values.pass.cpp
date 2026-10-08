@@ -308,6 +308,32 @@ static_assert(std::meta::reflect_object(static_cast<A&>(arr[1])) ==
 static_assert(type_of(^^r) == ^^const A&);
 static_assert(type_of(object_of(^^r)) == ^^A);
 
+// [meta.reflection.queries]/5: a variable with static storage duration, or a
+// reference to an object with static storage duration, whatever the storage
+// duration of the reference itself.
+struct WithStatic { static int sm; };
+static int internal;
+thread_local int &tl_ref = internal;
+const int &extended = 42;
+void fn() {
+  static int local_static;
+  static_assert(object_of(^^local_static) ==
+                std::meta::reflect_object(local_static));
+  [[maybe_unused]] int &local_ref = internal;
+  static_assert(object_of(^^local_ref) ==
+                std::meta::reflect_object(internal));
+}
+static_assert(object_of(^^WithStatic::sm) ==
+              std::meta::reflect_object(WithStatic::sm));
+static_assert(object_of(^^internal) == std::meta::reflect_object(internal));
+static_assert(object_of(^^tl_ref) == std::meta::reflect_object(internal));
+static_assert(is_object(object_of(^^extended)));
+static_assert(object_of(^^extended) != object_of(^^internal));
+static_assert(type_of(object_of(^^extended)) == ^^const int);
+static_assert(constant_of(object_of(^^extended)) ==
+              std::meta::reflect_constant(42));
+static_assert(object_of(object_of(^^internal)) == object_of(^^internal));
+
 }  // namespace objects_from_variables
 
                              // ===================

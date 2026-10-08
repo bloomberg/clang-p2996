@@ -3307,6 +3307,24 @@ bool proxied_entity_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   llvm_unreachable("unknown reflection kind");
 }
 
+/// Whether the object designated by 'Base' has static storage duration
+/// ([basic.stc.static]): a variable with static storage duration, a template
+/// parameter object, a string literal, a temporary whose lifetime was extended
+/// to static storage duration, or a std::type_info object.
+static bool hasStaticStorageDuration(const APValue::LValueBase &Base) {
+  if (const auto *VD = Base.dyn_cast<const ValueDecl *>()) {
+    if (const auto *Var = dyn_cast<VarDecl>(VD))
+      return Var->getStorageDuration() == SD_Static;
+    return isa<TemplateParamObjectDecl>(VD);
+  }
+  if (const auto *E = Base.dyn_cast<const Expr *>()) {
+    if (const auto *MTE = dyn_cast<MaterializeTemporaryExpr>(E))
+      return MTE->getStorageDuration() == SD_Static;
+    return isa<StringLiteral, CompoundLiteralExpr, PredefinedExpr>(E);
+  }
+  return Base.is<TypeInfoLValue>();
+}
+
 bool object_of(APValue &Result, ASTContext &C, MetaActions &Meta,
                EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
                QualType ResultTy, SourceRange Range, ArrayRef<Expr *> Args,
@@ -3330,9 +3348,18 @@ bool object_of(APValue &Result, ASTContext &C, MetaActions &Meta,
     Meta.EnsureInstantiated(VD, Args[0]->getSourceRange());
 
     QualType QT = VD->getType();
-    if (auto *LVRT = dyn_cast<LValueReferenceType>(QT)) {
-      QT = LVRT->getPointeeType();
-    }
+    bool IsReference = QT->isReferenceType();
+    if (IsReference)
+      QT = QT.getNonReferenceType();
+
+    // [meta.reflection.queries]/5.2: a variable must declare (or, if it is a
+    // reference, refer to) an object with static storage duration
+    // ([basic.stc.general]); a variable with thread or automatic storage
+    // duration declares no such object.
+    if (!IsReference && VD->getStorageDuration() != SD_Static)
+      return Diagnoser(Range.getBegin(), diag::metafn_object_of_non_static)
+          << DescriptionOf(RV)
+          << (VD->getStorageDuration() == SD_Thread ? 0 : 1) << Range;
 
     Expr *Synthesized = DeclRefExpr::Create(C,
                                             NestedNameSpecifierLoc(),
@@ -3342,6 +3369,10 @@ bool object_of(APValue &Result, ASTContext &C, MetaActions &Meta,
     APValue Value;
     if (!Evaluator(Value, Synthesized, false) || !Value.isLValue())
       return true;
+
+    if (IsReference && !hasStaticStorageDuration(Value.getLValueBase()))
+      return Diagnoser(Range.getBegin(), diag::metafn_object_of_non_static)
+          << DescriptionOf(RV) << 2 << Range;
 
     APValue OV = Value.Lift(QualType{});
     return SetAndSucceed(Result, OV);

@@ -62,4 +62,45 @@ static_assert(f() == 43);
   // expected-error@-1 {{not an integral constant expression}}
 }  // namespace self_referential
 
+                           // ======================
+                           // object_of_non_static
+                           // ======================
+
+// [meta.reflection.queries]/5: object_of throws unless r represents an object
+// with static storage duration, or a variable that declares or refers to such
+// an object.
+namespace object_of_non_static {
+thread_local int tl;
+constexpr auto r1 = std::meta::object_of(^^tl);
+  // expected-error@-1 {{must be initialized by a constant expression}} \
+  // expected-note@-1 {{cannot query the object of a variable that has thread storage duration}}
+
+consteval std::meta::info automatic() {
+  [[maybe_unused]] int loc = 0;
+  return std::meta::object_of(^^loc);
+    // expected-note@-1 {{cannot query the object of a variable that has automatic storage duration}}
+}
+constexpr auto r2 = automatic();
+  // expected-error@-1 {{must be initialized by a constant expression}} \
+  // expected-note@-1 {{in call to 'automatic()'}}
+
+consteval std::meta::info reference_to_automatic() {
+  int loc = 0;
+  [[maybe_unused]] int &ref = loc;
+  return std::meta::object_of(^^ref);
+    // expected-note@-1 {{cannot query the object of a variable that does not refer to an object with static storage duration}}
+}
+constexpr auto r3 = reference_to_automatic();
+  // expected-error@-1 {{must be initialized by a constant expression}} \
+  // expected-note@-1 {{in call to 'reference_to_automatic()'}}
+
+struct S { int m; };
+constexpr auto r4 = std::meta::object_of(^^S::m);
+  // expected-error@-1 {{must be initialized by a constant expression}} \
+  // expected-note@-1 {{cannot query the object of a non-static data member}}
+constexpr auto r5 = std::meta::object_of(std::meta::reflect_constant(1));
+  // expected-error@-1 {{must be initialized by a constant expression}} \
+  // expected-note@-1 {{cannot query the object of a value}}
+}  // namespace object_of_non_static
+
 int main() { }
