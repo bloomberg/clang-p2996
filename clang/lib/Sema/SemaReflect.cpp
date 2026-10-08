@@ -1355,6 +1355,14 @@ ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
 // TODO(P2996): Capture whole SourceRange of declaration naming.
 ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
                                      SourceLocation OperandLoc, Decl *D) {
+  // A reflection of an invalid declaration (e.g., a structured binding whose
+  // decomposition declaration was ill-formed and has no type) cannot be
+  // formed, as for a reference to it by an id-expression.
+  if (D->isInvalidDecl())
+    return ExprError();
+  if (auto *VD = dyn_cast<ValueDecl>(D); VD && VD->getType().isNull())
+    return ExprError();
+
   if (auto *UPD = dyn_cast<UsingPackDecl>(D)) {
     if (!getLangOpts().EntityProxyReflection &&
         isReflectionNameForm(UPD->getDeclName(),

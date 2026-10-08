@@ -42,3 +42,17 @@ struct Derived : Base {};
 static_assert(^^Derived::Base == ^^Base);
 static_assert(^^Inner::Nested == ^^Inner::Nested);
 }  // namespace constructor_operand
+
+                            // ===================
+                            // invalid_declaration
+                            // ===================
+
+namespace invalid_declaration {
+// A reflection of an invalid declaration is not formed (this crashed).
+struct P { int x, y; };
+void fn() {
+  auto &[u, v] = P{};
+    // expected-error@-1 {{non-const lvalue reference to type 'P' cannot bind to a temporary}}
+  constexpr auto r = ^^u;
+}
+}  // namespace invalid_declaration
