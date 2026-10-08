@@ -120,10 +120,36 @@ static_assert(source_location_of(annotations_of(^^S)[0]).line() ==
 
 constexpr struct S {} s;
 
+// [meta.reflection.queries]/2.3: the type of an annotation is
+// type_of(constant_of(r)); for a class type that is the const-qualified type
+// of the corresponding template parameter object.
 [[=s]] void fnWithS();
-static_assert(type_of(annotations_of(^^fnWithS)[0]) == ^^S);
+static_assert(type_of(annotations_of(^^fnWithS)[0]) == ^^const S);
 static_assert(type_of(constant_of(annotations_of(^^fnWithS)[0])) ==
               ^^const S);
+static_assert(annotations_of_with_type(^^fnWithS, ^^S).size() == 1);
+static_assert(annotations_of_with_type(^^fnWithS, ^^const S).size() == 1);
+
+struct Opt { int v; };
+enum Enum { e0 };
+using OptAlias = Opt;
+constexpr const int ci = 3;
+constexpr OptAlias coa{2};
+[[=Opt{3}, =ci, =e0, =coa, =nullptr]] int annotated_var;
+static_assert(type_of(annotations_of(^^annotated_var)[0]) == ^^const Opt);
+static_assert(type_of(annotations_of(^^annotated_var)[1]) == ^^int);
+static_assert(type_of(annotations_of(^^annotated_var)[2]) == ^^Enum);
+static_assert(type_of(annotations_of(^^annotated_var)[3]) == ^^const Opt);
+static_assert(type_of(annotations_of(^^annotated_var)[4]) ==
+              ^^decltype(nullptr));
+template <auto> consteval bool agrees_with_constant_of(std::meta::info a) {
+  return type_of(a) == type_of(constant_of(a));
+}
+static_assert(agrees_with_constant_of<0>(annotations_of(^^annotated_var)[0]));
+static_assert(agrees_with_constant_of<0>(annotations_of(^^annotated_var)[1]));
+static_assert(agrees_with_constant_of<0>(annotations_of(^^annotated_var)[2]));
+static_assert(agrees_with_constant_of<0>(annotations_of(^^annotated_var)[3]));
+static_assert(agrees_with_constant_of<0>(annotations_of(^^annotated_var)[4]));
 }  // namespace non_dependent
 
                                   // =========

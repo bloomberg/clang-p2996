@@ -3147,9 +3147,16 @@ bool type_of(APValue &Result, ASTContext &C, MetaActions &Meta,
     return SetAndSucceed(Result, makeReflection(QT));
   }
   case ReflectionKind::Annotation: {
+    // [meta.reflection.queries]/2.3: type_of(constant_of(r)). constant_of
+    // yields a value of the (cv-unqualified) type of the annotation's
+    // constant, except for a class type, where it yields the corresponding
+    // template parameter object, whose type is const-qualified
+    // ([temp.param]/8).
     QualType QT = RV.getReflectedAnnotation()->getArg()->getType();
     QT = desugarType(QT, /*UnwrapAliases=*/true, /*DropCV=*/true,
                      /*DropRefs=*/false);
+    if (QT->isRecordType())
+      QT = QT.withConst();
     return SetAndSucceed(Result, makeReflection(QT));
   }
   }
