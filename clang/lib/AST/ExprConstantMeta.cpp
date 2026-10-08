@@ -7276,6 +7276,72 @@ bool variable_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   return SetAndSucceed(Result, Var);
 }
 
+/// [meta.reflection.annotation]/1-2: the annotations applying to the
+/// declarations of 'D' in declaration order. For a function F, the
+/// declarations considered are S(F): those of F and of the templated function
+/// of which F is a specialization; the instantiated declarations of F stand in
+/// for the template declaration they were instantiated from. With 'ParamIdx',
+/// the annotations of that parameter in each of those declarations (/2.1).
+static void collectAnnotations(Decl *D, std::optional<unsigned> ParamIdx,
+                               SmallVectorImpl<CXX26AnnotationAttr *> &Out) {
+  // The redeclaration chain is linked from the most recent declaration
+  // backwards; gather it and reverse to get declaration order.
+  auto chainOf = [](Decl *Most, SmallVectorImpl<Decl *> &Chain) {
+    size_t First = Chain.size();
+    for (Decl *R = Most; R; R = R->getPreviousDecl())
+      Chain.push_back(R);
+    std::reverse(Chain.begin() + First, Chain.end());
+  };
+
+  SmallVector<Decl *, 4> Decls;
+  auto *FD = dyn_cast<FunctionDecl>(D);
+  FunctionTemplateDecl *FTD = FD ? FD->getPrimaryTemplate() : nullptr;
+  if (FTD) {
+    FunctionDecl *Pattern = FD->getTemplateInstantiationPattern();
+    SmallVector<Decl *, 4> TemplateDecls;
+    chainOf(FTD->getMostRecentDecl(), TemplateDecls);
+
+    bool SubstitutedPattern = false;
+    for (Decl *TD : TemplateDecls) {
+      FunctionDecl *Templated = cast<FunctionTemplateDecl>(TD)->getTemplatedDecl();
+      if (Pattern && Templated == Pattern) {
+        chainOf(FD->getMostRecentDecl(), Decls);
+        SubstitutedPattern = true;
+      } else {
+        Decls.push_back(Templated);
+      }
+    }
+    if (!SubstitutedPattern)
+      chainOf(FD->getMostRecentDecl(), Decls);
+  } else {
+    chainOf(D->getMostRecentDecl(), Decls);
+  }
+
+  for (Decl *R : Decls) {
+    Decl *Holder = R;
+    if (ParamIdx) {
+      auto *RFD = dyn_cast<FunctionDecl>(R);
+      if (!RFD || *ParamIdx >= RFD->getNumParams())
+        continue;
+      // A declaration of the template whose parameter list does not line up
+      // with the specialization's because of a pack is skipped.
+      if (RFD->isTemplated() &&
+          llvm::any_of(RFD->parameters(), [&](const ParmVarDecl *P) {
+            return P->isParameterPack() &&
+                   P->getFunctionScopeIndex() <= *ParamIdx;
+          }))
+        continue;
+      Holder = RFD->getParamDecl(*ParamIdx);
+    }
+    // A copy inherited by a redeclaration is not an annotation of that
+    // declaration.
+    for (Attr *A : Holder->attrs())
+      if (auto *Annot = dyn_cast<CXX26AnnotationAttr>(A);
+          Annot && !Annot->isInherited())
+        Out.push_back(Annot);
+  }
+}
+
 bool get_ith_annotation_of(APValue &Result, ASTContext &C, MetaActions &Meta,
                            EvalFn Evaluator, DiagFn Diagnoser,
                            bool AllowInjection, QualType ResultTy,
@@ -7283,20 +7349,6 @@ bool get_ith_annotation_of(APValue &Result, ASTContext &C, MetaActions &Meta,
                            Decl *ContainingDecl) {
   assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == C.MetaInfoTy);
-
-  auto findAnnotation = [&](Decl *D, size_t idx, APValue Sentinel) {
-    D = D ? D->getMostRecentDecl() : D;
-
-    while (D) {
-      auto Annots = D->attrs();
-      for (auto It = Annots.begin(); It != Annots.end(); ++It)
-        if (isa<CXX26AnnotationAttr>(*It))
-          if (idx-- == 0)
-            return makeReflection(dyn_cast<CXX26AnnotationAttr>(*It));
-      D = D->getPreviousDecl();
-    }
-    return Sentinel;
-  };
 
   APValue RV;
   if (!Evaluator(RV, Args[0], true))
@@ -7312,41 +7364,56 @@ bool get_ith_annotation_of(APValue &Result, ASTContext &C, MetaActions &Meta,
     return true;
   size_t idx = Idx.getInt().getExtValue();
 
+  auto findAnnotation = [&](Decl *D, std::optional<unsigned> ParamIdx) {
+    SmallVector<CXX26AnnotationAttr *, 4> Annots;
+    if (D)
+      collectAnnotations(D, ParamIdx, Annots);
+    if (idx < Annots.size())
+      return makeReflection(Annots[idx]);
+    return Sentinel;
+  };
+
   switch (RV.getReflectionKind()) {
   case ReflectionKind::Type: {
     NamedDecl *typeDecl = findTypeDecl(RV.getReflectedType());
     if (typeDecl)
       Meta.EnsureInstantiated(typeDecl, Range);
 
-    return SetAndSucceed(Result, findAnnotation(typeDecl, idx, Sentinel));
+    return SetAndSucceed(Result, findAnnotation(typeDecl, std::nullopt));
   }
   case ReflectionKind::Declaration: {
     ValueDecl *VD = RV.getReflectedDecl();
 
-    return SetAndSucceed(Result, findAnnotation(VD, idx, Sentinel));
+    return SetAndSucceed(Result, findAnnotation(VD, std::nullopt));
+  }
+  case ReflectionKind::Parameter: {
+    // [meta.reflection.annotation]/2.1: the declaration of the parameter in
+    // each declaration of its function.
+    ParmVarDecl *PVD = RV.getReflectedParameter();
+    auto *FD = dyn_cast<FunctionDecl>(PVD->getDeclContext());
+    if (!FD)
+      return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
+          << 7 << DescriptionOf(RV) << Range;
+    return SetAndSucceed(Result,
+                         findAnnotation(FD, PVD->getFunctionScopeIndex()));
   }
   case ReflectionKind::Namespace: {
     Decl *D = RV.getReflectedNamespace();
 
-    return SetAndSucceed(Result, findAnnotation(D, idx, Sentinel));
+    return SetAndSucceed(Result, findAnnotation(D, std::nullopt));
   }
   case ReflectionKind::EntityProxy: {
     Decl *D = RV.getReflectedEntityProxy()->getIntroducer();
 
-    return SetAndSucceed(Result, findAnnotation(D, idx, Sentinel));
+    return SetAndSucceed(Result, findAnnotation(D, std::nullopt));
   }
   // Disallow reflecting annotations of unspecialized templates, as they might
   // contain a dependent name.
-  case ReflectionKind::Template: /*{
-    Decl *D = RV.getReflectedTemplate().getAsTemplateDecl()->getTemplatedDecl();
-
-    return SetAndSucceed(Result, findAnnotation(D, idx, Sentinel));
-  }*/
+  case ReflectionKind::Template:
   case ReflectionKind::Null:
   case ReflectionKind::Object:
   case ReflectionKind::Value:
   case ReflectionKind::BaseSpecifier:
-  case ReflectionKind::Parameter:
   case ReflectionKind::DataMemberSpec:
   case ReflectionKind::Annotation:
   case ReflectionKind::Attribute:
