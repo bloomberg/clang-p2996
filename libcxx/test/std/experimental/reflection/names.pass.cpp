@@ -150,7 +150,8 @@ struct Cls : Base {
   enum class EnumCls { B };
 };
 static_assert(identifier_of(^^Cls) == "Cls");
-static_assert(!has_identifier(bases_of(^^Cls, ctx)[0]));
+static_assert(has_identifier(bases_of(^^Cls, ctx)[0]));
+static_assert(identifier_of(bases_of(^^Cls, ctx)[0]) == "Base");
 static_assert(identifier_of(^^Cls::Alias) == "Alias");
 static_assert(has_identifier(^^Cls::Alias));
 static_assert(identifier_of(^^Cls::mem) == "mem");
@@ -345,5 +346,86 @@ static_assert(u8identifier_of(d) == u8"ident");
 
 }  // namespace DataMemberSpecs
 
+
+                          // ==========================
+                          // [meta.reflection.names]/1
+                          // ==========================
+
+namespace names_p1 {
+struct S {};
+enum E { e };
+using CI = const int;
+using CS = const S;
+using CE = const E;
+template <typename T> using TAlias = T;
+
+// /1.1: an unnamed class or enumeration with a typedef name for linkage
+// purposes has that name as its identifier.
+typedef struct { int z; } TL;
+typedef enum { tle } TLE;
+typedef struct { int z; } *PTL;  // no typedef name for linkage purposes
+static_assert(^^TL != dealias(^^TL));
+static_assert(has_identifier(dealias(^^TL)));
+static_assert(identifier_of(dealias(^^TL)) == "TL");
+static_assert(u8identifier_of(dealias(^^TL)) == u8"TL");
+static_assert(has_identifier(dealias(^^TLE)));
+static_assert(identifier_of(dealias(^^TLE)) == "TLE");
+static_assert(has_identifier(type_of(^^tle)));
+static_assert(identifier_of(type_of(^^tle)) == "TLE");
+static_assert(!has_identifier(dealias(^^PTL)));
+static_assert(!has_identifier(remove_pointer(dealias(^^PTL))));
+static_assert(!has_identifier(^^const TL));
+
+// /1.3: a type alias has an identifier, even when the aliased type is
+// cv-qualified.
+static_assert(has_identifier(^^CI));
+static_assert(identifier_of(^^CI) == "CI");
+static_assert(has_identifier(^^CS));
+static_assert(identifier_of(^^CS) == "CS");
+static_assert(has_identifier(^^CE));
+static_assert(!has_identifier(^^TAlias<const S>));
+
+// /1.4: a cv-qualified class or enumeration type has no identifier.
+static_assert(has_identifier(^^S));
+static_assert(has_identifier(^^E));
+static_assert(!has_identifier(^^const S));
+static_assert(!has_identifier(^^volatile S));
+static_assert(!has_identifier(^^const volatile S));
+static_assert(!has_identifier(^^const E));
+static_assert(!has_identifier(^^const CS));
+static_assert(!has_identifier(^^volatile CS));
+static_assert(!has_identifier(^^const CI));
+static_assert(!has_identifier(^^const TAlias<S>));
+static_assert(has_identifier(dealias(^^CS)) == has_identifier(^^const S));
+
+// /1.5, /1.6, /3.2: a literal operator (template) is not an operator
+// function (template); its identifier is its ud-suffix.
+int operator""_a(const char *);
+template <char...> int operator""_b();
+static_assert(!is_operator_function(^^operator""_a));
+static_assert(is_literal_operator(^^operator""_a));
+static_assert(has_identifier(^^operator""_a));
+static_assert(identifier_of(^^operator""_a) == "_a");
+static_assert(u8identifier_of(^^operator""_a) == u8"_a");
+static_assert(!is_operator_function_template(template_of(^^operator""_b<'a'>)));
+static_assert(is_literal_operator_template(template_of(^^operator""_b<'a'>)));
+static_assert(has_identifier(template_of(^^operator""_b<'a'>)));
+static_assert(identifier_of(template_of(^^operator""_b<'a'>)) == "_b");
+static_assert(!has_identifier(^^operator""_b<'a'>));
+
+// /1.12, /3.5: a direct base class relationship has the identifier of the
+// type of its base class.
+struct Base {};
+using BaseAlias = Base;
+template <typename> struct TBase {};
+typedef struct { } TLBase;
+struct D : BaseAlias, TBase<int>, TLBase {};
+static_assert(has_identifier(bases_of(^^D, ctx)[0]));
+static_assert(identifier_of(bases_of(^^D, ctx)[0]) == "Base");
+static_assert(u8identifier_of(bases_of(^^D, ctx)[0]) == u8"Base");
+static_assert(!has_identifier(bases_of(^^D, ctx)[1]));
+static_assert(has_identifier(bases_of(^^D, ctx)[2]));
+static_assert(identifier_of(bases_of(^^D, ctx)[2]) == "TLBase");
+}  // namespace names_p1
 
 int main() { }

@@ -1475,6 +1475,39 @@ static bool isTemplateSpecialization(QualType QT) {
           QT->getAsCXXRecordDecl());
 }
 
+/// Whether 'QT' is a cv-qualified type, as opposed to a (possibly cv-qualified
+/// in its definition) type alias. [meta.reflection.names]/1.4 gives a
+/// cv-qualified class or enumeration type no identifier, while /1.3 lets an
+/// alias such as 'using CI = const int;' keep its name.
+static bool isCVQualifiedType(QualType QT) {
+  if (QT.hasLocalQualifiers())
+    return true;
+  if (isTypeAlias(QT))
+    return false;
+  return QT.getCanonicalType().hasLocalQualifiers();
+}
+
+/// The identifier of the type 'QT' per [meta.reflection.names]/1.1, /1.3 and
+/// /1.4, or nullptr if it has none. Template specializations and cv-qualified
+/// types are rejected by the callers with a more specific diagnostic.
+static IdentifierInfo *getTypeIdentifier(QualType QT) {
+  if (isTemplateSpecialization(QT) || isCVQualifiedType(QT))
+    return nullptr;
+
+  NamedDecl *D = findTypeDecl(QT);
+  if (!D)
+    return nullptr;
+  if (IdentifierInfo *II = D->getIdentifier())
+    return II;
+
+  // /1.1: an unnamed class or enumeration declared in a typedef declaration
+  // has the typedef name for linkage purposes ([dcl.typedef]/9).
+  if (auto *TD = dyn_cast<TagDecl>(D))
+    if (TypedefNameDecl *TND = TD->getTypedefNameForAnonDecl())
+      return TND->getIdentifier();
+  return nullptr;
+}
+
 static size_t getBitOffsetOfField(ASTContext &C, const FieldDecl *FD) {
   const RecordDecl *Parent = FD->getParent();
   assert(Parent && "no parent for field!");
@@ -2722,18 +2755,25 @@ bool identifier_of(APValue &Result, ASTContext &C, MetaActions &Meta,
 
   RV = MaybeUnproxy(C, RV, /*Dealias=*/false);
 
-  std::string Name;
-  switch (RV.getReflectionKind()) {
-  case ReflectionKind::Type: {
-    QualType QT = RV.getReflectedType();
+  // [meta.reflection.names]/3.1, /3.4 for a type; /3.5 routes a direct base
+  // class relationship through the type of its base class.
+  auto identifierOfType = [&](QualType QT, std::string &Name) -> bool {
     if (isTemplateSpecialization(QT))
       return Diagnoser(Range.getBegin(), diag::metafn_name_is_not_identifier)
           << 0 << Range;
+    if (isCVQualifiedType(QT))
+      return Diagnoser(Range.getBegin(), diag::metafn_name_of_cv_qualified_type)
+          << QT << Range;
+    if (IdentifierInfo *II = getTypeIdentifier(QT))
+      Name = II->getName();
+    return false;
+  };
 
-    if (auto *D = findTypeDecl(QT))
-      if (auto *ND = dyn_cast<NamedDecl>(D); ND && ND->getIdentifier())
-        Name = ND->getIdentifier()->getName();
-
+  std::string Name;
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Type: {
+    if (identifierOfType(RV.getReflectedType(), Name))
+      return true;
     break;
   }
   case ReflectionKind::Declaration: {
@@ -2810,11 +2850,11 @@ bool identifier_of(APValue &Result, ASTContext &C, MetaActions &Meta,
     break;
   }
   case ReflectionKind::BaseSpecifier: {
-    CXXBaseSpecifier *Base = RV.getReflectedBaseSpecifier();
-    QualType QT = Base->getType();
-    if (!QT.isNull() && QT.getBaseTypeIdentifier()) {
-      Name = QT.getBaseTypeIdentifier()->getName();
-    }
+    QualType QT = RV.getReflectedBaseSpecifier()->getType();
+    QT = desugarType(QT, /*UnwrapAliases=*/true, /*DropCV=*/false,
+                     /*DropRefs=*/false);
+    if (identifierOfType(QT, Name))
+      return true;
     break;
   }
   case ReflectionKind::Null:
@@ -2852,17 +2892,18 @@ bool has_identifier(APValue &Result, ASTContext &C, MetaActions &Meta,
 
   RV = MaybeUnproxy(C, RV, /*Dealias=*/false);
 
+  // [meta.reflection.names]/1.5, /1.6: a literal operator (template) is not
+  // an operator function (template); its ud-suffix is its identifier (/3.2).
+  auto hasIdentifier = [](const NamedDecl *ND) {
+    return ND->getIdentifier() != nullptr ||
+           ND->getDeclName().getNameKind() ==
+               DeclarationName::CXXLiteralOperatorName;
+  };
+
   bool HasIdentifier = false;
   switch (RV.getReflectionKind()) {
   case ReflectionKind::Type: {
-    QualType QT = RV.getReflectedType();
-    if (isTemplateSpecialization(QT))
-      break;
-
-    if (auto *D = findTypeDecl(QT))
-      if (auto *ND = dyn_cast<NamedDecl>(D); ND && ND->getIdentifier())
-        HasIdentifier = (ND->getIdentifier() != nullptr);
-
+    HasIdentifier = getTypeIdentifier(RV.getReflectedType()) != nullptr;
     break;
   }
   case ReflectionKind::Parameter: {
@@ -2888,7 +2929,7 @@ bool has_identifier(APValue &Result, ASTContext &C, MetaActions &Meta,
       HasIdentifier = !Name.empty();
     }
     else if (auto *ND = dyn_cast<NamedDecl>(D))
-      HasIdentifier = (ND->getIdentifier() != nullptr);
+      HasIdentifier = hasIdentifier(ND);
 
     break;
   }
@@ -2898,7 +2939,7 @@ bool has_identifier(APValue &Result, ASTContext &C, MetaActions &Meta,
       if (isa<CXXConstructorDecl>(FTD->getTemplatedDecl()))
         break;
 
-    HasIdentifier = (TD->getIdentifier() != nullptr);
+    HasIdentifier = hasIdentifier(TD);
     break;
   }
   case ReflectionKind::Namespace: {
@@ -2916,8 +2957,15 @@ bool has_identifier(APValue &Result, ASTContext &C, MetaActions &Meta,
     HasIdentifier = true;
     break;
   }
+  case ReflectionKind::BaseSpecifier: {
+    // [meta.reflection.names]/1.12: has_identifier(type_of(r)).
+    QualType QT = RV.getReflectedBaseSpecifier()->getType();
+    QT = desugarType(QT, /*UnwrapAliases=*/true, /*DropCV=*/false,
+                     /*DropRefs=*/false);
+    HasIdentifier = getTypeIdentifier(QT) != nullptr;
+    break;
+  }
   case ReflectionKind::Null:
-  case ReflectionKind::BaseSpecifier:
   case ReflectionKind::Object:
   case ReflectionKind::Value:
   case ReflectionKind::Annotation:

@@ -40,6 +40,8 @@ def metafn_cannot_have_name : Note<
   "reflection of %0 cannot have an associated identifier">;
 def metafn_anonymous_entity : Note<
   "reflected %0 is anonymous and has no associated identifier">;
+def metafn_name_of_cv_qualified_type : Note<
+  "cv-qualified type %0 has no associated identifier">;
 def metafn_not_an_operator : Note<"%0 is not an operator or operator template">;
 
 // Parents.
