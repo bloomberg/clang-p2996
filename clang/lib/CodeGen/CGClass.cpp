@@ -1494,6 +1494,8 @@ void CodeGenFunction::EmitDestructorBody(FunctionArgList &Args) {
   // always delegate because we might not have a definition in this TU.
   switch (DtorType) {
   case Dtor_Comdat: llvm_unreachable("not expecting a COMDAT");
+  case Dtor_Unified:
+    llvm_unreachable("not expecting a unified dtor");
   case Dtor_Deleting: llvm_unreachable("already handled deleting case");
 
   case Dtor_Complete:
