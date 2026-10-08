@@ -1382,14 +1382,21 @@ static void expandTemplateArgPacks(ArrayRef<TemplateArgument> Args,
 
 bool getTemplateArgumentsFromType(QualType QT,
                                   SmallVectorImpl<TemplateArgument> &Out) {
-  // Obtain the template arguments from the Type* representation
-  if (auto asTmplSpecialization = QT->getAs<TemplateSpecializationType>())
-    expandTemplateArgPacks(asTmplSpecialization->template_arguments(), Out);
-  else if (auto DTST = QT->getAs<DependentTemplateSpecializationType>())
-    expandTemplateArgPacks(DTST->template_arguments(), Out);
+  // Obtain the template arguments from the Type* representation. An alias
+  // template specialization has only the arguments written in its sugar; a
+  // class template specialization has its converted arguments on the
+  // declaration, which are preferred over the (possibly unconverted)
+  // arguments of the TemplateSpecializationType sugar.
+  auto *TST = QT->getAs<TemplateSpecializationType>();
+  if (TST && TST->isTypeAlias())
+    expandTemplateArgPacks(TST->template_arguments(), Out);
   else if (auto *CTSD = dyn_cast_or_null<ClassTemplateSpecializationDecl>(
         QT->getAsRecordDecl()))
     expandTemplateArgPacks(CTSD->getTemplateArgs().asArray(), Out);
+  else if (TST)
+    expandTemplateArgPacks(TST->template_arguments(), Out);
+  else if (auto DTST = QT->getAs<DependentTemplateSpecializationType>())
+    expandTemplateArgPacks(DTST->template_arguments(), Out);
   else
     return true;
 
@@ -1424,6 +1431,12 @@ static APValue getNthTemplateArgument(ASTContext &C,
     case TemplateArgument::Expression: {
       Expr *TExpr = templArgument.getAsExpr();
 
+      // An lvalue naming a function is the argument of a parameter of
+      // reference-to-function type ([meta.reflection.queries]/59.3.1).
+      if (TExpr->isLValue() && TExpr->getType()->isFunctionType())
+        if (auto *DRE = dyn_cast<DeclRefExpr>(TExpr->IgnoreParenImpCasts()))
+          return makeReflection(DRE->getDecl());
+
       APValue ArgResult;
       bool success = Evaluator(ArgResult, TExpr, !TExpr->isLValue());
       assert(success);
@@ -1435,15 +1448,74 @@ static APValue getNthTemplateArgument(ASTContext &C,
       if (TName.getKind() == TemplateName::QualifiedTemplate)
         TName = TName.getAsQualifiedTemplateName()->getUnderlyingTemplate();
       return makeReflection(TName);
-    } case TemplateArgument::Declaration:
-      return makeReflection(templArgument.getAsDecl());
+    } case TemplateArgument::Declaration: {
+      // [meta.reflection.queries]/59.3: if the parameter has reference type,
+      // the reflection represents the function or object referred to
+      // (59.3.1); otherwise the parameter has pointer or pointer-to-member
+      // type and the reflection represents the value of the argument
+      // (59.3.3), which is obtained by evaluating the expression that the
+      // argument denotes so that it compares equal to reflect_constant of
+      // the same pointer.
+      ValueDecl *D = templArgument.getAsDecl();
+      QualType ParamTy = templArgument.getParamTypeForDecl();
+
+      // 59.3.2: for a parameter of class type, the template parameter object.
+      if (isa<TemplateParamObjectDecl>(D) ||
+          (!ParamTy.isNull() && !ParamTy->isReferenceType() &&
+           !ParamTy->isPointerType() && !ParamTy->isMemberPointerType()))
+        return APValue(APValue::LValueBase{D}, CharUnits::Zero(), {}, false,
+                       false).Lift(QualType{});
+
+      if (ParamTy.isNull() || ParamTy->isReferenceType()) {
+        if (isa<FunctionDecl>(D))
+          return makeReflection(D);
+
+        Expr *DRE = DeclRefExpr::Create(C, NestedNameSpecifierLoc(),
+                                        SourceLocation(), D, false,
+                                        SourceLocation(),
+                                        D->getType().getNonReferenceType(),
+                                        VK_LValue, D, nullptr);
+        APValue Object;
+        if (!Evaluator(Object, DRE, false))
+          return makeReflection(D);
+        return Object.Lift(QualType{});
+      }
+
+      Expr *DRE = DeclRefExpr::Create(C, NestedNameSpecifierLoc(),
+                                      SourceLocation(), D, false,
+                                      SourceLocation(), D->getType(),
+                                      VK_LValue, D, nullptr);
+      Expr *Value;
+      if (ParamTy->isPointerType() && D->getType()->isArrayType())
+        Value = ImplicitCastExpr::Create(C, ParamTy, CK_ArrayToPointerDecay,
+                                         DRE, nullptr, VK_PRValue,
+                                         FPOptionsOverride());
+      else
+        Value = UnaryOperator::Create(C, DRE, UO_AddrOf, ParamTy, VK_PRValue,
+                                      OK_Ordinary, SourceLocation(), false,
+                                      FPOptionsOverride());
+      APValue Ptr;
+      if (!Evaluator(Ptr, Value, true))
+        return makeReflection(D);
+      return Ptr.Lift(ParamTy);
+    }
     case TemplateArgument::NullPtr: {
-      APValue NullPtrValue((ValueDecl *)nullptr,
-                           CharUnits::fromQuantity(C.getTargetNullPointerValue(
-                                   templArgument.getNullPtrType())),
-                           APValue::NoLValuePath(),
-                           /*IsNullPtr=*/true);
-      return NullPtrValue.Lift(templArgument.getNullPtrType());
+      // Evaluate a null pointer conversion so that the representation matches
+      // that of reflect_constant of a null pointer of the same type.
+      QualType NullTy = templArgument.getNullPtrType();
+      Expr *Null = new (C) CXXNullPtrLiteralExpr(C.NullPtrTy, SourceLocation());
+      Expr *Cast = ImplicitCastExpr::Create(
+          C, NullTy,
+          NullTy->isMemberPointerType() ? CK_NullToMemberPointer
+                                        : CK_NullToPointer,
+          Null, nullptr, VK_PRValue, FPOptionsOverride());
+      APValue NullPtrValue;
+      if (!Evaluator(NullPtrValue, Cast, true))
+        NullPtrValue = APValue((ValueDecl *)nullptr,
+                               CharUnits::fromQuantity(
+                                   C.getTargetNullPointerValue(NullTy)),
+                               APValue::NoLValuePath(), /*IsNullPtr=*/true);
+      return NullPtrValue.Lift(NullTy);
     }
     case TemplateArgument::StructuralValue: {
       APValue SV = templArgument.getAsStructuralValue();
@@ -2533,7 +2605,7 @@ bool get_ith_template_argument_of(APValue &Result, ASTContext &C,
                                     "a template specialization");
 
     APValue R = getNthTemplateArgument(C, TArgs, Evaluator, Sentinel, idx);
-    if (R.isReflectedDecl())
+    if (R.isReflectedDecl() && !isa<FunctionDecl>(R.getReflectedDecl()))
       R = APValue(APValue::LValueBase{R.getReflectedDecl()}, CharUnits::Zero(),
                   {}, false, false).Lift(QualType{});
     return SetAndSucceed(Result, R);
