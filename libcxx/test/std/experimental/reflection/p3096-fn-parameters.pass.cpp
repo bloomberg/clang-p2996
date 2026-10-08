@@ -336,4 +336,47 @@ static_assert(fn(42) == 42);
 
 }  // namespace variable_of_tests
 
+                          // =======================
+                          // parameter_type_list
+                          // =======================
+
+// [meta.reflection.queries]/62.2: for a function type, parameters_of yields
+// the types in its parameter-type-list, which [dcl.fct]/5 forms by adjusting
+// array and function types to pointers and deleting top-level cv-qualifiers.
+namespace parameter_type_list {
+struct S {};
+using CI = const int;
+using I = int;
+using PCI = const int *;
+void fn(const int, CI, const S, int *const);
+
+static_assert(parameters_of(^^void(const int))[0] == ^^int);
+static_assert(parameters_of(^^void(const int, int *const)) ==
+              std::vector {^^int, ^^int *});
+static_assert(parameters_of(^^void(const S))[0] == ^^S);
+static_assert(parameters_of(^^void(CI))[0] == ^^int);
+static_assert(parameters_of(^^void(const CI))[0] == ^^int);
+static_assert(parameters_of(^^void(I))[0] == ^^int);
+static_assert(!is_type_alias(parameters_of(^^void(I))[0]));
+static_assert(parameters_of(^^void(PCI))[0] == ^^const int *);
+
+// Only top-level qualifiers are deleted.
+static_assert(parameters_of(^^void(const int *))[0] == ^^const int *);
+static_assert(parameters_of(^^void(const int &))[0] == ^^const int &);
+static_assert(parameters_of(^^void(const int &&))[0] == ^^const int &&);
+static_assert(parameters_of(^^void(const int[3]))[0] == ^^const int *);
+static_assert(parameters_of(^^void(int[3]))[0] == ^^int *);
+static_assert(parameters_of(^^void(int(int)))[0] == ^^int (*)(int));
+static_assert(parameters_of(^^void(const int *const))[0] == ^^const int *);
+
+// The function type of a declaration agrees with the types of its parameters.
+static_assert(parameters_of(type_of(^^fn)) ==
+              std::vector {^^int, ^^int, ^^S, ^^int *});
+static_assert(type_of(parameters_of(^^fn)[0]) == ^^int);
+static_assert(type_of(parameters_of(^^fn)[1]) == ^^int);
+static_assert(type_of(parameters_of(^^fn)[2]) == ^^S);
+static_assert(type_of(parameters_of(^^fn)[3]) == ^^int *);
+static_assert(^^void(const int, CI, const S, int *const) == ^^void(int, int, S, int *));
+}  // namespace parameter_type_list
+
 int main() { }

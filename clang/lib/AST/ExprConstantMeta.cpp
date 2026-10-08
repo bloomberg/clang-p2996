@@ -6542,7 +6542,15 @@ bool get_ith_parameter_of(APValue &Result, ASTContext &C, MetaActions &Meta,
       if (idx >= numParams)
         return SetAndSucceed(Result, Sentinel);
 
-      return SetAndSucceed(Result, makeReflection(FT->getParamType(idx)));
+      // [meta.reflection.queries]/62.2: the types in the parameter-type-list
+      // of the function type, which [dcl.fct]/5 forms by deleting top-level
+      // cv-qualifiers (array and function types are already adjusted to
+      // pointers in the FunctionProtoType). The list holds types, not type
+      // aliases, so an alias used in the declarator is looked through.
+      QualType ParamTy = desugarType(FT->getParamType(idx),
+                                     /*UnwrapAliases=*/true, /*DropCV=*/true,
+                                     /*DropRefs=*/false);
+      return SetAndSucceed(Result, makeReflection(ParamTy));
     }
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_introspect_type)
         << 2 << 2 << Range;
