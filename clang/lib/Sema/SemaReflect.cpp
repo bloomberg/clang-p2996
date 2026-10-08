@@ -2053,8 +2053,12 @@ Decl *Sema::BuildConstevalBlockDeclaration(SourceLocation ConstevalLoc,
     Expr::EvalResult ER;
     ER.Diag = &Diags;
 
+    // The expression must be a constant expression ([dcl.pre]); like an
+    // immediate invocation, an evaluation that produces notes (e.g., for a
+    // leaked allocation or undefined behavior) is not one.
     ConstantExprKind Kind = ConstantExprKind::PlainlyConstantEvaluated;
-    if (!EvaluatingExpr->EvaluateAsConstantExpr(ER, Context, Kind, Result)) {
+    if (!EvaluatingExpr->EvaluateAsConstantExpr(ER, Context, Kind, Result) ||
+        !Diags.empty()) {
       Diag(ConstevalLoc, diag::err_consteval_block_not_constexpr);
       for (PartialDiagnosticAt PD : Diags)
         Diag(PD.first, PD.second);
