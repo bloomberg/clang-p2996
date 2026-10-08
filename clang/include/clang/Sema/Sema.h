@@ -5077,6 +5077,11 @@ public:
   // Decl attributes - this routine is the top level dispatcher.
   void ProcessDeclAttributes(Scope *S, Decl *D, const Declarator &PD);
 
+  /// Diagnoses an annotation ([dcl.attr.annotation]) on a declaration whose
+  /// host scope differs from its target scope, i.e. a declaration with a
+  /// qualified declarator-id outside the scope it redeclares.
+  void CheckAnnotationHostScope(NamedDecl *D, const Declarator &PD);
+
   void PopParsingDeclaration(ParsingDeclState state, Decl *decl);
 
   /// Given a set of delayed diagnostics, re-emit them as if they had
@@ -15683,6 +15688,8 @@ public:
                                       SourceLocation OpLoc,
                                       tok::TokenKind OpKind,
                                       CXXSpliceExpr *RHS);
+  ExprResult BuildBaseRelationshipMemberExpr(Expr *Base, SourceLocation OpLoc,
+                                             bool IsArrow, CXXSpliceExpr *RHS);
   ExprResult BuildDependentMemberSpliceExpr(Expr *Base, SourceLocation OpLoc,
                                             bool IsArrow, CXXSpliceExpr *RHS);
 

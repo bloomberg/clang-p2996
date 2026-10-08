@@ -2056,10 +2056,21 @@ ExprResult Sema::BuildReflectionSpliceExpr(SourceLocation TemplateKWLoc,
                                      Splice, Result, AllowMemberReference);
       break;
     }
+    case ReflectionKind::BaseSpecifier:
+      // [expr.prim.splice]/2.4: an lvalue designating the direct base class
+      // relationship, of the type of the base class; it is only usable as the
+      // right operand of a class member access ([expr.ref]/6, /8.6), which
+      // builds the conversion of the object expression.
+      if (AllowMemberReference) {
+        Result = CXXSpliceExpr::Create(
+            Context, Refl.getReflectedBaseSpecifier()->getType(), VK_LValue,
+            TemplateKWLoc, Splice, AllowMemberReference);
+        break;
+      }
+      [[fallthrough]];
     case ReflectionKind::Null:
     case ReflectionKind::Type:
     case ReflectionKind::Namespace:
-    case ReflectionKind::BaseSpecifier:
     case ReflectionKind::Parameter:
     case ReflectionKind::DataMemberSpec:
     case ReflectionKind::Annotation:

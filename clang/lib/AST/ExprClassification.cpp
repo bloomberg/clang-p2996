@@ -280,6 +280,8 @@ static Cl::Kinds ClassifyInternal(ASTContext &Ctx, const Expr *E) {
 
   case Expr::CXXSpliceExprClass: {
     const auto *SE = dyn_cast<CXXSpliceExpr>(E);
+    if (!SE->getModel())
+      return SE->getValueKind() == VK_LValue ? Cl::CL_LValue : Cl::CL_XValue;
     if (const auto *DRE = dyn_cast<DeclRefExpr>(SE->getModel())) {
       if (auto *MD = dyn_cast<CXXMethodDecl>(DRE->getDecl());
           MD && !MD->isStatic())

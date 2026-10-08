@@ -14355,7 +14355,9 @@ static ValueDecl *getPrimaryDecl(Expr *E) {
   case Stmt::CXXUuidofExprClass:
     return cast<CXXUuidofExpr>(E)->getGuidDecl();
   case Stmt::CXXSpliceExprClass:
-    return getPrimaryDecl(cast<CXXSpliceExpr>(E)->getModel());
+    if (Expr *Model = cast<CXXSpliceExpr>(E)->getModel())
+      return getPrimaryDecl(Model);
+    return nullptr;
   default:
     return nullptr;
   }
@@ -14447,6 +14449,15 @@ QualType Sema::CheckAddressOfOperand(ExprResult &OrigOp, SourceLocation OpLoc) {
     return Context.DependentTy;
 
   assert(!OrigOp.get()->hasPlaceholderType());
+
+  // A splice designating a direct base class relationship is only usable as
+  // the right operand of a class member access ([expr.ref]/6).
+  if (auto *SE = dyn_cast<CXXSpliceExpr>(OrigOp.get()->IgnoreParens());
+      SE && !SE->getModel()) {
+    Diag(SE->getBeginLoc(), diag::err_unexpected_reflection_kind_in_splice)
+        << 1 << SE->getSourceRange();
+    return QualType();
+  }
 
   // Make sure to ignore parentheses in subsequent checks
   Expr *op = OrigOp.get()->IgnoreParens();
