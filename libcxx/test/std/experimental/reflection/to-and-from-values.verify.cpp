@@ -103,4 +103,23 @@ constexpr auto r5 = std::meta::object_of(std::meta::reflect_constant(1));
   // expected-note@-1 {{cannot query the object of a value}}
 }  // namespace object_of_non_static
 
+                          // =======================
+                          // constant_of_non_constant
+                          // =======================
+
+// [meta.reflection.queries]/9: constant_of throws unless [:R:] is a valid
+// splice-expression; a non-static member function cannot be spliced as an
+// expression ([expr.prim.splice]).
+namespace constant_of_non_constant {
+struct S { void mfn(); };
+constexpr auto r1 = std::meta::constant_of(^^S::mfn);
+  // expected-error@-1 {{must be initialized by a constant expression}} \
+  // expected-note@-1 {{cannot query the value of a function}}
+
+constexpr int md[2][2] = {{1, 2}, {3, 4}};
+constexpr auto r2 = std::meta::constant_of(^^md);
+  // expected-error@-1 {{must be initialized by a constant expression}} \
+  // expected-note@-1 {{cannot query the value of a multidimensional array}}
+}  // namespace constant_of_non_constant
+
 int main() { }

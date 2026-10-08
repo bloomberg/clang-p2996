@@ -974,9 +974,23 @@ consteval auto object_of(info r) -> info {
   return __metafunction(detail::__metafn_object_of, r);
 }
 
+// The variable templates that 'reflect_constant_array' promotes an array into
+// ([meta.define.static]); 'constant_of' of an array must yield the same
+// specialization ([meta.reflection.queries]/8), so the builtin is told them.
+namespace __define_static {
+
+template <typename ValTy, ValTy... Vals>
+inline constexpr ValTy FixedArray[sizeof...(Vals)] = {Vals...};
+
+template <typename ValTy, ValTy... Vals>
+inline constexpr std::array<ValTy, 0> EmptyArray = {};
+}  // namespace __define_static
+
 // Returns a reflection of the value evaluated from the reflected entity.
 consteval auto constant_of(info r) -> info {
-  return __metafunction(detail::__metafn_constant_of, r);
+  return __metafunction(detail::__metafn_constant_of, r,
+                        ^^__define_static::FixedArray,
+                        ^^__define_static::EmptyArray);
 }
 
 // Returns a reflection of the template from which the reflected entity was
@@ -2762,15 +2776,6 @@ consteval auto annotations_of(info item, info type) -> vector<info> {
   return annotations_of_with_type(item, type);
 }
 #endif  // __has_feature(annotation_attributes)
-
-namespace __define_static {
-
-template <typename ValTy, ValTy... Vals>
-inline constexpr ValTy FixedArray[sizeof...(Vals)] = {Vals...};
-
-template <typename ValTy, ValTy... Vals>
-inline constexpr std::array<ValTy, 0> EmptyArray = {};
-}  // namespace __define_static
 
 template <ranges::input_range R>
     requires (is_constructible_v<ranges::range_value_t<R>,

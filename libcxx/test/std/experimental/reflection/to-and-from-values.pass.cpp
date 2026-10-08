@@ -281,6 +281,66 @@ consteval std::meta::info fn() {
 static_assert([:fn():] == 3);
 }  // namespace constant_of_types
 
+                          // ==========================
+                          // constant_of_arrays_and_fns
+                          // ==========================
+
+// [meta.reflection.queries]/8: constant_of of an array is
+// reflect_constant_array([:R:]); of a function, reflect_function([:R:]).
+namespace constant_of_arrays_and_fns {
+constexpr int ca[3] = {1, 2, 3};
+constexpr int cb[] = {1, 2, 3};
+constexpr const int cc[3] = {1, 2, 3};
+constexpr int cd[2] = {1, 2};
+constexpr char cs[] = "ab";
+struct S { int v; bool operator==(const S &) const = default; };
+constexpr S sa[2] = {S{1}, S{2}};
+struct WithStatic { static constexpr int arr[2] = {1, 2}; };
+constexpr const int (&ra)[3] = ca;
+
+static_assert(constant_of(^^ca) == std::meta::reflect_constant_array(ca));
+static_assert(constant_of(^^ca) == constant_of(^^cb));
+static_assert(constant_of(^^ca) == constant_of(^^cc));
+static_assert(constant_of(^^ca) != constant_of(^^cd));
+static_assert(constant_of(^^ca) == constant_of(^^ra));
+static_assert(constant_of(^^ca) == constant_of(std::meta::reflect_object(ca)));
+static_assert(constant_of(constant_of(^^ca)) == constant_of(^^ca));
+static_assert(constant_of(^^cs) == std::meta::reflect_constant_string("ab"));
+static_assert(constant_of(^^sa) == std::meta::reflect_constant_array(sa));
+static_assert(constant_of(^^WithStatic::arr) ==
+              std::meta::reflect_constant_array(WithStatic::arr));
+static_assert(type_of(constant_of(^^ca)) == ^^const int[3]);
+static_assert(type_of(constant_of(^^cs)) == ^^const char[3]);
+static_assert(!is_object(constant_of(^^ca)) && !is_value(constant_of(^^ca)));
+static_assert(is_variable(constant_of(^^ca)));
+static_assert(extract<const int *>(constant_of(^^ca))[2] == 3);
+static_assert([:constant_of(^^ca):][1] == 2);
+static_assert(extract<const int *>(constant_of(^^ca)) != ca);
+static_assert(extract<const S *>(constant_of(^^sa))[1] == S{2});
+static_assert(constant_of(std::meta::reflect_constant_array(
+                  std::vector<int>{1, 2, 3})) == constant_of(^^ca));
+
+void fn(int) {}
+template <typename T> void tfn(T);
+struct WithFns { static void sfn(); void mfn(); };
+void (&fnref)(int) = fn;
+constexpr void (*fnptr)(int) = fn;
+
+static_assert(constant_of(^^fn) == std::meta::reflect_function(fn));
+static_assert(constant_of(^^fn) == ^^fn);
+static_assert(is_function(constant_of(^^fn)));
+static_assert(constant_of(^^tfn<int>) == std::meta::reflect_function(tfn<int>));
+static_assert(constant_of(^^WithFns::sfn) == ^^WithFns::sfn);
+static_assert(constant_of(constant_of(^^fn)) == ^^fn);
+
+// A reference to a function has reference type, not function type, so /8
+// reaches reflect_constant([:R:]), which deduces a pointer to the function.
+static_assert(constant_of(^^fnref) == std::meta::reflect_constant(&fn));
+static_assert(constant_of(^^fnref) == constant_of(^^fnptr));
+static_assert(is_value(constant_of(^^fnref)));
+static_assert(type_of(constant_of(^^fnref)) == ^^void (*)(int));
+}  // namespace constant_of_arrays_and_fns
+
                            // ======================
                            // objects_from_variables
                            // ======================

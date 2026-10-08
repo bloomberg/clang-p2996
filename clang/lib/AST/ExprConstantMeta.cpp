@@ -862,7 +862,7 @@ static constexpr Metafunction Metafunctions[] = {
   { Metafunction::MFRK_metaInfo, 1, 1, underlying_entity_of },
   { Metafunction::MFRK_metaInfo, 1, 1, proxied_entity_of },
   { Metafunction::MFRK_metaInfo, 1, 1, object_of },
-  { Metafunction::MFRK_metaInfo, 1, 1, constant_of },
+  { Metafunction::MFRK_metaInfo, 1, 3, constant_of },
   { Metafunction::MFRK_metaInfo, 1, 1, template_of },
   { Metafunction::MFRK_metaInfo, 4, 4, substitute },
   { Metafunction::MFRK_spliceFromArg, 2, 2, extract },
@@ -3395,6 +3395,79 @@ bool object_of(APValue &Result, ASTContext &C, MetaActions &Meta,
 }
 
 
+static TemplateArgument TArgFromReflection(ASTContext &C, MetaActions &Meta,
+                                           EvalFn Evaluator, const APValue &RV,
+                                           SourceLocation Loc);
+
+/// 'reflect_constant_array' ([meta.define.static]/8-12) for an array value:
+/// substitutes the element type and 'reflect_constant' of each element into
+/// the variable template that the <meta> header's reflect_constant_array uses
+/// ('FixedArray', or 'EmptyArray' for an empty array), so that the result
+/// compares equal to what reflect_constant_array yields for the same array.
+static bool reflectConstantArray(APValue &Result, ASTContext &C,
+                                 MetaActions &Meta, EvalFn Evaluator,
+                                 DiagFn Diagnoser, SourceRange Range,
+                                 VarTemplateDecl *FixedArray,
+                                 VarTemplateDecl *EmptyArray, QualType ArrTy,
+                                 const APValue &ArrayVal) {
+  const ConstantArrayType *CAT = C.getAsConstantArrayType(ArrTy);
+  if (!CAT || !ArrayVal.isArray() || !FixedArray || !EmptyArray)
+    return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
+        << 2 << "an array of unknown bound" << Range;
+
+  // ranges::range_value_t strips cv-qualifiers from the element type.
+  QualType ElemTy = desugarType(CAT->getElementType(), /*UnwrapAliases=*/true,
+                                /*DropCV=*/true, /*DropRefs=*/false);
+  if (ElemTy->isArrayType())
+    return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
+        << 2 << "a multidimensional array" << Range;
+  if (!ElemTy->isStructuralType())
+    return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
+        << 2 << "an array of non-structural type" << Range;
+
+  SmallVector<TemplateArgument, 8> TArgs;
+  TArgs.push_back(TemplateArgument(ElemTy.getCanonicalType()));
+
+  unsigned Size = ArrayVal.getArraySize();
+  for (unsigned I = 0; I < Size; ++I) {
+    APValue Elem = I < ArrayVal.getArrayInitializedElts()
+                       ? ArrayVal.getArrayInitializedElt(I)
+                       : ArrayVal.getArrayFiller();
+
+    // reflect_constant of the element: an object for a class type, a value
+    // otherwise ([meta.reflection.result]/2).
+    APValue Refl;
+    if (ElemTy->isRecordType()) {
+      auto *TPO = C.getTemplateParamObjectDecl(ElemTy, Elem);
+      Refl = APValue(APValue::LValueBase{TPO}, CharUnits::Zero(), {}, false,
+                     false).Lift(QualType{});
+    } else {
+      Refl = Elem.Lift(ElemTy);
+    }
+
+    TemplateArgument TArg = TArgFromReflection(C, Meta, Evaluator, Refl,
+                                               Range.getBegin());
+    if (TArg.isNull())
+      return true;
+    TArgs.push_back(TArg);
+  }
+
+  VarTemplateDecl *VTD = Size == 0 ? EmptyArray : FixedArray;
+  SmallVector<TemplateArgument, 8> ExpandedTArgs;
+  expandTemplateArgPacks(TArgs, ExpandedTArgs);
+  if (!Meta.CheckTemplateArgumentList(VTD, ExpandedTArgs,
+                                      /*SuppressDiagnostics=*/false,
+                                      Range.getBegin()))
+    return true;
+  TArgs.clear();
+  expandTemplateArgPacks(ExpandedTArgs, TArgs);
+
+  VarDecl *Spec = Meta.Substitute(VTD, TArgs, Range.getBegin());
+  if (!Spec)
+    return true;
+  return SetAndSucceed(Result, makeReflection(Spec));
+}
+
 bool constant_of(APValue &Result, ASTContext &C, MetaActions &Meta,
                  EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
                  QualType ResultTy, SourceRange Range, ArrayRef<Expr *> Args,
@@ -3406,15 +3479,43 @@ bool constant_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   if (!Evaluator(RV, Args[0], true))
     return true;
 
+  // The variable templates behind the header's reflect_constant_array
+  // ([meta.reflection.queries]/8 makes constant_of of an array equivalent to
+  // reflect_constant_array([:R:])), handed over by the <meta> wrapper.
+  VarTemplateDecl *FixedArray = nullptr, *EmptyArray = nullptr;
+  for (unsigned I = 1; I < Args.size() && I < 3; ++I) {
+    APValue TV;
+    if (!Evaluator(TV, Args[I], true) || !TV.isReflectedTemplate())
+      return true;
+    auto *VTD = dyn_cast<VarTemplateDecl>(
+        TV.getReflectedTemplate().getAsTemplateDecl());
+    (I == 1 ? FixedArray : EmptyArray) = VTD;
+  }
+
+  // reflect_constant([:R:]) for a glvalue of type 'QT' whose value is
+  // 'Constant' ([meta.reflection.queries]/8, [meta.reflection.result]/2): an
+  // object (template parameter object) for a class type, a value otherwise.
+  auto reflectConstant = [&](QualType QT, APValue Constant) -> bool {
+    QualType ConstantTy = ComputeResultType(QT, Constant);
+    if (ConstantTy->isRecordType()) {
+      auto *TPO = C.getTemplateParamObjectDecl(ConstantTy, Constant);
+      Constant = APValue(APValue::LValueBase{TPO}, CharUnits::Zero(), {}, false,
+                         false);
+      ConstantTy = QualType{};
+    }
+    return SetAndSucceedWithLift(Result, Diagnoser, Range, Constant,
+                                 ConstantTy);
+  };
+
   switch (RV.getReflectionKind()) {
   case ReflectionKind::Value:
     return SetAndSucceed(Result, RV);
   case ReflectionKind::Object: {
-    if (!RV.getTypeOfReflectedResult(C)->isStructuralType())
+    QualType ObjectTy = RV.getTypeOfReflectedResult(C);
+    if (!ObjectTy->isArrayType() && !ObjectTy->isStructuralType())
       return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
           << 2 << "an object of non-structural type" << Range;
 
-    QualType ObjectTy = RV.getTypeOfReflectedResult(C);
     Expr *OVE = new (C) OpaqueValueExpr(Range.getBegin(), ObjectTy, VK_LValue);
     Expr *CE = ConstantExpr::Create(C, OVE, RV.getReflectedObject());
 
@@ -3423,17 +3524,10 @@ bool constant_of(APValue &Result, ASTContext &C, MetaActions &Meta,
       return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
           << 2 << "an object not usable in constant expressions" << Range;
 
-    APValue Constant = ER.Val;
-    QualType ConstantTy = ComputeResultType(RV.getTypeOfReflectedResult(C),
-                                            Constant);
-    if (ConstantTy->isRecordType()) {
-      auto *TPO = C.getTemplateParamObjectDecl(ConstantTy, Constant);
-      Constant = APValue(APValue::LValueBase{TPO}, CharUnits::Zero(), {}, false,
-                    false);
-      ConstantTy = QualType{};
-    }
-    return SetAndSucceedWithLift(Result, Diagnoser, Range, Constant,
-                                 ConstantTy);
+    if (ObjectTy->isArrayType())
+      return reflectConstantArray(Result, C, Meta, Evaluator, Diagnoser, Range,
+                                  FixedArray, EmptyArray, ObjectTy, ER.Val);
+    return reflectConstant(ObjectTy, ER.Val);
   }
   case ReflectionKind::Declaration: {
     ValueDecl *Decl = RV.getReflectedDecl();
@@ -3441,21 +3535,44 @@ bool constant_of(APValue &Result, ASTContext &C, MetaActions &Meta,
     APValue Constant;
     QualType QT;
     if (auto *VD = dyn_cast<VarDecl>(Decl)) {
+      // A specialization of a variable template (such as the one that
+      // reflect_constant_array yields) has no initializer until instantiated.
+      Meta.EnsureInstantiated(VD, Args[0]->getSourceRange());
       if (!VD->isUsableInConstantExpressions(C))
-      return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
-          << 2 << "a variable not usable in constant expressions" << Range;
+        return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
+            << 2 << "a variable not usable in constant expressions" << Range;
 
       QT = VD->getType();
-      if (auto *LVRT = dyn_cast<LValueReferenceType>(QT))
-        QT = LVRT->getPointeeType();
+      if (QT->isReferenceType())
+        QT = QT.getNonReferenceType();
 
       Expr *Synthesized = DeclRefExpr::Create(C, NestedNameSpecifierLoc(),
                                               SourceLocation(), VD, false,
                                               Range.getBegin(), QT,
                                               VK_LValue, Decl, nullptr);
-      if (!Evaluator(Constant, Synthesized, true))
+      if (!Evaluator(Constant, Synthesized, !QT->isFunctionType()))
         llvm_unreachable("failed to evaluate variable usable in constant "
                          "expressions");
+
+      // [meta.reflection.queries]/8: an array yields reflect_constant_array.
+      if (QT->isArrayType())
+        return reflectConstantArray(Result, C, Meta, Evaluator, Diagnoser,
+                                    Range, FixedArray, EmptyArray, QT,
+                                    Constant);
+
+      // A reference to a function has reference type, so /8 reaches
+      // reflect_constant([:R:]), whose by-value parameter deduces a pointer
+      // to the function: the result is a value of pointer type.
+      if (QT->isFunctionType())
+        QT = C.getPointerType(QT);
+    } else if (auto *FD = dyn_cast<FunctionDecl>(Decl)) {
+      // [meta.reflection.queries]/8: reflect_function([:R:]), a reflection of
+      // the function itself; [:R:] is not a valid splice-expression for a
+      // non-static member function (/9).
+      if (auto *MD = dyn_cast<CXXMethodDecl>(FD); MD && MD->isInstance())
+        return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
+            << 2 << DescriptionOf(RV) << Range;
+      return SetAndSucceed(Result, makeReflection(FD));
     } else if (isa<EnumConstantDecl>(Decl)) {
       Expr *Synthesized = DeclRefExpr::Create(C, NestedNameSpecifierLoc(),
                                               SourceLocation(), Decl, false,
@@ -3475,16 +3592,7 @@ bool constant_of(APValue &Result, ASTContext &C, MetaActions &Meta,
           << 2 << DescriptionOf(RV) << Range;
     }
 
-    QualType ConstantTy = ComputeResultType(QT, Constant);
-    if (ConstantTy->isRecordType()) {
-      auto *TPO = C.getTemplateParamObjectDecl(ConstantTy, Constant);
-      Constant = APValue(APValue::LValueBase{TPO}, CharUnits::Zero(), {}, false,
-                    false);
-      ConstantTy = QualType{};
-    }
-
-    return SetAndSucceedWithLift(Result, Diagnoser, Range, Constant,
-                                 ConstantTy);
+    return reflectConstant(QT, Constant);
   }
   case ReflectionKind::Annotation: {
     CXX26AnnotationAttr *A = RV.getReflectedAnnotation();
