@@ -1678,8 +1678,17 @@ LinkageInfo LinkageComputer::getLVForValue(const APValue &V,
 }
 
 static QualType unwrapReflectedType(QualType QT) {
-  bool IsConst = QT.isConstQualified();
-  bool IsVolatile = QT.isVolatileQualified();
+  // A type-id reaches here wrapped in a LocInfoType; look through it before
+  // reading the qualifiers written on the type.
+  if (const auto *LIT = dyn_cast<LocInfoType>(QT))
+    QT = LIT->getType();
+
+  // Only qualifiers written on the type itself ('const Alias') turn an alias
+  // into a (cv-qualified) type that must be unwrapped; an alias whose
+  // underlying type happens to be cv-qualified ('using CI = const int;')
+  // still represents the alias, so the canonical qualifiers must not count.
+  bool IsConst = QT.isLocalConstQualified();
+  bool IsVolatile = QT.isLocalVolatileQualified();
   bool UnwrapAliases = (IsConst || IsVolatile);
 
   void *AsPtr;
@@ -1700,7 +1709,7 @@ static QualType unwrapReflectedType(QualType QT) {
         RST && !RST->isDependentType())
       QT = RST->getUnderlyingType();
     if (const auto *TST = dyn_cast<TemplateSpecializationType>(QT);
-        TST && !TST->isTypeAlias()) {
+        TST && (!TST->isTypeAlias() || UnwrapAliases)) {
       QT = TST->desugar();
     }
     if (const auto *DTST = dyn_cast<DeducedTemplateSpecializationType>(QT))

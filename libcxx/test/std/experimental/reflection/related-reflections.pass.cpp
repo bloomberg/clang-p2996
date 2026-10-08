@@ -234,6 +234,26 @@ static_assert(dealias(^^NSAlias) == ^^dealiasing);
 static_assert(dealias(^^NSAliasAlias) == ^^dealiasing);
 
 static_assert(dealias(std::meta::info{}) == std::meta::info{});
+
+// An alias to a cv-qualified type is still a type alias; only qualifiers
+// written on the alias itself produce a (cv-qualified) type.
+using const_int_alias = const int;
+struct S {};
+using const_S_alias = const S;
+static_assert(is_type_alias(^^const_int_alias));
+static_assert(^^const_int_alias != ^^const int);
+static_assert(dealias(^^const_int_alias) == ^^const int);
+static_assert(is_type_alias(^^const_S_alias));
+static_assert(dealias(^^const_S_alias) == ^^const S);
+static_assert(is_type_alias(^^TAlias<const int>));
+static_assert(dealias(^^TAlias<const int>) == ^^const int);
+static_assert(!is_type_alias(^^const int_alias));
+static_assert(^^const int_alias == ^^const int);
+static_assert(!is_type_alias(^^const const_int_alias));
+static_assert(^^const const_int_alias == ^^const int);
+static_assert(^^volatile const_int_alias == ^^const volatile int);
+static_assert(!is_type_alias(^^const TAlias<int>));
+static_assert(^^const TAlias<int> == ^^const int);
 }  // namespace dealiasing
 
                               // ================
