@@ -56,3 +56,34 @@ void fn() {
   constexpr auto r = ^^u;
 }
 }  // namespace invalid_declaration
+
+                              // ============
+                              // overload_set
+                              // ============
+
+namespace overload_set {
+// A reflection-name whose lookup finds an overload set represents a function
+// template only if the set contains nothing but declarations of that template
+// ([expr.reflect]/5.5.2); otherwise it is an id-expression, for which
+// '&id-expression' must select a unique function ([expr.reflect]/7.2).
+void a(int);
+void a(double);
+constexpr info ra = ^^a;
+  // expected-error@-1 {{cannot take the reflection of an overload set}}
+
+template <typename T> void b(T);
+template <typename T> void b(T, int);
+constexpr info rb = ^^b;
+  // expected-error@-1 {{cannot take the reflection of an overload set}}
+
+template <typename T> void u(T);
+template <typename T> void u(T);  // a redeclaration of the same template
+constexpr info ru = ^^u;  // OK, represents the template
+
+struct S {
+  void m();
+  void m() const;
+  static constexpr info rm = ^^S::m;
+    // expected-error@-1 {{cannot take the reflection of an overload set}}
+};
+}  // namespace overload_set

@@ -1090,12 +1090,28 @@ ExprResult Sema::ActOnCXXReflectExpr(SourceLocation OpLoc,
     return ExprError();
   }
 
+  // A reflection-name whose lookup finds an overload set represents the
+  // function template F if the set contains only declarations of F
+  // ([expr.reflect]/5.5.2); otherwise it is an id-expression, for which
+  // '&id-expression' must select a unique function ([expr.reflect]/7.2).
+  auto IsUniqueFunctionTemplate = [&] {
+    FunctionTemplateDecl *FTD = nullptr;
+    for (NamedDecl *D : Found) {
+      auto *Cand = dyn_cast<FunctionTemplateDecl>(D->getUnderlyingDecl());
+      if (!Cand || (FTD && !declaresSameEntity(FTD, Cand)))
+        return false;
+      FTD = Cand;
+    }
+    return FTD != nullptr;
+  };
+
   // Make sure the lookup was neither ambiguous nor resulting in an overload set
   // having more than one candidate.
   if (Found.isAmbiguous()) {
     return ExprError();
   } else if (Found.isOverloadedResult() &&
-             !isReflectionNameForm(NameInfo.getName(), TArgs)) {
+             (!isReflectionNameForm(NameInfo.getName(), TArgs) ||
+              !IsUniqueFunctionTemplate())) {
     Expr *Result = UnresolvedLookupExpr::Create(
           Context, nullptr, SS.getWithLocInContext(Context),
           SourceLocation(), NameInfo, false, TArgs, Found.begin(),
