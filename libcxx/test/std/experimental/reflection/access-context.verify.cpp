@@ -47,6 +47,19 @@ constexpr auto v5 = access_context::unchecked().via(^^via);
   // expected-error@-1 {{must be initialized by a constant expression}}
 
 constexpr auto v6 = access_context::unchecked().via(^^Complete);  // ok
+
+// [meta.reflection.access.queries]/7.2: has_inaccessible_nonstatic_data_members
+// is not defined for a closure type.
+constexpr auto closure = [](int k) { return k; };
+constexpr bool v7 = std::meta::has_inaccessible_nonstatic_data_members(
+    ^^decltype(closure), access_context::current());
+  // expected-error@-2 {{must be initialized by a constant expression}}
+constexpr bool v8 = std::meta::has_inaccessible_subobjects(
+    ^^decltype(closure), access_context::current());
+  // expected-error@-2 {{must be initialized by a constant expression}}
+constexpr bool v9 = std::meta::has_inaccessible_bases(
+    ^^decltype(closure), access_context::current());  // ok: /8 has no such rule
+static_assert(!v9);
 }  // namespace via
 
                              // ==================

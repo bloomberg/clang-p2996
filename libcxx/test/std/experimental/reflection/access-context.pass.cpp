@@ -129,6 +129,60 @@ static_assert(!is_accessible(Priv::r,
                              access_context::unprivileged().via(^^PubDerived)));
 static_assert(is_accessible(Priv::r, access_context::unchecked()));
 static_assert(is_accessible(Priv::r, access_context::unchecked().via(info{})));
+
+// [meta.reflection.access.queries]/3.3: a member that is not a (possibly
+// indirect) member of the designating class is inaccessible whatever the
+// scope, even the unchecked one; otherwise the member is checked as if named
+// through the designating class ([class.access.base]).
+class Base {
+protected:
+  int prot;
+  struct BaseProt {};
+private:
+  [[maybe_unused]] int priv;
+public:
+  int pub;
+  static constexpr auto rprot = ^^prot;
+  static constexpr auto rpub = ^^pub;
+  static constexpr auto rpriv = ^^priv;
+  static constexpr auto rbase_prot = ^^BaseProt;
+};
+class Derived : public Base {
+public:
+  static constexpr auto ctx = access_context::current();
+};
+class Derived2 : public Base {};
+class DerivedPriv : Base {};
+struct Unrelated {};
+constexpr auto here = access_context::current();
+
+static_assert(is_accessible(Base::rprot, access_context::unchecked()));
+static_assert(!is_accessible(Base::rprot, access_context::unchecked().via(^^Unrelated)));
+static_assert(!is_accessible(Base::rpub, access_context::unchecked().via(^^Unrelated)));
+static_assert(is_accessible(Base::rpub, access_context::unchecked().via(^^Derived)));
+static_assert(is_accessible(Base::rprot, access_context::unchecked().via(^^Derived)));
+static_assert(!is_accessible(Base::rprot, here));
+static_assert(!is_accessible(Base::rprot, here.via(^^Derived)));
+static_assert(is_accessible(Base::rpub, here.via(^^Derived)));
+static_assert(is_accessible(Base::rpub, here.via(^^Base)));
+static_assert(!is_accessible(Base::rpub, here.via(^^DerivedPriv)));
+static_assert(is_accessible(Base::rprot, Derived::ctx.via(^^Derived)));
+static_assert(!is_accessible(Base::rprot, Derived::ctx.via(^^Derived2)));
+static_assert(!is_accessible(Base::rprot, Derived::ctx));
+static_assert(!is_accessible(Base::rpriv, Derived::ctx.via(^^Derived)));
+static_assert(!is_accessible(Base::rbase_prot, here.via(^^Derived)));
+static_assert(is_accessible(Base::rbase_prot, Derived::ctx.via(^^Derived)));
+
+// Direct base class relationships: the derived class must be the designating
+// class or one of its bases.
+struct MoreDerived : Derived {};
+constexpr auto base_rel = bases_of(^^Derived, access_context::unchecked())[0];
+static_assert(is_accessible(base_rel, access_context::unchecked()));
+static_assert(!is_accessible(base_rel, access_context::unchecked().via(^^Unrelated)));
+static_assert(!is_accessible(base_rel, access_context::unchecked().via(^^Base)));
+static_assert(is_accessible(base_rel, access_context::unchecked().via(^^Derived)));
+static_assert(is_accessible(base_rel, access_context::unchecked().via(^^MoreDerived)));
+static_assert(is_accessible(base_rel, here.via(^^MoreDerived)));
 }  // namespace via
 
 int main() { }

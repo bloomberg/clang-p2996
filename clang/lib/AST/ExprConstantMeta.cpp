@@ -644,6 +644,12 @@ static bool has_c_language_linkage(APValue &Result, ASTContext &C,
                                    QualType ResultTy, SourceRange Range,
                                    ArrayRef<Expr *> Args, Decl *ContainingDecl);
 
+static bool is_closure_type(APValue &Result, ASTContext &C, MetaActions &Meta,
+                            EvalFn Evaluator, DiagFn Diagnoser,
+                            bool AllowInjection, QualType ResultTy,
+                            SourceRange Range, ArrayRef<Expr *> Args,
+                            Decl *ContainingDecl);
+
 static bool offset_of(APValue &Result, ASTContext &C, MetaActions &Meta,
                       EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
                       QualType ResultTy, SourceRange Range,
@@ -987,6 +993,9 @@ static constexpr Metafunction Metafunctions[] = {
   // [meta.reflection.queries] has_parent, has_c_language_linkage
   { Metafunction::MFRK_bool, 1, 1, has_parent },
   { Metafunction::MFRK_bool, 1, 1, has_c_language_linkage },
+
+  // non-exposed: closure type detection for [meta.reflection.access.queries]
+  { Metafunction::MFRK_bool, 1, 1, is_closure_type },
 };
 constexpr const unsigned NumMetafunctions = sizeof(Metafunctions) /
                                             sizeof(Metafunction);
@@ -7372,6 +7381,9 @@ bool is_accessible(APValue &Result, ASTContext &C, MetaActions &Meta,
     if (!NamingCls)
       return true;  // TODO(P2996): Diagnostic for naming class.
   }
+  // The designating class set with access_context::via, if any
+  // ([meta.reflection.access.context]/11).
+  CXXRecordDecl *DesignatingCls = NamingCls;
 
   APValue RV;
   if (!Evaluator(RV, Args[0], true))
@@ -7389,13 +7401,32 @@ bool is_accessible(APValue &Result, ASTContext &C, MetaActions &Meta,
     return false;
   };
 
+  // [meta.reflection.access.queries]/3.3.1: a class member that is not a
+  // (possibly indirect or variant) member of the designating class is not
+  // accessible, whatever the scope. Members of anonymous unions and unscoped
+  // enumerators are members of the enclosing class.
+  auto isMemberOfDesignatingClass = [&](Decl *D) -> bool {
+    if (!DesignatingCls)
+      return true;
+    DeclContext *DC = D->getDeclContext();
+    while (DC && (isa<CXXRecordDecl>(DC)
+                      ? cast<CXXRecordDecl>(DC)->isAnonymousStructOrUnion()
+                      : DC->isTransparentContext()))
+      DC = DC->getParent();
+    auto *Cls = dyn_cast_or_null<CXXRecordDecl>(DC);
+    if (!Cls)
+      return true;
+    return declaresSameEntity(Cls, DesignatingCls) ||
+           DesignatingCls->isDerivedFrom(Cls);
+  };
+
   switch (RV.getReflectionKind()) {
   case ReflectionKind::Type: {
     NamedDecl *D = findTypeDecl(RV.getReflectedType());
     if (validate(D, NamingCls))
       return true;
-    else if (!NamingCls)
-      return SetAndSucceed(Result, makeBool(C, true));
+    else if (!NamingCls || !isMemberOfDesignatingClass(D))
+      return SetAndSucceed(Result, makeBool(C, !NamingCls));
 
     bool Accessible = UnconditionalAccess ||
                       Meta.IsAccessible(D, AccessDC, NamingCls);
@@ -7405,8 +7436,8 @@ bool is_accessible(APValue &Result, ASTContext &C, MetaActions &Meta,
     ValueDecl *D = RV.getReflectedDecl();
     if (validate(D, NamingCls))
       return true;
-    else if (!NamingCls)
-      return SetAndSucceed(Result, makeBool(C, true));
+    else if (!NamingCls || !isMemberOfDesignatingClass(D))
+      return SetAndSucceed(Result, makeBool(C, !NamingCls));
 
     bool Accessible = UnconditionalAccess ||
                       Meta.IsAccessible(RV.getReflectedDecl(), AccessDC,
@@ -7417,8 +7448,8 @@ bool is_accessible(APValue &Result, ASTContext &C, MetaActions &Meta,
     TemplateDecl *D = RV.getReflectedTemplate().getAsTemplateDecl();
     if (validate(D, NamingCls))
       return true;
-    else if (!NamingCls)
-      return SetAndSucceed(Result, makeBool(C, true));
+    else if (!NamingCls || !isMemberOfDesignatingClass(D))
+      return SetAndSucceed(Result, makeBool(C, !NamingCls));
 
     bool Accessible = UnconditionalAccess ||
                       Meta.IsAccessible(D, AccessDC, NamingCls);
@@ -7428,8 +7459,8 @@ bool is_accessible(APValue &Result, ASTContext &C, MetaActions &Meta,
     UsingShadowDecl *USD = RV.getReflectedEntityProxy();
     if (validate(USD, NamingCls))
       return true;
-    else if (!NamingCls)
-      return SetAndSucceed(Result, makeBool(C, true));
+    else if (!NamingCls || !isMemberOfDesignatingClass(USD))
+      return SetAndSucceed(Result, makeBool(C, !NamingCls));
 
     bool Accessible = UnconditionalAccess ||
                       Meta.IsAccessible(USD, AccessDC, NamingCls);
@@ -7448,6 +7479,12 @@ bool is_accessible(APValue &Result, ASTContext &C, MetaActions &Meta,
       return Diagnoser(Range.getBegin(),
                        diag::metafn_access_query_class_being_defined)
           << DerivedDecl << Range;
+
+    // [meta.reflection.access.queries]/3.3.2: the derived class of the
+    // relationship must be the designating class or a base class thereof.
+    if (DesignatingCls && !declaresSameEntity(DerivedDecl, DesignatingCls) &&
+        !DesignatingCls->isDerivedFrom(DerivedDecl))
+      return SetAndSucceed(Result, makeBool(C, false));
     QualType DerivedTy(BaseSpec->getDerived()->getTypeForDecl(), 0);
 
     CXXBasePathElement bpe = { BaseSpec, BaseSpec->getDerived(), 0 };
@@ -8024,6 +8061,26 @@ bool has_c_language_linkage(APValue &Result, ASTContext &C, MetaActions &Meta,
     else if (auto *VD = dyn_cast<VarDecl>(D))
       result = VD->isExternC();
   }
+  return SetAndSucceed(Result, makeBool(C, result));
+}
+
+// Non-exposed: whether 'r' represents a closure type ([expr.prim.lambda]).
+bool is_closure_type(APValue &Result, ASTContext &C, MetaActions &Meta,
+                     EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
+                     QualType ResultTy, SourceRange Range,
+                     ArrayRef<Expr *> Args, Decl *ContainingDecl) {
+  assert(Args[0]->getType()->isReflectionType());
+  assert(ResultTy == C.BoolTy);
+
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
+    return true;
+  RV = MaybeUnproxy(C, RV);
+
+  bool result = false;
+  if (RV.isReflectedType())
+    if (auto *RD = RV.getReflectedType()->getAsCXXRecordDecl())
+      result = RD->isLambda();
   return SetAndSucceed(Result, makeBool(C, result));
 }
 

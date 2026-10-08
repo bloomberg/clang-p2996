@@ -620,6 +620,9 @@ enum : unsigned {
   // [meta.reflection.queries] has_parent, has_c_language_linkage
   __metafn_has_parent,
   __metafn_has_c_language_linkage,
+
+  // non-exposed: closure type detection
+  __metafn_is_closure_type,
 };
 
 consteval auto __workaround_expand_compiler_builtins(info type) -> info;
@@ -2378,6 +2381,9 @@ consteval auto __any_inaccessible(vector<info> const& r, access_context ctx) -> 
 consteval auto has_inaccessible_nonstatic_data_members(
         info r,
         access_context ctx) -> bool {
+  // [meta.reflection.access.queries]/7.2: not for a closure type.
+  if (__metafunction(detail::__metafn_is_closure_type, r))
+    throw "has_inaccessible_nonstatic_data_members of a closure type";
   return __any_inaccessible(nonstatic_data_members_of(r, access_context::unchecked()), ctx);
 }
 
