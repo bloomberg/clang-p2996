@@ -1940,7 +1940,7 @@ StringRef DescriptionOf(APValue RV, bool Granular = true) {
     else if (isa<VarDecl>(D)) return "a variable";
     else if (isa<BindingDecl>(D)) return "a structured binding";
     else if (isa<FunctionDecl>(D)) return "a function";
-    else if (isa<EnumConstantDecl>(D)) return "a enumerator";
+    else if (isa<EnumConstantDecl>(D)) return "an enumerator";
     llvm_unreachable("unhandled declaration kind");
   }
   case ReflectionKind::Template: {
@@ -6681,12 +6681,33 @@ bool size_of(APValue &Result, ASTContext &C, MetaActions &Meta,
     return SetAndSucceed(Result, APValue(C.MakeIntValue(Sz, C.getSizeType())));
   }
   case ReflectionKind::Declaration: {
+    // [meta.reflection.layout]/6.1: an object, a variable of non-reference
+    // type, or a non-static data member that is not a bit-field.
     ValueDecl *VD = RV.getReflectedDecl();
+    if (!isa<VarDecl, FieldDecl, TemplateParamObjectDecl>(VD))
+      return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
+          << 3 << DescriptionOf(RV) << Range;
+    if (isa<VarDecl>(VD) && VD->getType()->isReferenceType())
+      return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
+          << 3 << "a variable of reference type" << Range;
+    if (auto *FD = dyn_cast<FieldDecl>(VD); FD && FD->isBitField())
+      return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
+          << 3 << DescriptionOf(RV) << Range;
+
     size_t Sz = C.getTypeSizeInChars(VD->getType()).getQuantity();
+    return SetAndSucceed(Result, APValue(C.MakeIntValue(Sz, C.getSizeType())));
+  }
+  case ReflectionKind::BaseSpecifier: {
+    // [meta.reflection.layout]/5: size_of(type_of(r)).
+    QualType QT = RV.getReflectedBaseSpecifier()->getType();
+    size_t Sz = C.getTypeSizeInChars(QT).getQuantity();
     return SetAndSucceed(Result, APValue(C.MakeIntValue(Sz, C.getSizeType())));
   }
   case ReflectionKind::DataMemberSpec: {
     TagDataMemberSpec *TDMS = RV.getReflectedDataMemberSpec();
+    if (TDMS->BitWidth)
+      return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
+          << 3 << "a description of a bit-field" << Range;
     size_t Sz = C.getTypeSizeInChars(TDMS->Ty).getQuantity();
     return SetAndSucceed(Result, APValue(C.MakeIntValue(Sz, C.getSizeType())));
   }
@@ -6694,7 +6715,6 @@ bool size_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::Template:
   case ReflectionKind::Namespace:
   case ReflectionKind::EntityProxy:
-  case ReflectionKind::BaseSpecifier:
   case ReflectionKind::Parameter:
   case ReflectionKind::Attribute:
   case ReflectionKind::Annotation:
@@ -6774,13 +6794,28 @@ bool bit_size_of(APValue &Result, ASTContext &C, MetaActions &Meta,
     return SetAndSucceed(Result, APValue(C.MakeIntValue(Sz, C.getSizeType())));
   }
   case ReflectionKind::Declaration: {
+    // [meta.reflection.layout]/10.1: an object, a variable of non-reference
+    // type, a non-static data member, or an unnamed bit-field.
     const ValueDecl *VD = cast<ValueDecl>(RV.getReflectedDecl());
+    if (!isa<VarDecl, FieldDecl, TemplateParamObjectDecl>(VD))
+      return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
+          << 3 << DescriptionOf(RV) << Range;
+    if (isa<VarDecl>(VD) && VD->getType()->isReferenceType())
+      return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
+          << 3 << "a variable of reference type" << Range;
+
     size_t Sz = C.getTypeSize(VD->getType());
 
     if (const FieldDecl *FD = dyn_cast<const FieldDecl>(VD))
       if (FD->isBitField())
         Sz = FD->getBitWidthValue();
 
+    return SetAndSucceed(Result, APValue(C.MakeIntValue(Sz, C.getSizeType())));
+  }
+  case ReflectionKind::BaseSpecifier: {
+    // [meta.reflection.layout]/9.3: CHAR_BIT * size_of(r).
+    QualType QT = RV.getReflectedBaseSpecifier()->getType();
+    size_t Sz = C.getTypeSize(QT);
     return SetAndSucceed(Result, APValue(C.MakeIntValue(Sz, C.getSizeType())));
   }
   case ReflectionKind::DataMemberSpec: {
@@ -6794,7 +6829,6 @@ bool bit_size_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::Template:
   case ReflectionKind::Namespace:
   case ReflectionKind::EntityProxy:
-  case ReflectionKind::BaseSpecifier:
   case ReflectionKind::Parameter:
   case ReflectionKind::Attribute:
   case ReflectionKind::Annotation:
@@ -6826,29 +6860,43 @@ bool alignment_of(APValue &Result, ASTContext &C, MetaActions &Meta,
     return SetAndSucceed(Result,
                          APValue(C.MakeIntValue(Align, C.getSizeType())));
   }
-  case ReflectionKind::Object:
-  case ReflectionKind::Value: {
+  case ReflectionKind::Object: {
     QualType QT = RV.getTypeOfReflectedResult(C);
     size_t Align = C.getTypeAlignInChars(QT).getQuantity();
     return SetAndSucceed(Result,
                          APValue(C.MakeIntValue(Align, C.getSizeType())));
   }
   case ReflectionKind::Declaration: {
+    // [meta.reflection.layout]/8.1: an object, a variable of non-reference
+    // type, or a non-static data member that is not a bit-field.
     const ValueDecl *VD = cast<ValueDecl>(RV.getReflectedDecl());
+    if (!isa<VarDecl, FieldDecl, TemplateParamObjectDecl>(VD))
+      return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
+          << 4 << DescriptionOf(RV) << Range;
+    if (isa<VarDecl>(VD) && VD->getType()->isReferenceType())
+      return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
+          << 4 << "a variable of reference type" << Range;
+    if (const FieldDecl *FD = dyn_cast<const FieldDecl>(VD);
+        FD && FD->isBitField())
+      return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
+          << 4 << DescriptionOf(RV) << Range;
 
-    if (const FieldDecl *FD = dyn_cast<const FieldDecl>(VD)) {
-      if (FD->isBitField())
-        return true;
-    }
     size_t Align = C.getDeclAlign(VD, false).getQuantity();
-
+    return SetAndSucceed(Result,
+                         APValue(C.MakeIntValue(Align, C.getSizeType())));
+  }
+  case ReflectionKind::BaseSpecifier: {
+    // [meta.reflection.layout]/7.3: alignment_of(type_of(r)).
+    QualType QT = RV.getReflectedBaseSpecifier()->getType();
+    size_t Align = C.getTypeAlignInChars(QT).getQuantity();
     return SetAndSucceed(Result,
                          APValue(C.MakeIntValue(Align, C.getSizeType())));
   }
   case ReflectionKind::DataMemberSpec: {
     TagDataMemberSpec *TDMS = RV.getReflectedDataMemberSpec();
     if (TDMS->BitWidth)
-      return true;
+      return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
+          << 4 << "a description of a bit-field" << Range;
 
     size_t Align = TDMS->Alignment.value_or(
           C.getTypeAlignInChars(TDMS->Ty).getQuantity());
@@ -6856,11 +6904,12 @@ bool alignment_of(APValue &Result, ASTContext &C, MetaActions &Meta,
     return SetAndSucceed(Result,
                          APValue(C.MakeIntValue(Align, C.getSizeType())));
   }
+  // [meta.reflection.layout]/8.1 lists objects but not values.
+  case ReflectionKind::Value:
   case ReflectionKind::Null:
   case ReflectionKind::Template:
   case ReflectionKind::Namespace:
   case ReflectionKind::EntityProxy:
-  case ReflectionKind::BaseSpecifier:
   case ReflectionKind::Parameter:
   case ReflectionKind::Annotation:
   case ReflectionKind::Attribute:
