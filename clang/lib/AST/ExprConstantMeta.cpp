@@ -942,7 +942,7 @@ static constexpr Metafunction Metafunctions[] = {
   { Metafunction::MFRK_bool, 1, 1, is_user_provided },
   { Metafunction::MFRK_bool, 1, 1, is_user_declared },
   { Metafunction::MFRK_metaInfo, 2, 2, reflect_result },
-  { Metafunction::MFRK_metaInfo, 12, 12, data_member_spec },
+  { Metafunction::MFRK_metaInfo, 12, 14, data_member_spec },
   { Metafunction::MFRK_metaInfo, 8, 8, enumerator_spec },
   { Metafunction::MFRK_bool, 1, 1, is_enumerator_spec },
   { Metafunction::MFRK_metaInfo, 3, 3, define_aggregate },
@@ -6182,10 +6182,17 @@ bool data_member_spec(APValue &Result, ASTContext &C, MetaActions &Meta,
   APValue Scratch;
   size_t ArgIdx = 0;
 
-  // Extract the data member type.
+  // Extract the data member type: [meta.reflection.define.aggregate]/4.1, T
+  // is the type represented by dealias(type), which /5.1 requires to be an
+  // object or reference type.
   if (!Evaluator(Scratch, Args[ArgIdx++], true) || !Scratch.isReflectedType())
     return true;
-  QualType MemberTy = Scratch.getReflectedType();
+  QualType MemberTy = desugarType(Scratch.getReflectedType(),
+                                  /*UnwrapAliases=*/true, /*DropCV=*/false,
+                                  /*DropRefs=*/false);
+  if (!MemberTy->isObjectType() && !MemberTy->isReferenceType())
+    return Diagnoser(Range.getBegin(), diag::metafn_data_member_spec_invalid)
+        << 0 << Range;
 
   // Evaluate whether a member name was provided.
   std::optional<std::string> Name;
@@ -6227,11 +6234,13 @@ bool data_member_spec(APValue &Result, ASTContext &C, MetaActions &Meta,
     ArgIdx += 3;
   }
 
-  // Validate the name as an identifier.
+  // Validate the name as an identifier ([meta.reflection.define.aggregate]
+  // /5.2): the spelling of a valid identifier token, which a keyword is not.
   if (Name) {
     Lexer Lex(Range.getBegin(), C.getLangOpts(), Name->data(), Name->data(),
               Name->data() + Name->size(), false);
-    if (!Lex.validateIdentifier(*Name))
+    if (!Lex.validateIdentifier(*Name) ||
+        C.Idents.get(*Name).isKeyword(C.getLangOpts()))
       return Diagnoser(Range.getBegin(), diag::metafn_name_invalid_identifier)
           << *Name << Range;
   }
@@ -6295,9 +6304,71 @@ bool data_member_spec(APValue &Result, ASTContext &C, MetaActions &Meta,
       Attributes.push_back(Scratch.getReflectedAttribute());
     }
   }
+  ArgIdx++;
+
+  // Annotations ([meta.reflection.define.aggregate]/4.6): ANN is the
+  // sequence of constant_of(r) for each r; /5.6 requires each to be a
+  // constant of a non-array object type.
+  std::vector<APValue> Annotations;
+  if (ArgIdx < Args.size()) {
+    if (!Evaluator(Scratch, Args[ArgIdx++], true))
+      return true;
+    int64_t N = Scratch.getInt().getExtValue();
+    for (int64_t I = 0; I < N; ++I) {
+      llvm::APInt Idx(C.getTypeSize(C.getSizeType()), I, false);
+      Expr *IdxExpr = IntegerLiteral::Create(C, Idx, C.getSizeType(),
+                                             Args[ArgIdx]->getExprLoc());
+      Expr *Sub = new (C) ArraySubscriptExpr(Args[ArgIdx], IdxExpr,
+                                             C.MetaInfoTy, VK_LValue,
+                                             OK_Ordinary, Range.getBegin());
+      if (Sub->isValueDependent() || Sub->isTypeDependent())
+        return true;
+
+      Expr *ConstantOfArgs[1] = {Sub};
+      APValue Constant;
+      if (constant_of(Constant, C, Meta, Evaluator, Diagnoser, AllowInjection,
+                      C.MetaInfoTy, Range, ConstantOfArgs, ContainingDecl))
+        return true;
+
+      // The constant of a class type is a template parameter object; the
+      // annotation carries its value.
+      if (Constant.isReflectedObject()) {
+        const auto *TPO = dyn_cast_or_null<TemplateParamObjectDecl>(
+            Constant.getReflectedObject().getLValueBase()
+                .dyn_cast<const ValueDecl *>());
+        if (!TPO)
+          return Diagnoser(Range.getBegin(),
+                           diag::metafn_data_member_spec_invalid) << 4 << Range;
+        Constant = APValue(TPO->getValue())
+                       .Lift(TPO->getType().getUnqualifiedType());
+      }
+      QualType AnnotTy = Constant.getTypeOfReflectedResult(C);
+      if (!AnnotTy->isObjectType() || AnnotTy->isArrayType())
+        return Diagnoser(Range.getBegin(), diag::metafn_data_member_spec_invalid)
+            << 4 << Range;
+      Annotations.push_back(Constant);
+    }
+    ArgIdx++;
+  }
+
+  // [meta.reflection.define.aggregate]/5.3: without a name there must be a
+  // bit width and no annotations; /5.4.6: an unnamed bit-field has a
+  // cv-unqualified type.
+  if (!Name) {
+    if (!BitWidth)
+      return Diagnoser(Range.getBegin(), diag::metafn_data_member_spec_invalid)
+          << 1 << Range;
+    if (!Annotations.empty())
+      return Diagnoser(Range.getBegin(), diag::metafn_data_member_spec_invalid)
+          << 2 << Range;
+    if (MemberTy.isConstQualified() || MemberTy.isVolatileQualified())
+      return Diagnoser(Range.getBegin(), diag::metafn_data_member_spec_invalid)
+          << 3 << Range;
+  }
 
   TagDataMemberSpec *TDMS = new (C) TagDataMemberSpec {
-    MemberTy, Name, Alignment, BitWidth, NoUniqueAddress, Attributes
+    MemberTy, Name, Alignment, BitWidth, NoUniqueAddress, Attributes,
+    Annotations
   };
   return SetAndSucceed(Result, makeReflection(TDMS));
 }
@@ -6535,6 +6606,11 @@ bool define_aggregate(APValue &Result, ASTContext &C, MetaActions &Meta,
   if (!ToComplete->isRecordType())
     return DiagnoseReflectionKind(Diagnoser, Range, "a class type",
                                   DescriptionOf(Scratch));
+  // [meta.reflection.define.aggregate]/8.1: a cv-unqualified class type.
+  if (ToComplete.getCanonicalType().hasLocalQualifiers())
+    return Diagnoser(Range.getBegin(),
+                     diag::metafn_define_aggregate_cv_qualified)
+        << ToComplete << Range;
 
   // Evaluate the number of members provided.
   if (!Evaluator(Scratch, Args[1], true))
@@ -6565,7 +6641,17 @@ bool define_aggregate(APValue &Result, ASTContext &C, MetaActions &Meta,
     MemberSpecs.push_back(Scratch.getReflectedDataMemberSpec());
     Scratch.Profile(ID);
 
-    if (MemberSpecs.back()->Name &&
+    // [meta.reflection.define.aggregate]/8.4: every member type is complete.
+    QualType MemberTy = MemberSpecs.back()->Ty;
+    if (NamedDecl *TD = findTypeDecl(MemberTy))
+      Meta.EnsureInstantiated(TD, Range);
+    if (MemberTy->isIncompleteType())
+      return Diagnoser(Range.getBegin(),
+                       diag::metafn_define_aggregate_incomplete_member)
+          << MemberTy << Range;
+
+    // /8.5: every provided identifier is unique or "_".
+    if (MemberSpecs.back()->Name && *MemberSpecs.back()->Name != "_" &&
         !MemberNames.insert(*MemberSpecs.back()->Name).second)
       return Diagnoser(Range.getBegin(), diag::metafn_duplicate_member_names)
           << *MemberSpecs.back()->Name << Range;

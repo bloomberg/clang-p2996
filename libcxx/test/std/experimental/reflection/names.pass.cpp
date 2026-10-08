@@ -328,13 +328,13 @@ static_assert(operator_of(^^S::operator^=) == operators::op_caret_equals);
 }  // namespace Ops
 
 namespace DataMemberSpecs {
-constexpr auto a = data_member_spec(^^int, {});
-constexpr auto b = data_member_spec(^^int, {.name=""});
+// A description without a name must describe a bit-field
+// ([meta.reflection.define.aggregate]/5.3).
+constexpr auto a = data_member_spec(^^int, {.bit_width=3});
 constexpr auto c = data_member_spec(^^int, {.name="ident"});
 constexpr auto d = data_member_spec(^^int, {.name=u8"ident"});
 
 static_assert(!has_identifier(a));
-static_assert(!has_identifier(b));
 static_assert(has_identifier(c));
 static_assert(has_identifier(d));
 

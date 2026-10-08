@@ -123,6 +123,16 @@ def metafn_p3385_no_declaration_for_type : Error<
 // Class definition.
 def metafn_name_invalid_identifier : Note<
   "provided name '%0' is not a valid identifier">;
+def metafn_data_member_spec_invalid : Note<
+  "%select{the type of a data member must be an object or reference type|"
+          "a data member description without a name must have a bit width|"
+          "a data member description without a name cannot have annotations|"
+          "an unnamed bit-field cannot have a cv-qualified type|"
+          "an annotation must be a constant of a non-array object type}0">;
+def metafn_define_aggregate_cv_qualified : Note<
+  "cannot define %0; the class type must be cv-unqualified">;
+def metafn_define_aggregate_incomplete_member : Note<
+  "cannot define a class with a data member of incomplete type %0">;
 def metafn_already_complete_type : Note<"%0 is already a complete type">;
 def metafn_duplicate_member_names : Note<
   "cannot produce a class definition with multiple members named '%0'">;

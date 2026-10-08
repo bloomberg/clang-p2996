@@ -230,12 +230,12 @@ namespace Issue267 {
   struct X;
   struct Y;
   consteval void broken() {
-      const auto options = std::meta::data_member_options{.attributes = {^^[[no_unique_address]]}};
+      const auto options = std::meta::data_member_options{.name = "x", .attributes = {^^[[no_unique_address]]}};
       std::meta::define_aggregate(^^X, {std::meta::data_member_spec(^^int, options)});
   };
   consteval void working() {
       std::meta::define_aggregate(
-          ^^Y, {std::meta::data_member_spec(^^int, {.attributes = {^^[[no_unique_address]]}})});
+          ^^Y, {std::meta::data_member_spec(^^int, {.name = "y", .attributes = {^^[[no_unique_address]]}})});
   };
   consteval {
       working();

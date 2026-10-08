@@ -523,7 +523,7 @@ static_assert(!is_object(^^EnumCls::A));
 static_assert(is_enumerator(^^EnumCls::A));
 static_assert(!is_data_member_spec(^^EnumCls::A));
 
-constexpr auto dms = data_member_spec(^^int, {});
+constexpr auto dms = data_member_spec(^^int, {.name="m"});
 static_assert(!is_type(dms));
 static_assert(!is_complete_type(dms));
 static_assert(!is_type_alias(dms));

@@ -12,6 +12,7 @@
 // ADDITIONAL_COMPILE_FLAGS: -freflection
 // ADDITIONAL_COMPILE_FLAGS: -Wno-unneeded-internal-declaration
 // ADDITIONAL_COMPILE_FLAGS: -Wno-unused-private-field
+// ADDITIONAL_COMPILE_FLAGS: -fannotation-attributes
 
 // <experimental/reflection>
 //
@@ -112,8 +113,8 @@ struct Empty {};
 struct WithEmpty;
 consteval {
   define_aggregate(^^WithEmpty, {
-    data_member_spec(^^int, {}),
-    data_member_spec(^^Empty, {.no_unique_address=true}),
+    data_member_spec(^^int, {.name="i"}),
+    data_member_spec(^^Empty, {.name="e", .no_unique_address=true}),
   });
 }
 static_assert(sizeof(WithEmpty) == sizeof(int));
@@ -277,7 +278,7 @@ consteval {
       {
         std::make_pair(true, std::meta::data_member_spec(^^int, {.name="i"})),
       }, {
-        std::make_pair(false, std::meta::data_member_spec(^^std::string)),
+        std::make_pair(false, std::meta::data_member_spec(^^std::string, {.name="s"})),
         std::make_pair(true, std::meta::data_member_spec(^^bool, {.name="b"})),
       }
     }) |
@@ -315,20 +316,91 @@ static_assert(identifier_of(nonstatic_data_members_of(^^Cls1, ctx)[0]) ==
                          // ===========================
 
 namespace data_member_spec_comparison {
-static_assert(data_member_spec(^^int, {}) != ^^int);
-static_assert(data_member_spec(^^int, {}) == data_member_spec(^^int, {}));
-static_assert(data_member_spec(^^int, {}) !=
-              data_member_spec(^^int, {.name="i"}));
+static_assert(data_member_spec(^^int, {.bit_width=3}) != ^^int);
+static_assert(data_member_spec(^^int, {.bit_width=3}) ==
+              data_member_spec(^^int, {.bit_width=3}));
+static_assert(data_member_spec(^^int, {.bit_width=3}) !=
+              data_member_spec(^^int, {.name="i", .bit_width=3}));
 static_assert(data_member_spec(^^int, {.name=u8"i"}) ==
               data_member_spec(^^int, {.name="i"}));
 static_assert(data_member_spec(^^int, {.name="i", .alignment=4}) !=
               data_member_spec(^^int, {.name="i"}));
-static_assert(data_member_spec(^^int, {.name=""}) ==
-              data_member_spec(^^int, {}));
+static_assert(data_member_spec(^^int, {.name="i", .no_unique_address=true}) !=
+              data_member_spec(^^int, {.name="i"}));
+static_assert(data_member_spec(^^int, {.name="i", .annotations={std::meta::reflect_constant(1)}}) !=
+              data_member_spec(^^int, {.name="i"}));
+static_assert(data_member_spec(^^int, {.name="i", .annotations={std::meta::reflect_constant(1)}}) ==
+              data_member_spec(^^int, {.name="i", .annotations={std::meta::reflect_constant(1)}}));
+static_assert(data_member_spec(^^int, {.name="i", .annotations={std::meta::reflect_constant(1)}}) !=
+              data_member_spec(^^int, {.name="i", .annotations={std::meta::reflect_constant(2)}}));
 
+// [meta.reflection.define.aggregate]/4.1: T is dealias(type).
 using Alias = int;
-static_assert(data_member_spec(^^Alias, {}) != data_member_spec(^^int, {}));
+using ConstAlias = const int;
+static_assert(data_member_spec(^^Alias, {.name="i"}) ==
+              data_member_spec(^^int, {.name="i"}));
+static_assert(data_member_spec(^^ConstAlias, {.name="i"}) ==
+              data_member_spec(^^const int, {.name="i"}));
+static_assert(data_member_spec(^^ConstAlias, {.name="i"}) !=
+              data_member_spec(^^int, {.name="i"}));
+static_assert(type_of(data_member_spec(^^Alias, {.name="i"})) == ^^int);
 }  // namespace data_member_spec_comparison
+
+                            // ===================
+                            // member_properties
+                            // ===================
+
+// [meta.reflection.define.aggregate]/9.5: each member gets the alignment,
+// annotations and name of its description; several members may be named "_"
+// (/8.5.2).
+namespace member_properties {
+struct Opt { int v; };
+struct S;
+consteval {
+  define_aggregate(^^S, {
+    data_member_spec(^^char, {.name="a"}),
+    data_member_spec(^^char, {.name="b", .alignment=8}),
+    data_member_spec(^^char, {.name="c",
+                              .annotations={std::meta::reflect_constant(7),
+                                            std::meta::reflect_constant(Opt{3})}}),
+    data_member_spec(^^int, {.name="_"}),
+    data_member_spec(^^int, {.name="_"}),
+  });
+}
+static_assert(alignof(S) == 8);
+static_assert(alignment_of(^^S::b) == 8);
+static_assert(alignment_of(^^S::a) == 1);
+static_assert(alignment_of(^^S::c) == 1);
+static_assert(offset_of(^^S::a).bytes == 0);
+static_assert(offset_of(^^S::b).bytes == 8);
+static_assert(offset_of(^^S::c).bytes == 9);
+static_assert(sizeof(S) == 24);
+static_assert(nonstatic_data_members_of(^^S, ctx).size() == 5);
+static_assert(identifier_of(nonstatic_data_members_of(^^S, ctx)[3]) == "_");
+static_assert(identifier_of(nonstatic_data_members_of(^^S, ctx)[4]) == "_");
+static_assert(nonstatic_data_members_of(^^S, ctx)[3] !=
+              nonstatic_data_members_of(^^S, ctx)[4]);
+static_assert(offset_of(nonstatic_data_members_of(^^S, ctx)[4]).bytes == 16);
+static_assert(annotations_of(^^S::a).empty());
+static_assert(annotations_of(^^S::c).size() == 2);
+static_assert(constant_of(annotations_of(^^S::c)[0]) == std::meta::reflect_constant(7));
+static_assert(type_of(annotations_of(^^S::c)[1]) == ^^const Opt);
+static_assert([:constant_of(annotations_of(^^S::c)[1]):].v == 3);
+static_assert(extract<int>(annotations_of(^^S::c)[0]) == 7);
+
+// The annotation's constant is constant_of(r): a variable or enumerator works
+// as well as a value.
+constexpr int seven = 7;
+enum E { e1 = 1 };
+struct T;
+consteval {
+  define_aggregate(^^T, {
+    data_member_spec(^^int, {.name="m", .annotations={^^seven, ^^e1}}),
+  });
+}
+static_assert(constant_of(annotations_of(^^T::m)[0]) == std::meta::reflect_constant(7));
+static_assert(constant_of(annotations_of(^^T::m)[1]) == std::meta::reflect_constant(e1));
+}  // namespace member_properties
 
                             // ====================
                             // immediate_escalating

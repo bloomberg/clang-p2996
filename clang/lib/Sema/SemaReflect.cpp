@@ -848,7 +848,7 @@ public:
         ParsedAttr::Form Form(tok::kw_alignas);
 
         SourceRange Range(DefinitionLoc, DefinitionLoc);
-        MemberAttrs.addAtEnd(AttrPool.create(&II, Range, {}, nullptr, 0, Form));
+        MemberAttrs.addAtEnd(AttrPool.create(&II, Range, {}, &Args, 1, Form));
       }
       if (MemberSpec->NoUniqueAddress) {
         IdentifierInfo &II = S.Context.Idents.get("no_unique_address");
@@ -883,8 +883,15 @@ public:
       }
 
       VirtSpecifiers VS;
-      S.ActOnCXXMemberDeclarator(&ClsScope, MemberAS, MemberDeclarator, MTP,
-                                 BitWidthCE, VS, ICIS_NoInit);
+      NamedDecl *Member = S.ActOnCXXMemberDeclarator(
+          &ClsScope, MemberAS, MemberDeclarator, MTP, BitWidthCE, VS,
+          ICIS_NoInit);
+
+      // [meta.reflection.define.aggregate]/9.5.6: the member has an annotation
+      // for every constant in its description.
+      if (Member)
+        for (const APValue &Annot : MemberSpec->Annotations)
+          Member->addAttr(BuildAnnotation(Annot, DefinitionLoc));
     }
 
     // Finish the member-specification and the class definition.
@@ -960,30 +967,35 @@ public:
       }
     }
 
-    CXX26AnnotationAttr *Annot;
-    {
-      Expr *OVE = new (S.Context) OpaqueValueExpr(
-            DefinitionLoc,
-            Value.getTypeOfReflectedResult(S.Context),
-            VK_PRValue);
-      Expr *CE = ConstantExpr::Create(S.Context, OVE,
-                                      Value.getReflectedValue());
-
-      AttributeFactory AttrFactory;
-      ParsedAttributes ParsedAttrs(AttrFactory);
-
-      SourceRange Range(DefinitionLoc, DefinitionLoc);
-      IdentifierInfo &II = S.Context.Idents.get("__annotation_placeholder");
-      AttributeCommonInfo *ACI = ParsedAttrs.addNew(
-            &II, Range, {}, nullptr, 0,
-            ParsedAttr::Form::Annotation(), DefinitionLoc);
-
-      Annot = CXX26AnnotationAttr::Create(S.Context, CE, *ACI);
-      Annot->setValue(Value.getReflectedValue());
-      Annot->setEqLoc(DefinitionLoc);
-    }
-
+    CXX26AnnotationAttr *Annot = BuildAnnotation(Value, DefinitionLoc);
     TargetDecl->addAttr(Annot);
+    return Annot;
+  }
+
+  // Builds an annotation attribute whose underlying constant is the value
+  // represented by 'Value'.
+  CXX26AnnotationAttr *BuildAnnotation(const APValue &Value,
+                                       SourceLocation DefinitionLoc) {
+    Expr *OVE = new (S.Context) OpaqueValueExpr(
+          DefinitionLoc,
+          Value.getTypeOfReflectedResult(S.Context),
+          VK_PRValue);
+    Expr *CE = ConstantExpr::Create(S.Context, OVE,
+                                    Value.getReflectedValue());
+
+    AttributeFactory AttrFactory;
+    ParsedAttributes ParsedAttrs(AttrFactory);
+
+    SourceRange Range(DefinitionLoc, DefinitionLoc);
+    IdentifierInfo &II = S.Context.Idents.get("__annotation_placeholder");
+    AttributeCommonInfo *ACI = ParsedAttrs.addNew(
+          &II, Range, {}, nullptr, 0,
+          ParsedAttr::Form::Annotation(), DefinitionLoc);
+
+    CXX26AnnotationAttr *Annot = CXX26AnnotationAttr::Create(S.Context, CE,
+                                                             *ACI);
+    Annot->setValue(Value.getReflectedValue());
+    Annot->setEqLoc(DefinitionLoc);
     return Annot;
   }
 

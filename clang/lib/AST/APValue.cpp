@@ -594,6 +594,10 @@ static void profileReflection(llvm::FoldingSetNodeID &ID, APValue V) {
     ID.AddBoolean(TDMS->BitWidth.has_value());
     if (TDMS->BitWidth)
       ID.AddInteger(TDMS->BitWidth.value());
+    ID.AddBoolean(TDMS->NoUniqueAddress);
+    ID.AddInteger(TDMS->Annotations.size());
+    for (const APValue &Annot : TDMS->Annotations)
+      Annot.Profile(ID);
     return;
   }
   case ReflectionKind::EnumeratorSpec: {

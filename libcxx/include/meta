@@ -2534,6 +2534,9 @@ struct data_member_options {
 #else
   bool no_unique_address = false;
 #endif
+  // [meta.reflection.define.aggregate]/4.6: the member is declared with an
+  // annotation whose constant is constant_of(r) for each r.
+  vector<meta::info> annotations = {};
 };
 
 // Returns the alignment of the reflected entity.
@@ -2597,7 +2600,16 @@ consteval auto data_member_spec(info member_type,
   if (!is_type(member_type))
     throw "'member_type' must represent a type";
 
+  // [meta.reflection.define.aggregate]/5.3: without a name, a bit width is
+  // required and annotations are not allowed.
   bool has_name = options.name.has_value();
+  if (!has_name) {
+    if (!options.bit_width.has_value())
+      throw "a data member description without a name must have a bit width";
+    if (!options.annotations.empty())
+      throw "a data member description without a name cannot have "
+            "annotations";
+  }
   int alignment = options.alignment.value_or(0);
   int width = options.bit_width.value_or(0);
   // 'no_unique_address' is intentionally deprecated in favor of
@@ -2635,30 +2647,32 @@ consteval auto data_member_spec(info member_type,
       const u8string &s = options.name->u8;
       return __metafunction(detail::__metafn_data_member_spec,
                             member_type,
-                            !s.empty(), s.size(), ^^const char8_t, s.data(),
+                            true, s.size(), ^^const char8_t, s.data(),
                             options.alignment.has_value(), alignment,
                             options.bit_width.has_value(), width,
                             no_unique_address,
 #if __has_feature(attribute_reflection)
-                            options.attributes.size(), options.attributes.data()
+                            options.attributes.size(), options.attributes.data(),
 #else
-                            size_t(0), (const info *)nullptr
+                            size_t(0), (const info *)nullptr,
 #endif
-                            );
+                            options.annotations.size(),
+                            options.annotations.data());
     } else {
       const string &s = options.name->s;
       return __metafunction(detail::__metafn_data_member_spec,
                             member_type,
-                            !s.empty(), s.size(), ^^const char, s.data(),
+                            true, s.size(), ^^const char, s.data(),
                             options.alignment.has_value(), alignment,
                             options.bit_width.has_value(), width,
                             no_unique_address,
 #if __has_feature(attribute_reflection)
-                            options.attributes.size(), options.attributes.data()
+                            options.attributes.size(), options.attributes.data(),
 #else
-                            size_t(0), (const info *)nullptr
+                            size_t(0), (const info *)nullptr,
 #endif
-                            );
+                            options.annotations.size(),
+                            options.annotations.data());
     }
   } else {
     return __metafunction(detail::__metafn_data_member_spec,

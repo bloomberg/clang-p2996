@@ -40,8 +40,8 @@ static_assert(type_of(^^dtia) != ^^int_alias);
 static_assert(^^int_alias != ^^int);
 static_assert(^^int_alias != ^^int_alias_alias);
 
-constexpr auto a = data_member_spec(^^int, {});
-constexpr auto b = data_member_spec(^^int_alias, {});
+constexpr auto a = data_member_spec(^^int, {.name="m"});
+constexpr auto b = data_member_spec(^^int_alias, {.name="m"});
 
 static_assert(type_of(a) == ^^int);
 static_assert(type_of(b) != ^^int_alias);
