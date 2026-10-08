@@ -3190,6 +3190,10 @@ def err_decl_consteval_only_type : Error<
   "variable %0 of consteval-only type must either be constexpr or in a "
   "constant-evaluated context">;
 
+def err_annotation_non_defining_friend : Error<
+  "annotation applied to the non-defining friend declaration of %0">;
+def err_annotation_outside_target_scope : Error<
+  "annotation applied to a declaration of %0 outside its scope">;
 def err_reflect_general_expression : Error<
   "reflection operand must be a named entity">;
 def err_reflect_overload_set : Error<
