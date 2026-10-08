@@ -1931,6 +1931,13 @@ ExprResult Sema::BuildReflectionSpliceExpr(SourceLocation TemplateKWLoc,
       if (auto *VD = dyn_cast<VarDecl>(TheDecl);
           VD && CheckSpliceVar(*this, VD, Splice->getSourceRange()))
         return ExprError();
+
+      // [expr.prim.splice]/2.2: a splice of a function denotes an overload
+      // set containing all declarations of the function that precede the
+      // expression, so refer to the most recent one, which carries the
+      // default arguments of all of them.
+      if (auto *FD = dyn_cast<FunctionDecl>(TheDecl))
+        TheDecl = FD->getMostRecentDecl();
       auto * VD = normalizeSplicedMemberDecl(cast<ValueDecl>(TheDecl));
 
       // A splice-expression refers to the designated entity like an

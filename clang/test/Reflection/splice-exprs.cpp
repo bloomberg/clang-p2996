@@ -381,6 +381,28 @@ static_assert(__is_same(type_of_splice<^^g>, int));
 static_assert(__is_same(type_of_splice<^^rrg>, int &&));
 }  // namespace decltype_of_splice
 
+                       // ==============================
+                       // default_arguments_through_splice
+                       // ==============================
+
+namespace default_arguments_through_splice {
+// A splice of a function denotes an overload set containing all declarations
+// of the function that precede the expression ([expr.prim.splice]/2.2), so a
+// default argument added by a later redeclaration is used.
+constexpr int fn(int, int);
+constexpr info r = ^^fn;
+constexpr int fn(int a, int b = 3) { return a + b; }
+static_assert([:r:](1) == 4);
+static_assert([:^^fn:](1, 1) == 2);
+
+struct S {
+  constexpr int m(int) const;
+  static constexpr info rm = ^^S::m;
+};
+constexpr int S::m(int a = 7) const { return a; }
+static_assert(S{}.[:S::rm:]() == 7);
+}  // namespace default_arguments_through_splice
+
                             // ====================
                             // address_of_bit_field
                             // ====================
