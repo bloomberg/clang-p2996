@@ -519,3 +519,22 @@ template <info M>
 consteval int splice_member(const S *p) { return p->[:M:]; }
 static_assert(splice_member<^^S::k>(&s) == 3);
 }  // namespace bb_clang_p2996_issue_350_regression_test
+
+                     // ===================================
+                     // dependent_splice_as_template_argument
+                     // ===================================
+
+namespace dependent_splice_as_template_argument {
+// A dependent splice-expression has no model expression yet; classifying it
+// (e.g. to deduce an 'auto' template parameter in a requires-expression)
+// must use its value kind rather than crash.
+template <auto> struct probe;
+template <info Mem> consteval bool usable() {
+  if constexpr (requires { typename probe<([:Mem:])>; })
+    return true;
+  return false;
+}
+struct S { static const int K = 7; static int runtime; };
+static_assert(usable<^^S::K>());
+static_assert(!usable<^^S::runtime>());
+}  // namespace dependent_splice_as_template_argument
