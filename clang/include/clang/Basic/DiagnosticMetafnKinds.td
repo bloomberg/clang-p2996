@@ -19,6 +19,10 @@ def metafn_no_associated_property : Note<
 def metafn_cannot_query_property : Note<"cannot query the "
   "%select{type|object|value|size|alignment|parameters|return type|"
            "annotations|attributes}0 of %1">;
+def metafn_object_of_non_static : Note<
+  "cannot query the object of %0 that "
+  "%select{has thread storage duration|has automatic storage duration|"
+           "does not refer to an object with static storage duration}1">;
 
 // Ranges of entities.
 def metafn_cannot_introspect_type : Note<
@@ -40,6 +44,8 @@ def metafn_cannot_have_name : Note<
   "reflection of %0 cannot have an associated identifier">;
 def metafn_anonymous_entity : Note<
   "reflected %0 is anonymous and has no associated identifier">;
+def metafn_name_of_cv_qualified_type : Note<
+  "cv-qualified type %0 has no associated identifier">;
 def metafn_not_an_operator : Note<"%0 is not an operator or operator template">;
 
 // Parents.
@@ -51,9 +57,13 @@ def metafn_parent_of_extern_c : Note<
 // Substitution and invocation.
 def metafn_cannot_be_arg : Note<
   "a reflection of %0 cannot represent a %select{function|template}1 argument">;
+def metafn_invalid_template_id : Note<
+  "the template arguments do not form a valid template-id for %0">;
 def metafn_undeduced_placeholder : Note<
   "cannot form a reflection of function %0 whose type %1 contains an undeduced "
   "placeholder">;
+def metafn_undeduced_return_type : Note<
+  "cannot query the type of %0 before its return type is deduced">;
 def metafn_cannot_invoke : Note<"cannot invoke %0">;
 def metafn_no_specialization_found : Note<
   "no specialization of the function template %0 matched the provided "
@@ -113,6 +123,16 @@ def metafn_p3385_no_declaration_for_type : Error<
 // Class definition.
 def metafn_name_invalid_identifier : Note<
   "provided name '%0' is not a valid identifier">;
+def metafn_data_member_spec_invalid : Note<
+  "%select{the type of a data member must be an object or reference type|"
+          "a data member description without a name must have a bit width|"
+          "a data member description without a name cannot have annotations|"
+          "an unnamed bit-field cannot have a cv-qualified type|"
+          "an annotation must be a constant of a non-array object type}0">;
+def metafn_define_aggregate_cv_qualified : Note<
+  "cannot define %0; the class type must be cv-unqualified">;
+def metafn_define_aggregate_incomplete_member : Note<
+  "cannot define a class with a data member of incomplete type %0">;
 def metafn_already_complete_type : Note<"%0 is already a complete type">;
 def metafn_duplicate_member_names : Note<
   "cannot produce a class definition with multiple members named '%0'">;

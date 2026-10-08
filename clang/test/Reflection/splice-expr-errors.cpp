@@ -84,3 +84,85 @@ void fn() {
   };
 }
 }  // namespace enclosing_lambdas
+
+                   // =======================================
+                   // member_access_through_inaccessible_base
+                   // =======================================
+
+namespace member_access_through_inaccessible_base {
+struct C {
+  int pub = 1;
+  int fn() const { return 2; }
+};
+struct E : private C {};  // expected-note 2 {{declared private here}}
+struct F : protected C {};  // expected-note 2 {{declared protected here}}
+struct G : C, E {};
+  // expected-warning@-1 {{direct base 'C' is inaccessible due to ambiguity}}
+
+// The member is accessible however it is designated, but the object
+// expression must be convertible to a pointer to the designating class.
+int a = E{}.[:^^C::pub:];
+  // expected-error@-1 {{cannot cast 'E' to its private base class}}
+int b = F{}.[:^^C::pub:];
+  // expected-error@-1 {{cannot cast 'F' to its protected base class}}
+int c = (new F)->[:^^C::fn:]();
+  // expected-error@-1 {{cannot cast 'F' to its protected base class}}
+int d = G{}.[:^^C::pub:];
+  // expected-error@-1 {{ambiguous conversion from derived class 'G' to base class}}
+
+template <typename T, info R>
+int dependent(T t) {
+  return t.[:R:];
+    // expected-error@-1 {{to its private base class}}
+}
+int e = dependent<E, ^^C::pub>({});
+  // expected-note@-1 {{in instantiation of function template specialization}}
+
+}  // namespace member_access_through_inaccessible_base
+
+                     // ==================================
+                     // specialization_of_non_template
+                     // ==================================
+
+namespace specialization_of_non_template {
+// The splice-specifier of a splice-specialization-specifier shall designate
+// a template ([basic.splice]/2).
+struct NT { static constexpr int v = 1; using type = int; };
+template <typename> struct TB {};
+int x;
+
+using T1 = [:^^NT:]<int>;
+  // expected-error@-1 {{cannot specialize a splice that does not designate a template}}
+using T2 = typename [:^^int:]<char>;
+  // expected-error@-1 {{cannot specialize a splice that does not designate a template}}
+using T3 = [:^^TB<int>:]<char>;
+  // expected-error@-1 {{cannot specialize a splice that does not designate a template}}
+int v2 = template [:^^x:]<int>;
+  // expected-error@-1 {{reflection not usable in a template splice}}
+}  // namespace specialization_of_non_template
+
+                          // ======================
+                          // use_of_deleted_through_splice
+                          // ======================
+
+namespace use_of_deleted_through_splice {
+void fn(int) = delete;  // expected-note 3 {{'fn' has been explicitly marked deleted here}}
+struct S {
+  void mfn() = delete;  // expected-note {{'mfn' has been explicitly marked deleted here}}
+};
+
+// A reflection of a deleted function may be formed ([expr.reflect]/7.2), but
+// a splice refers to the function and so cannot be used
+// ([dcl.fct.def.delete]/2).
+constexpr auto r = ^^fn;
+void use(S s) {
+  [:r:](1);  // expected-error {{attempt to use a deleted function}}
+  auto p = &[:r:];  // expected-error {{attempt to use a deleted function}}
+  s.[:^^S::mfn:]();  // expected-error {{attempt to use a deleted function}}
+}
+template <info R> void dependent() {
+  [:R:](1);  // expected-error {{attempt to use a deleted function}}
+}
+template void dependent<r>();
+  // expected-note@-1 {{in instantiation of function template specialization}}
+}  // namespace use_of_deleted_through_splice

@@ -333,6 +333,105 @@ static_assert(type_of(template_arguments_of(^^RefCls<d.b>)[0]) == ^^int);
 
 }  // namespace subobject_reflection_arguments
 
+                       // ===============================
+                       // pointer_and_reference_parameters
+                       // ===============================
+
+// [meta.reflection.queries]/59.3: for a constant template argument whose
+// parameter has reference type, the reflection represents the object or
+// function referred to (59.3.1); otherwise, for a pointer or pointer to member,
+// it represents the value of the argument (59.3.3).
+namespace pointer_and_reference_parameters {
+void fn(int);
+void fn_noexcept(int) noexcept;
+int obj;
+int arr[3];
+struct S { int m; static int sm; void mf(); static void sf(); };
+template <void (*P)(int)> struct FnPtr {};
+template <void (&R)(int)> struct FnRef {};
+template <int *P> struct ObjPtr {};
+template <int &R> struct ObjRef {};
+template <const int *P> struct ConstObjPtr {};
+template <int S::*P> struct MemPtr {};
+template <void (S::*P)()> struct MemFnPtr {};
+template <auto V> struct Auto {};
+template <typename T> using FnPtrAlias = FnPtr<fn>;
+template <auto V> using AutoAlias = Auto<V>;
+
+static_assert(template_arguments_of(^^FnPtr<&fn>)[0] ==
+              std::meta::reflect_constant(&fn));
+static_assert(template_arguments_of(^^FnPtr<fn>)[0] ==
+              std::meta::reflect_constant(&fn));
+static_assert(is_value(template_arguments_of(^^FnPtr<&fn>)[0]));
+static_assert(type_of(template_arguments_of(^^FnPtr<&fn>)[0]) ==
+              ^^void (*)(int));
+static_assert(template_arguments_of(^^FnPtr<fn_noexcept>)[0] ==
+              std::meta::reflect_constant<void (*)(int)>(&fn_noexcept));
+
+static_assert(template_arguments_of(^^FnRef<fn>)[0] == ^^fn);
+static_assert(is_function(template_arguments_of(^^FnRef<fn>)[0]));
+static_assert(template_arguments_of(^^FnRef<fn>)[0] ==
+              std::meta::reflect_function(fn));
+
+static_assert(template_arguments_of(^^ObjPtr<&obj>)[0] ==
+              std::meta::reflect_constant(&obj));
+static_assert(is_value(template_arguments_of(^^ObjPtr<&obj>)[0]));
+static_assert(type_of(template_arguments_of(^^ObjPtr<&obj>)[0]) == ^^int *);
+static_assert(template_arguments_of(^^ObjPtr<arr>)[0] ==
+              std::meta::reflect_constant(+arr));
+static_assert(template_arguments_of(^^ObjPtr<&arr[1]>)[0] ==
+              std::meta::reflect_constant(&arr[1]));
+static_assert(template_arguments_of(^^ConstObjPtr<&obj>)[0] ==
+              std::meta::reflect_constant<const int *>(&obj));
+static_assert(template_arguments_of(^^ObjPtr<nullptr>)[0] ==
+              std::meta::reflect_constant<int *>(nullptr));
+static_assert(is_value(template_arguments_of(^^ObjPtr<nullptr>)[0]));
+
+static_assert(template_arguments_of(^^ObjRef<obj>)[0] ==
+              std::meta::reflect_object(obj));
+static_assert(is_object(template_arguments_of(^^ObjRef<obj>)[0]));
+static_assert(template_arguments_of(^^ObjRef<obj>)[0] == object_of(^^obj));
+static_assert(template_arguments_of(^^ObjRef<S::sm>)[0] ==
+              std::meta::reflect_object(S::sm));
+
+static_assert(template_arguments_of(^^MemPtr<&S::m>)[0] ==
+              std::meta::reflect_constant(&S::m));
+static_assert(is_value(template_arguments_of(^^MemPtr<&S::m>)[0]));
+static_assert(type_of(template_arguments_of(^^MemPtr<&S::m>)[0]) ==
+              ^^int S::*);
+static_assert(template_arguments_of(^^MemFnPtr<&S::mf>)[0] ==
+              std::meta::reflect_constant(&S::mf));
+static_assert(template_arguments_of(^^MemPtr<nullptr>)[0] ==
+              std::meta::reflect_constant<int S::*>(nullptr));
+
+static_assert(template_arguments_of(^^Auto<&fn>)[0] ==
+              std::meta::reflect_constant(&fn));
+static_assert(is_value(template_arguments_of(^^Auto<&fn>)[0]));
+static_assert(template_arguments_of(^^Auto<&obj>)[0] ==
+              std::meta::reflect_constant(&obj));
+static_assert(template_arguments_of(^^Auto<&S::sm>)[0] ==
+              std::meta::reflect_constant(&S::sm));
+static_assert(template_arguments_of(^^Auto<&S::m>)[0] ==
+              std::meta::reflect_constant(&S::m));
+static_assert(template_arguments_of(^^Auto<&S::sf>)[0] ==
+              std::meta::reflect_constant(&S::sf));
+
+// The same through alias template specializations.
+static_assert(template_arguments_of(^^AutoAlias<&fn>)[0] ==
+              std::meta::reflect_constant(&fn));
+static_assert(template_arguments_of(^^AutoAlias<&obj>)[0] ==
+              std::meta::reflect_constant(&obj));
+static_assert(template_arguments_of(dealias(^^FnPtrAlias<int>))[0] ==
+              std::meta::reflect_constant(&fn));
+
+// Splicing the value or entity back.
+static_assert([:template_arguments_of(^^FnPtr<&fn>)[0]:] == &fn);
+static_assert(&[:template_arguments_of(^^FnRef<fn>)[0]:] == &fn);
+static_assert([:template_arguments_of(^^ObjPtr<&obj>)[0]:] == &obj);
+static_assert(&[:template_arguments_of(^^ObjRef<obj>)[0]:] == &obj);
+static_assert([:template_arguments_of(^^MemPtr<&S::m>)[0]:] == &S::m);
+}  // namespace pointer_and_reference_parameters
+
                    // =======================================
                    // bb_clang_p2996_issue_41_regression_test
                    // =======================================

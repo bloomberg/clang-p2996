@@ -20,6 +20,7 @@
 #include "llvm/ADT/FoldingSet.h"
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace clang {
 
@@ -132,6 +133,10 @@ struct TagDataMemberSpec {
   std::optional<size_t> BitWidth;
   bool NoUniqueAddress;
   llvm::SmallVector<ParsedAttr *, 2> Attributes;
+  /// The constants of the annotations the member is declared with
+  /// ([meta.reflection.define.aggregate]/4.6), as reflections of values.
+  /// (A std::vector tolerates the incomplete APValue at this point.)
+  std::vector<APValue> Annotations;
 
   bool operator==(TagDataMemberSpec const& Rhs) const;
   bool operator!=(TagDataMemberSpec const& Rhs) const;

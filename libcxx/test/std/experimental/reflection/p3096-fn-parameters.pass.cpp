@@ -34,8 +34,8 @@ void tfn(Ts...);
 
 static_assert(parameters_of(^^fn).size() == 0);
 static_assert(parameters_of(^^tfn<>).size() == 0);
-static_assert(!has_ellipsis_parameter(^^tfn<>));
-static_assert(!has_ellipsis_parameter(type_of(^^tfn<>)));
+static_assert(!is_vararg_function(^^tfn<>));
+static_assert(!is_vararg_function(type_of(^^tfn<>)));
 static_assert(return_type_of(^^fn) == ^^void);
 static_assert(return_type_of(^^tfn<>) == ^^void);
 }  // namespace with_no_arguments
@@ -67,8 +67,8 @@ static_assert(identifier_of(parameters_of(^^fn)[2]) == "s");
 static_assert(has_identifier(parameters_of(^^fn)[2]));
 static_assert(!has_default_argument(parameters_of(^^fn)[2]));
 static_assert(!is_explicit_object_parameter(parameters_of(^^fn)[2]));
-static_assert(!has_ellipsis_parameter(^^fn));
-static_assert(!has_ellipsis_parameter(type_of(^^fn)));
+static_assert(!is_vararg_function(^^fn));
+static_assert(!is_vararg_function(type_of(^^fn)));
 static_assert(return_type_of(^^fn) == ^^void);
 }  // namespace with_fixed_arguments
 
@@ -95,13 +95,13 @@ static_assert(identifier_of(parameters_of(ctor)[0]) == "a");
 static_assert(has_identifier(parameters_of(ctor)[0]));
 static_assert(!has_default_argument(parameters_of(ctor)[0]));
 static_assert(!is_explicit_object_parameter(parameters_of(ctor)[0]));
-static_assert(!has_ellipsis_parameter(ctor));
+static_assert(!is_vararg_function(ctor));
 
 constexpr auto dtor =
     (members_of(^^Cls, ctx) |
      std::views::filter(std::meta::is_destructor)).front();
 static_assert(parameters_of(dtor).size() == 0);
-static_assert(!has_ellipsis_parameter(dtor));
+static_assert(!is_vararg_function(dtor));
 
 static_assert(parameters_of(^^Cls::fn).size() == 2);
 static_assert(parameters_of(type_of(^^Cls::fn)) == std::vector {^^int, ^^bool});
@@ -115,8 +115,8 @@ static_assert(identifier_of(parameters_of(^^Cls::fn)[1]) == "b");
 static_assert(has_identifier(parameters_of(^^Cls::fn)[1]));
 static_assert(has_default_argument(parameters_of(^^Cls::fn)[1]));
 static_assert(!is_explicit_object_parameter(parameters_of(^^Cls::fn)[1]));
-static_assert(!has_ellipsis_parameter(^^Cls::fn));
-static_assert(!has_ellipsis_parameter(type_of(^^Cls::fn)));
+static_assert(!is_vararg_function(^^Cls::fn));
+static_assert(!is_vararg_function(type_of(^^Cls::fn)));
 static_assert(return_type_of(^^Cls::fn) == ^^int);
 
 static_assert(parameters_of(^^Cls::fn2).size() == 2);
@@ -130,8 +130,8 @@ static_assert(is_explicit_object_parameter(parameters_of(^^Cls::fn2)[0]));
 static_assert(type_of(parameters_of(^^Cls::fn2)[1]) == ^^int);
 static_assert(!has_identifier(parameters_of(^^Cls::fn2)[1]));
 static_assert(!has_default_argument(parameters_of(^^Cls::fn2)[1]));
-static_assert(has_ellipsis_parameter(^^Cls::fn2));
-static_assert(has_ellipsis_parameter(type_of(^^Cls::fn2)));
+static_assert(is_vararg_function(^^Cls::fn2));
+static_assert(is_vararg_function(type_of(^^Cls::fn2)));
 static_assert(!is_explicit_object_parameter(parameters_of(^^Cls::fn2)[1]));
 static_assert(return_type_of(^^Cls::fn2) == ^^bool);
 
@@ -142,8 +142,8 @@ static_assert(identifier_of(parameters_of(^^Cls::sfn)[0]) == "a");
 static_assert(has_identifier(parameters_of(^^Cls::sfn)[0]));
 static_assert(!has_default_argument(parameters_of(^^Cls::sfn)[0]));
 static_assert(!is_explicit_object_parameter(parameters_of(^^Cls::sfn)[0]));
-static_assert(has_ellipsis_parameter(^^Cls::sfn));
-static_assert(has_ellipsis_parameter(type_of(^^Cls::sfn)));
+static_assert(is_vararg_function(^^Cls::sfn));
+static_assert(is_vararg_function(type_of(^^Cls::sfn)));
 static_assert(return_type_of(^^Cls::sfn) == ^^Cls&);
 }  // namespace with_member_functions
 
@@ -176,8 +176,8 @@ consteval bool check() {
   static_assert(has_identifier(parameters_of(Fn)[2]));
   static_assert(!has_default_argument(parameters_of(Fn)[2]));
   static_assert(!is_explicit_object_parameter(parameters_of(Fn)[2]));
-  static_assert(!has_ellipsis_parameter(Fn));
-  static_assert(!has_ellipsis_parameter(type_of(Fn)));
+  static_assert(!is_vararg_function(Fn));
+  static_assert(!is_vararg_function(type_of(Fn)));
   static_assert(return_type_of(Fn) == ^^std::tuple<int *, char *, bool *>);
 
   return true;
@@ -207,8 +207,8 @@ static_assert(identifier_of(parameters_of(^^fn)[1]) == "b");
 static_assert(has_identifier(parameters_of(^^fn)[1]));
 static_assert(has_default_argument(parameters_of(^^fn)[1]));
 static_assert(!is_explicit_object_parameter(parameters_of(^^fn)[1]));
-static_assert(!has_ellipsis_parameter(^^fn));
-static_assert(!has_ellipsis_parameter(type_of(^^fn)));
+static_assert(!is_vararg_function(^^fn));
+static_assert(!is_vararg_function(type_of(^^fn)));
 }  // namespace with_default_arguments
 
                             // ====================
@@ -268,8 +268,58 @@ static_assert(!is_function_parameter(^^::));
 static_assert(!is_function_parameter(^^int));
 static_assert(!is_function_parameter(^^fn));
 static_assert(!is_function_parameter(std::meta::reflect_constant(3)));
-static_assert(has_ellipsis_parameter(type_of(^^fn)));
+static_assert(is_vararg_function(type_of(^^fn)));
 }  // namespace identify_function_parameters
+
+                             // ===================
+                             // is_vararg_function
+                             // ===================
+
+namespace is_vararg_function_query {
+void fn(int, ...);
+void nfn(int);
+struct S { void mfn(int, ...); int mem; };
+using FnTy = void(int, ...);
+
+// [meta.reflection.queries]: true for a function or function type that is a
+// vararg function ([dcl.fct]); false for anything else.
+static_assert(is_vararg_function(^^fn));
+static_assert(is_vararg_function(type_of(^^fn)));
+static_assert(is_vararg_function(^^FnTy));
+static_assert(is_vararg_function(^^S::mfn));
+static_assert(!is_vararg_function(^^nfn));
+static_assert(!is_vararg_function(type_of(^^nfn)));
+static_assert(!is_vararg_function(^^S));
+static_assert(!is_vararg_function(^^S::mem));
+static_assert(!is_vararg_function(^^int));
+static_assert(!is_vararg_function(^^::));
+static_assert(!is_vararg_function(std::meta::reflect_constant(3)));
+
+// A parameter-declaration-clause consisting only of an ellipsis
+// ([dcl.fct]/8), and specializations of templates.
+void only(...);
+void only_def(...) {}
+struct T { void monly(...); static void sonly(...); };
+template <class U> void tv(U, ...);
+template <class U> void tonly(...);
+static_assert(is_vararg_function(^^only));
+static_assert(is_vararg_function(^^only_def));
+static_assert(is_vararg_function(type_of(^^only)));
+static_assert(is_vararg_function(^^void(...)));
+static_assert(is_vararg_function(^^T::monly));
+static_assert(is_vararg_function(^^T::sonly));
+static_assert(is_vararg_function(^^tv<int>));
+static_assert(is_vararg_function(^^tonly<int>));
+static_assert(parameters_of(^^only).empty());
+static_assert(parameters_of(^^void(...)).empty());
+
+// The pre-P4156R0 name remains available as a deprecated alias.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+static_assert(has_ellipsis_parameter(^^fn));
+static_assert(!has_ellipsis_parameter(^^nfn));
+#pragma clang diagnostic pop
+}  // namespace is_vararg_function_query
 
                    // =======================================
                    // mangle_reflection_of_function_parameter
@@ -303,5 +353,48 @@ consteval int fn(int p) {
 static_assert(fn(42) == 42);
 
 }  // namespace variable_of_tests
+
+                          // =======================
+                          // parameter_type_list
+                          // =======================
+
+// [meta.reflection.queries]/62.2: for a function type, parameters_of yields
+// the types in its parameter-type-list, which [dcl.fct]/5 forms by adjusting
+// array and function types to pointers and deleting top-level cv-qualifiers.
+namespace parameter_type_list {
+struct S {};
+using CI = const int;
+using I = int;
+using PCI = const int *;
+void fn(const int, CI, const S, int *const);
+
+static_assert(parameters_of(^^void(const int))[0] == ^^int);
+static_assert(parameters_of(^^void(const int, int *const)) ==
+              std::vector {^^int, ^^int *});
+static_assert(parameters_of(^^void(const S))[0] == ^^S);
+static_assert(parameters_of(^^void(CI))[0] == ^^int);
+static_assert(parameters_of(^^void(const CI))[0] == ^^int);
+static_assert(parameters_of(^^void(I))[0] == ^^int);
+static_assert(!is_type_alias(parameters_of(^^void(I))[0]));
+static_assert(parameters_of(^^void(PCI))[0] == ^^const int *);
+
+// Only top-level qualifiers are deleted.
+static_assert(parameters_of(^^void(const int *))[0] == ^^const int *);
+static_assert(parameters_of(^^void(const int &))[0] == ^^const int &);
+static_assert(parameters_of(^^void(const int &&))[0] == ^^const int &&);
+static_assert(parameters_of(^^void(const int[3]))[0] == ^^const int *);
+static_assert(parameters_of(^^void(int[3]))[0] == ^^int *);
+static_assert(parameters_of(^^void(int(int)))[0] == ^^int (*)(int));
+static_assert(parameters_of(^^void(const int *const))[0] == ^^const int *);
+
+// The function type of a declaration agrees with the types of its parameters.
+static_assert(parameters_of(type_of(^^fn)) ==
+              std::vector {^^int, ^^int, ^^S, ^^int *});
+static_assert(type_of(parameters_of(^^fn)[0]) == ^^int);
+static_assert(type_of(parameters_of(^^fn)[1]) == ^^int);
+static_assert(type_of(parameters_of(^^fn)[2]) == ^^S);
+static_assert(type_of(parameters_of(^^fn)[3]) == ^^int *);
+static_assert(^^void(const int, CI, const S, int *const) == ^^void(int, int, S, int *));
+}  // namespace parameter_type_list
 
 int main() { }

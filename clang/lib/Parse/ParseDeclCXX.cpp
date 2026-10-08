@@ -1131,9 +1131,8 @@ Decl *Parser::ParseConstevalBlockDeclaration(SourceLocation &DeclEnd) {
   FakeIntroducer.Range.setEnd(ConstevalLoc);
 
   TypeResult ReturnTy = ParsedType::make(Actions.Context.VoidTy);
-  ExprResult Lambda = ParseLambdaExpressionAfterIntroducer(FakeIntroducer,
-                                                           ConstevalLoc,
-                                                           ReturnTy);
+  ExprResult Lambda = ParseLambdaExpressionAfterIntroducer(
+      FakeIntroducer, ConstevalLoc, ReturnTy, /*IsConstevalBlock=*/true);
   if (Lambda.isInvalid())
     return nullptr;
 
@@ -1419,6 +1418,14 @@ TypeResult Parser::ParseBaseTypeSpecifier(SourceLocation &BaseLoc,
     Diag(Tok, diag::err_expected_class_name_not_template)
         << FixItHint::CreateRemoval(Tok.getLocation());
   }
+
+  // A base-specifier is a type-only context ([temp.res.general]/4), so a '<'
+  // after a splice-specifier starts a template argument list
+  // ([temp.names]/7.1.1): parse a splice-specialization-specifier before the
+  // nested-name-specifier parser gets to annotate the splice without it.
+  if (Tok.is(tok::l_splice) &&
+      ParseSpliceSpecifier(/*TryParseSpecialization=*/true))
+    return true;
 
   // Parse optional nested-name-specifier
   CXXScopeSpec SS;

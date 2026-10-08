@@ -259,6 +259,17 @@ struct T : [:Rs:]... {};
 
 using A = T<^^B1, ^^B2, ^^B3>;
 static_assert(A::value1 + A::value2 + A::value3 == 6);
+
+// A base-specifier is a type-only context, so a '<' after a splice starts a
+// template argument list.
+template <typename T, typename U = T> struct TB { T t; U u; };
+struct D1 : [:^^TB:]<int> {};
+struct D2 : typename [:^^TB:]<int, char> {};
+struct D3 : public virtual [:^^TB:]<char>, private [:^^TB:]<int> {};
+static_assert(sizeof(D1::t) == sizeof(int));
+static_assert(sizeof(D2::u) == sizeof(char));
+template <info R> struct D4 : [:R:]<int> { int w; };
+static_assert(sizeof(D4<^^TB>) == sizeof(TB<int>) + sizeof(int));
 }  // namespace base_class_specifiers
 
                                // ===============

@@ -9750,7 +9750,20 @@ QualType Sema::getDecltypeForExpr(Expr *E) {
   //       by e. If there is no such entity, or if e names a set of overloaded
   //       functions, the program is ill-formed;
   //
+  // C++26 [dcl.type.decltype]p1 extends this to an unparenthesized
+  // splice-expression: decltype(e) is the type of the entity designated by e.
+  // A splice is modeled by an expression naming the designated entity, or by
+  // a constant for a reflection of an object or a value; in the latter case
+  // the type of the entity is the type of the model, without any reference.
+  //
   // We apply the same rules for Objective-C ivar and property references.
+  if (const auto *SE = dyn_cast<CXXSpliceExpr>(IDExpr)) {
+    IDExpr = SE->getModel();
+    if (auto *ICE = dyn_cast<ImplicitCastExpr>(IDExpr))
+      IDExpr = ICE->getSubExpr();
+    if (isa<ConstantExpr>(IDExpr))
+      return IDExpr->getType();
+  }
   if (const auto *DRE = dyn_cast<DeclRefExpr>(IDExpr)) {
     const ValueDecl *VD = DRE->getDecl();
     QualType T = VD->getType();

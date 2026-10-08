@@ -1681,6 +1681,11 @@ bool CXXRecordDecl::isGenericLambda() const {
   return getLambdaData().IsGenericLambda;
 }
 
+bool CXXRecordDecl::isConstevalBlockLambda() const {
+  if (!isLambda()) return false;
+  return getLambdaData().IsConstevalBlock;
+}
+
 #ifndef NDEBUG
 static bool allLookupResultsAreTheSame(const DeclContext::lookup_result &R) {
   return llvm::all_of(R, [&](NamedDecl *D) {

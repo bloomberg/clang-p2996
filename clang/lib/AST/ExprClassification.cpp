@@ -280,6 +280,16 @@ static Cl::Kinds ClassifyInternal(ASTContext &Ctx, const Expr *E) {
 
   case Expr::CXXSpliceExprClass: {
     const auto *SE = dyn_cast<CXXSpliceExpr>(E);
+    // A splice without a model expression: a dependent splice, or a splice of
+    // a base class relationship; its value kind was set when it was built.
+    if (!SE->getModel()) {
+      switch (SE->getValueKind()) {
+      case VK_LValue: return Cl::CL_LValue;
+      case VK_XValue: return Cl::CL_XValue;
+      case VK_PRValue: return Cl::CL_PRValue;
+      }
+      llvm_unreachable("unknown value kind");
+    }
     if (const auto *DRE = dyn_cast<DeclRefExpr>(SE->getModel())) {
       if (auto *MD = dyn_cast<CXXMethodDecl>(DRE->getDecl());
           MD && !MD->isStatic())

@@ -2047,6 +2047,15 @@ CXXSpliceExpr *CXXSpliceExpr::Create(ASTContext &C, ExprValueKind ValueKind,
                                Model, AllowMemberReference);
 }
 
+CXXSpliceExpr *CXXSpliceExpr::Create(ASTContext &C, QualType ResultTy,
+                                     ExprValueKind ValueKind,
+                                     SourceLocation TemplateKWLoc,
+                                     SpliceSpecifier *Splice,
+                                     bool AllowMemberReference) {
+  return new (C) CXXSpliceExpr(ResultTy, ValueKind, TemplateKWLoc, Splice,
+                               /*Model=*/nullptr, AllowMemberReference);
+}
+
 CXXSpliceExpr *CXXSpliceExpr::CreateEmpty(ASTContext &C) {
   return new (C) CXXSpliceExpr(EmptyShell());
 }

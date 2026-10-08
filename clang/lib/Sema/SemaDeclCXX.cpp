@@ -18596,6 +18596,13 @@ NamedDecl *Sema::ActOnFriendFunctionDecl(Scope *S, Declarator &D,
         Diag(FD->getLocation(), diag::err_friend_decl_with_def_arg_must_be_def);
     }
 
+    // [dcl.attr.annotation]/1.2: an annotation shall not be applied to a
+    // non-defining friend declaration.
+    if (!D.isFunctionDefinition())
+      if (auto *Annot = FD->getAttr<CXX26AnnotationAttr>())
+        Diag(Annot->getLocation(), diag::err_annotation_non_defining_friend)
+            << FD << Annot->getRange();
+
     // Mark templated-scope function declarations as unsupported.
     if (FD->getNumTemplateParameterLists() && SS.isValid()) {
       Diag(FD->getLocation(), diag::warn_template_qualified_friend_unsupported)
