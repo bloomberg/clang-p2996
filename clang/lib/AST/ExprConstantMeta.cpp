@@ -865,7 +865,7 @@ static constexpr Metafunction Metafunctions[] = {
   { Metafunction::MFRK_metaInfo, 1, 3, constant_of },
   { Metafunction::MFRK_metaInfo, 1, 1, template_of },
   { Metafunction::MFRK_metaInfo, 4, 4, substitute },
-  { Metafunction::MFRK_spliceFromArg, 2, 2, extract },
+  { Metafunction::MFRK_spliceFromArg, 2, 4, extract },
   { Metafunction::MFRK_bool, 1, 1, is_public },
   { Metafunction::MFRK_bool, 1, 1, is_protected },
   { Metafunction::MFRK_bool, 1, 1, is_private },
@@ -3535,6 +3535,13 @@ bool constant_of(APValue &Result, ASTContext &C, MetaActions &Meta,
     APValue Constant;
     QualType QT;
     if (auto *VD = dyn_cast<VarDecl>(Decl)) {
+      // An array that reflect_constant_array already promoted is its own
+      // constant: promoting it again would only copy its elements once more.
+      if (auto *VTSD = dyn_cast<VarTemplateSpecializationDecl>(VD);
+          VTSD && (VTSD->getSpecializedTemplate() == FixedArray ||
+                   VTSD->getSpecializedTemplate() == EmptyArray))
+        return SetAndSucceed(Result, RV);
+
       // A specialization of a variable template (such as the one that
       // reflect_constant_array yields) has no initializer until instantiated.
       Meta.EnsureInstantiated(VD, Args[0]->getSourceRange());
@@ -3911,6 +3918,112 @@ bool substitute(APValue &Result, ASTContext &C, MetaActions &Meta,
 }
 
 
+/// [conv.qual]/3: whether a prvalue of type 'From' converts to 'To' by a
+/// qualification conversion. Top-level qualifiers of a prvalue are ignored.
+static bool isQualificationConversion(ASTContext &C, QualType From,
+                                      QualType To) {
+  From = From.getCanonicalType();
+  To = To.getCanonicalType();
+
+  // Whether 'To' is const at every level 1..i-1 seen so far ([conv.qual]/3.2
+  // and /3.3 require that wherever the decompositions differ).
+  bool ConstAbove = true;
+  for (unsigned Level = 0;; ++Level) {
+    Qualifiers FromQ, ToQ;
+    From = C.getUnqualifiedArrayType(From, FromQ);
+    To = C.getUnqualifiedArrayType(To, ToQ);
+
+    if (Level > 0) {
+      if (!ToQ.compatiblyIncludes(FromQ, C))
+        return false;
+      if (FromQ != ToQ && !ConstAbove)
+        return false;
+    }
+
+    const auto *FromPtr = From->getAs<PointerType>();
+    const auto *ToPtr = To->getAs<PointerType>();
+    const auto *FromMemPtr = From->getAs<MemberPointerType>();
+    const auto *ToMemPtr = To->getAs<MemberPointerType>();
+    const ArrayType *FromArr = C.getAsArrayType(From);
+    const ArrayType *ToArr = C.getAsArrayType(To);
+
+    if (FromPtr && ToPtr) {
+      From = FromPtr->getPointeeType();
+      To = ToPtr->getPointeeType();
+    } else if (FromMemPtr && ToMemPtr) {
+      if (!declaresSameEntity(FromMemPtr->getMostRecentCXXRecordDecl(),
+                              ToMemPtr->getMostRecentCXXRecordDecl()))
+        return false;
+      From = FromMemPtr->getPointeeType();
+      To = ToMemPtr->getPointeeType();
+    } else if (FromArr && ToArr) {
+      const auto *FromCAT = dyn_cast<ConstantArrayType>(FromArr);
+      const auto *ToCAT = dyn_cast<ConstantArrayType>(ToArr);
+      if (FromCAT && ToCAT) {
+        if (FromCAT->getSize() != ToCAT->getSize())
+          return false;
+      } else if (FromCAT && isa<IncompleteArrayType>(ToArr)) {
+        // /3.3: array of known bound to array of unknown bound needs const
+        // at every level 1..i.
+        if (Level == 0 || !ConstAbove || !ToQ.hasConst())
+          return false;
+      } else if (!isa<IncompleteArrayType>(FromArr) ||
+                 !isa<IncompleteArrayType>(ToArr)) {
+        return false;
+      }
+      From = FromArr->getElementType();
+      To = ToArr->getElementType();
+    } else {
+      return C.hasSameType(From, To);
+    }
+
+    if (Level > 0)
+      ConstAbove = ConstAbove && ToQ.hasConst();
+  }
+}
+
+/// [meta.reflection.extract]/5.2: a reference of type 'T&' may be bound to a
+/// variable or object of type 'U' only through a qualification conversion,
+/// expressed as is_convertible_v<U(*)[], T(*)[]>.
+static bool isReferenceCompatible(ASTContext &C, QualType U, QualType T) {
+  QualType UArr = C.getPointerType(C.getIncompleteArrayType(
+      U.getNonReferenceType(), ArraySizeModifier::Normal, 0));
+  QualType TArr = C.getPointerType(C.getIncompleteArrayType(
+      T.getNonReferenceType(), ArraySizeModifier::Normal, 0));
+  return isQualificationConversion(C, UArr, TArr);
+}
+
+/// The function type 'FnTy' without a non-throwing exception specification:
+/// [meta.reflection.extract]/7.2 and /7.3 accept a function "of type F or
+/// F noexcept" for a pointer (to member) of type F.
+static QualType withoutNoexcept(ASTContext &C, QualType FnTy) {
+  if (const auto *FPT = FnTy->getAs<FunctionProtoType>();
+      FPT && FPT->isNothrow())
+    return C.getFunctionTypeWithExceptionSpec(FnTy, EST_None);
+  return FnTy;
+}
+
+static bool isSameFunctionTypeAllowingNoexcept(ASTContext &C, QualType FnTy,
+                                               QualType T) {
+  return C.hasSameType(FnTy, T) || C.hasSameType(withoutNoexcept(C, FnTy), T);
+}
+
+/// [meta.reflection.extract]/10.1, /10.2: whether a value of type 'U' can be
+/// extracted as a value of type 'T': for a pointer, through a qualification
+/// conversion or a function pointer conversion ([conv.fctptr]); otherwise the
+/// cv-unqualified types must be the same.
+static bool isValueExtractableAs(ASTContext &C, QualType U, QualType T) {
+  if (C.hasSameUnqualifiedType(U, T))
+    return true;
+  if (!U->isPointerType() || !T->isPointerType())
+    return false;
+
+  QualType UP = U->getPointeeType(), TP = T->getPointeeType();
+  if (UP->isFunctionType() && TP->isFunctionType())
+    return C.hasSameType(withoutNoexcept(C, UP), TP);
+  return isQualificationConversion(C, U, T);
+}
+
 bool extract(APValue &Result, ASTContext &C, MetaActions &Meta,
              EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
              QualType ResultTy, SourceRange Range, ArrayRef<Expr *> Args,
@@ -3932,8 +4045,7 @@ bool extract(APValue &Result, ASTContext &C, MetaActions &Meta,
     CXXMethodDecl *CallOp = RD->getLambdaStaticInvoker();
     QualType LambdaPtrTy = C.getPointerType(CallOp->getType());
 
-    if (LambdaPtrTy.getCanonicalType().getTypePtr() !=
-        ResultTy.getCanonicalType().getTypePtr())
+    if (!isValueExtractableAs(C, LambdaPtrTy, ResultTy))
       return Diagnoser(Range.getBegin(), diag::metafn_extract_type_mismatch)
           << 0 << QualType(RD->getTypeForDecl(), 0) << 0 << ResultTy << Range;
 
@@ -3953,6 +4065,28 @@ bool extract(APValue &Result, ASTContext &C, MetaActions &Meta,
   if (!Evaluator(RV, Args[1], true))
     return true;
 
+  // [meta.reflection.extract]/12: a non-reference extraction from a variable
+  // or object is extract-value(constant_of(r)); for an array, constant_of is
+  // reflect_constant_array, so the pointer obtained under /10.3 designates
+  // the promoted copy rather than the original array. The wrapper passes the
+  // templates that constant_of needs for that after the reflection.
+  if (!ReturnsLValue) {
+    QualType Ty;
+    if (RV.isReflectedObject())
+      Ty = RV.getTypeOfReflectedResult(C);
+    else if (RV.isReflectedDecl())
+      if (auto *VD = dyn_cast<VarDecl>(RV.getReflectedDecl()))
+        Ty = VD->getType().getNonReferenceType();
+
+    if (!Ty.isNull() && Ty->isArrayType()) {
+      APValue Promoted;
+      if (constant_of(Promoted, C, Meta, Evaluator, Diagnoser, AllowInjection,
+                      C.MetaInfoTy, Range, Args.slice(1), ContainingDecl))
+        return true;
+      RV = Promoted;
+    }
+  }
+
   switch (RV.getReflectionKind()) {
   case ReflectionKind::Object: {
     QualType ObjectTy = RV.getTypeOfReflectedResult(C);
@@ -3961,8 +4095,8 @@ bool extract(APValue &Result, ASTContext &C, MetaActions &Meta,
         RD && RD->isLambda() && ResultTy->isPointerType())
       return extractLambda(Result, RD);
 
-    if (ObjectTy.getCanonicalType().getTypePtr() !=
-        ResultTy.getCanonicalType().getTypePtr())
+    if (ReturnsLValue ? !isReferenceCompatible(C, ObjectTy, ResultTy)
+                      : !isValueExtractableAs(C, ObjectTy, ResultTy))
       return Diagnoser(Range.getBegin(), diag::metafn_extract_type_mismatch)
           << 1 << ObjectTy << ReturnsLValue << ResultTy << Range;
 
@@ -3980,8 +4114,7 @@ bool extract(APValue &Result, ASTContext &C, MetaActions &Meta,
       return Diagnoser(Range.getBegin(), diag::metafn_cannot_extract)
           << 1 << DescriptionOf(RV) << Range;
 
-    if (ValueTy.getCanonicalType().getTypePtr() !=
-        ResultTy.getCanonicalType().getTypePtr())
+    if (!isValueExtractableAs(C, ValueTy, ResultTy))
       return Diagnoser(Range.getBegin(), diag::metafn_extract_type_mismatch)
           << 0 << ValueTy << ReturnsLValue << ResultTy << Range;
 
@@ -3997,8 +4130,7 @@ bool extract(APValue &Result, ASTContext &C, MetaActions &Meta,
         RD && RD->isLambda() && ResultTy->isPointerType())
       return extractLambda(Result, RD);
 
-    if (A->getArg()->getType().getCanonicalType().getTypePtr() !=
-        ResultTy.getCanonicalType().getTypePtr())
+    if (!isValueExtractableAs(C, A->getArg()->getType(), ResultTy))
       return Diagnoser(Range.getBegin(), diag::metafn_extract_type_mismatch)
           << 3 << A->getArg()->getType() << ReturnsLValue << ResultTy << Range;
 
@@ -4019,8 +4151,8 @@ bool extract(APValue &Result, ASTContext &C, MetaActions &Meta,
         // Synthesize a 'DeclRefExpr' designating the object, such that constant
         // evaluation resolves the underlying referenced entity.
         ReturnsLValue = true;
-        if (RawResultTy.getCanonicalType().getTypePtr() !=
-            Decl->getType().getCanonicalType().getTypePtr())
+        if (!RawResultTy->isReferenceType() ||
+            !isReferenceCompatible(C, Decl->getType(), RawResultTy))
           return Diagnoser(Range.getBegin(), diag::metafn_extract_type_mismatch)
               << 1 << Decl->getType() << 1 << ResultTy << Range;
 
@@ -4035,7 +4167,11 @@ bool extract(APValue &Result, ASTContext &C, MetaActions &Meta,
                                           SourceLocation(), Decl, false,
                                           Range.getBegin(), ResultTy, VK_LValue,
                                           Decl, nullptr);
-      } else if (auto *ArrTy = dyn_cast<ArrayType>(Decl->getType())) {
+      } else if (auto *ArrTy = dyn_cast<ArrayType>(Decl->getType());
+                 ArrTy && !ReturnsLValue) {
+        // [meta.reflection.extract]/10.3: an array (by now the promoted copy
+        // from reflect_constant_array) is extracted as a pointer to its first
+        // element, 'remove_extent_t<U>*' and T being similar and convertible.
         QualType Elt = ArrTy->getElementType();
         if (auto *VD = dyn_cast<VarDecl>(Decl)) {
           if (VD->isConstexpr()) {
@@ -4043,37 +4179,33 @@ bool extract(APValue &Result, ASTContext &C, MetaActions &Meta,
           }
         }
 
-        ReturnsLValue = true;
-        if (!RawResultTy->isPointerType() || !RawResultTy->getPointeeType().isAtLeastAsQualifiedAs(Elt, C))
+        if (!RawResultTy->isPointerType() ||
+            !isQualificationConversion(C, C.getPointerType(Elt), RawResultTy))
           return Diagnoser(Range.getBegin(), diag::metafn_extract_type_mismatch)
               << 1 << C.getPointerType(Elt) << 1 << ResultTy << Range;
-
-        NestedNameSpecifierLocBuilder NNSLocBuilder;
-        if (auto *ParentClsDecl = dyn_cast_or_null<CXXRecordDecl>(
-                Decl->getDeclContext())) {
-          TypeSourceInfo *TSI = C.CreateTypeSourceInfo(
-                  QualType(ParentClsDecl->getTypeForDecl(), 0), 0);
-          NNSLocBuilder.Extend(C, TSI->getTypeLoc(), Range.getBegin());
-        }
 
         APValue::LValuePathEntry Path[1] = {APValue::LValuePathEntry::ArrayIndex(0)};
         return SetAndSucceed(Result,
                              APValue(Decl, CharUnits::Zero(), Path, false));
+      } else if (ReturnsLValue) {
+        // [meta.reflection.extract]/5: a reference to the object declared by
+        // the (possibly local) variable; only a qualification conversion from
+        // its type to T is allowed (/5.2).
+        if (!isReferenceCompatible(C, Decl->getType(), ResultTy))
+          return Diagnoser(Range.getBegin(), diag::metafn_extract_type_mismatch)
+              << 1 << Decl->getType() << 1 << ResultTy << Range;
+
+        Synthesized = ExtractLValueExpr::Create(C, Range, ResultTy, Decl);
       } else {
         // We have a reflection of a (possibly local) non-reference variable.
         // Synthesize an lvalue by reaching up the call stack.
-        if (ResultTy.getCanonicalType().getTypePtr() !=
-            Decl->getType().getCanonicalType().getTypePtr())
+        if (!isValueExtractableAs(C, Decl->getType(), ResultTy))
           return Diagnoser(Range.getBegin(), diag::metafn_extract_type_mismatch)
               << 0 << Decl->getType() << ReturnsLValue << ResultTy << Range;
 
         Synthesized = ExtractLValueExpr::Create(C, Range, ResultTy, Decl);
       }
 
-      if (Synthesized->getType().getCanonicalType().getTypePtr() !=
-          ResultTy.getCanonicalType().getTypePtr())
-        return Diagnoser(Range.getBegin(), diag::metafn_extract_type_mismatch)
-            << 0 << Decl->getType() << ReturnsLValue << ResultTy << Range;
       return !Evaluator(Result, Synthesized, !ReturnsLValue);
     } else if (isa<BindingDecl>(Decl)) {
       return Diagnoser(Range.getBegin(),
@@ -4084,13 +4216,17 @@ bool extract(APValue &Result, ASTContext &C, MetaActions &Meta,
       return Diagnoser(Range.getBegin(), diag::metafn_cannot_extract)
           << 1 << DescriptionOf(RV);
     } else if (isa<FieldDecl, CXXMethodDecl>(Decl)) { // Extracting a non-static member as a pointer.
-      // Branching out for static member function
-      // those would die in later code path otherwise...
-      if (CXXMethodDecl* meth = dyn_cast<CXXMethodDecl>(Decl); meth && meth->isStatic()) {
-        QualType funcPtrType = C.getPointerType(meth->getType());
-        if (funcPtrType.getCanonicalType().getTypePtr() != ResultTy.getCanonicalType().getTypePtr()) {
-          return Diagnoser(Range.getBegin(), diag::metafn_extract_entity_type_mismatch) << ResultTy << DescriptionOf(RV) << funcPtrType << Range;
-        }
+      // [meta.reflection.extract]/7.3: a static or explicit object member
+      // function is extracted as a pointer to function.
+      if (auto *MD = dyn_cast<CXXMethodDecl>(Decl);
+          MD && (MD->isStatic() || MD->isExplicitObjectMemberFunction())) {
+        if (!ResultTy->isPointerType() ||
+            !isSameFunctionTypeAllowingNoexcept(C, MD->getType(),
+                                                ResultTy->getPointeeType()))
+          return Diagnoser(Range.getBegin(),
+                           diag::metafn_extract_entity_type_mismatch)
+              << ResultTy << DescriptionOf(RV)
+              << C.getPointerType(MD->getType()) << Range;
         APValue StaticFuncPtrLV(Decl, CharUnits::Zero(), {}, false, false);
         return SetAndSucceed(Result, StaticFuncPtrLV);
       }
@@ -4114,10 +4250,24 @@ bool extract(APValue &Result, ASTContext &C, MetaActions &Meta,
       else
         ObjDC = ObjDC->getParent();
 
+      // [meta.reflection.extract]/7.1: for a data member of type X, T and
+      // 'X C::*' must be similar and 'X C::*' convertible to T (a
+      // qualification conversion); /7.2: for a member function of type F or
+      // F noexcept, T must be 'F C::*'.
       QualType MemPtrTy = C.getMemberPointerType(Decl->getType(), nullptr,
                                                  cast<CXXRecordDecl>(ObjDC));
-      if (MemPtrTy.getCanonicalType().getTypePtr() !=
-          ResultTy.getCanonicalType().getTypePtr())
+      bool Matches;
+      if (isa<FieldDecl>(Decl)) {
+        Matches = isQualificationConversion(C, MemPtrTy, ResultTy);
+      } else {
+        const auto *RMP = ResultTy->getAs<MemberPointerType>();
+        Matches = RMP &&
+                  declaresSameEntity(RMP->getMostRecentCXXRecordDecl(),
+                                     cast<CXXRecordDecl>(ObjDC)) &&
+                  isSameFunctionTypeAllowingNoexcept(C, Decl->getType(),
+                                                     RMP->getPointeeType());
+      }
+      if (!Matches)
         return Diagnoser(Range.getBegin(),
                          diag::metafn_extract_entity_type_mismatch)
             << ResultTy << DescriptionOf(RV) << MemPtrTy << Range;
@@ -4125,16 +4275,17 @@ bool extract(APValue &Result, ASTContext &C, MetaActions &Meta,
       APValue MemPtrLV(Decl, false, ArrayRef<const CXXRecordDecl *> {});
       return SetAndSucceed(Result, MemPtrLV);
     } else if (auto *ECD = dyn_cast<EnumConstantDecl>(Decl)) {
-      if (ECD->getType().getCanonicalType().getTypePtr() !=
-          ResultTy.getCanonicalType().getTypePtr())
+      if (!C.hasSameUnqualifiedType(ECD->getType(), ResultTy))
         return Diagnoser(Range.getBegin(), diag::metafn_extract_type_mismatch)
             << 2 << Decl->getType() << 0 << ResultTy << Range;
 
       return SetAndSucceed(Result, APValue(ECD->getInitVal()));
     } else {
-      QualType FnPtrTy = C.getPointerType(Decl->getType());
-      if (FnPtrTy.getCanonicalType().getTypePtr() !=
-          ResultTy.getCanonicalType().getTypePtr())
+      // [meta.reflection.extract]/7.3: a non-member function of type F or
+      // F noexcept is extracted as a pointer of type F*.
+      if (!ResultTy->isPointerType() ||
+          !isSameFunctionTypeAllowingNoexcept(C, Decl->getType(),
+                                              ResultTy->getPointeeType()))
         return Diagnoser(Range.getBegin(), diag::metafn_extract_type_mismatch)
             << 0 << Decl->getType() << ReturnsLValue << ResultTy << Range;
 

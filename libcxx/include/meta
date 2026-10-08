@@ -1071,14 +1071,19 @@ consteval auto substitute(info templ, R &&args) -> info {
 // 'r' if 'T' is a reference type ([meta.reflection.extract]).
 template <typename Ty>
 consteval auto extract(info r) -> Ty {
+  // The trailing templates are those of reflect_constant_array, which the
+  // builtin applies to an array ([meta.reflection.extract]/12, constant_of).
   if constexpr (is_rvalue_reference_v<Ty>) {
     // The builtin cannot produce an xvalue; bind an lvalue reference to the
     // same object (subject to the same qualification check) and convert it.
     return static_cast<Ty>(
         __metafunction(detail::__metafn_extract, ^^remove_reference_t<Ty> &,
-                       r));
+                       r, ^^__define_static::FixedArray,
+                       ^^__define_static::EmptyArray));
   } else {
-    return __metafunction(detail::__metafn_extract, ^^Ty, r);
+    return __metafunction(detail::__metafn_extract, ^^Ty, r,
+                          ^^__define_static::FixedArray,
+                          ^^__define_static::EmptyArray);
   }
 }
 

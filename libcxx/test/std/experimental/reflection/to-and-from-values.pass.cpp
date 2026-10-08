@@ -177,7 +177,12 @@ namespace extract_ref_semantics {
   const int constGlobal = 2;
 
   static_assert(&extract<int &>(^^nonConstGlobal) == &nonConstGlobal);
-  static_assert(extract<int &>(^^constGlobal) == 2);
+  // [meta.reflection.extract]/5.2: only a qualification conversion from the
+  // variable's type to T is allowed, so 'const int' cannot be extracted as
+  // 'int &' (see to-and-from-values.verify.cpp), but it can as 'const int &',
+  // and 'int' as 'const int &'.
+  static_assert(extract<const int &>(^^constGlobal) == 2);
+  static_assert(&extract<const int &>(^^nonConstGlobal) == &nonConstGlobal);
 
   const int &constGlobalRef = constGlobal;
   static_assert(&extract<const int &>(^^constGlobalRef) == &constGlobal);
@@ -340,6 +345,93 @@ static_assert(constant_of(^^fnref) == constant_of(^^fnptr));
 static_assert(is_value(constant_of(^^fnref)));
 static_assert(type_of(constant_of(^^fnref)) == ^^void (*)(int));
 }  // namespace constant_of_arrays_and_fns
+
+                           // =====================
+                           // extract_conformance
+                           // =====================
+
+namespace extract_conformance {
+struct S {
+  int m;
+  const int cm;
+  void xo(this S &);
+  void xo_noexcept(this S &) noexcept;
+  void mf();
+  void mf_noexcept() noexcept;
+  static void sf();
+  static void sf_noexcept() noexcept;
+};
+void fn(int);
+void fn_noexcept(int) noexcept;
+constexpr int carr[2] = {1, 2};
+constexpr S sarr[1] = {S{1, 2}};
+constexpr const int *cip = &carr[0];
+constexpr const int (&carr_ref)[2] = carr;
+
+// [meta.reflection.extract]/7.1: T and 'X C::*' similar, 'X C::*' convertible
+// to T.
+static_assert(extract<int S::*>(^^S::m) == &S::m);
+static_assert(extract<const int S::*>(^^S::m) == &S::m);
+static_assert(extract<const int S::*>(^^S::cm) == &S::cm);
+static_assert(extract<const volatile int S::*>(^^S::m) == &S::m);
+
+// /7.2: an implicit object member function of type F or F noexcept, T is
+// 'F C::*'.
+static_assert(extract<void (S::*)()>(^^S::mf) == &S::mf);
+static_assert(extract<void (S::*)()>(^^S::mf_noexcept) == &S::mf_noexcept);
+static_assert(extract<void (S::*)() noexcept>(^^S::mf_noexcept) ==
+              &S::mf_noexcept);
+
+// /7.3: a non-member, static member or explicit object member function of
+// type F or F noexcept, T is F*.
+static_assert(extract<void (*)(int)>(^^fn) == &fn);
+static_assert(extract<void (*)(int)>(^^fn_noexcept) == &fn_noexcept);
+static_assert(extract<void (*)(int) noexcept>(^^fn_noexcept) == &fn_noexcept);
+static_assert(extract<void (*)()>(^^S::sf) == &S::sf);
+static_assert(extract<void (*)()>(^^S::sf_noexcept) == &S::sf_noexcept);
+static_assert(extract<void (*)(S &)>(^^S::xo) == &S::xo);
+static_assert(extract<void (*)(S &)>(^^S::xo_noexcept) == &S::xo_noexcept);
+static_assert(extract<void (*)(S &) noexcept>(^^S::xo_noexcept) ==
+              &S::xo_noexcept);
+
+// /5: a reference to the variable or object itself, through a qualification
+// conversion only (/5.2).
+static_assert(&extract<const int (&)[2]>(^^carr) == &carr);
+static_assert(&extract<const int (&)[2]>(^^carr_ref) == &carr);
+static_assert(&extract<const int (&)[2]>(std::meta::reflect_object(carr)) ==
+              &carr);
+static_assert(extract<const int (&)[2]>(
+                  std::meta::reflect_constant_array(std::vector{1, 2}))[1] == 2);
+static_assert(&extract<const S (&)[1]>(^^sarr) == &sarr);
+
+// /12, /10.3: a non-reference extraction of an array goes through constant_of,
+// i.e. reflect_constant_array, so the pointer designates the promoted copy.
+static_assert(extract<const int *>(^^carr) != carr);
+static_assert(extract<const int *>(^^carr)[1] == 2);
+static_assert(extract<const int *>(^^carr) ==
+              extract<const int *>(std::meta::reflect_constant_array(carr)));
+static_assert(extract<const int *>(^^carr) ==
+              extract<const int *>(constant_of(^^carr)));
+static_assert(extract<const int *>(std::meta::reflect_object(carr)) ==
+              extract<const int *>(^^carr));
+static_assert(extract<const int *>(^^carr_ref) ==
+              extract<const int *>(^^carr));
+static_assert(extract<const S *>(^^sarr)[0].cm == 2);
+static_assert(extract<const S *>(^^sarr) != sarr);
+
+// /10.1: a pointer value through a qualification conversion or a function
+// pointer conversion.
+static_assert(extract<const int *>(std::meta::reflect_constant(cip)) == cip);
+static_assert(extract<const int *const>(std::meta::reflect_constant(cip)) == cip);
+static_assert(extract<const int *>(std::meta::reflect_constant(
+                  static_cast<int *>(nullptr))) == nullptr);
+static_assert(extract<const int *const *>(std::meta::reflect_constant(&cip)) ==
+              &cip);
+static_assert(extract<void (*)(int)>(std::meta::reflect_constant(&fn_noexcept))
+              == &fn_noexcept);
+static_assert(extract<void (*)(int) noexcept>(
+                  std::meta::reflect_constant(&fn_noexcept)) == &fn_noexcept);
+}  // namespace extract_conformance
 
                            // ======================
                            // objects_from_variables
