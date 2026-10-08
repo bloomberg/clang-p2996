@@ -4571,63 +4571,92 @@ bool has_automatic_storage_duration(APValue &Result, ASTContext &C,
   return SetAndSucceed(Result, makeBool(C, result));
 }
 
-bool has_internal_linkage(APValue &Result, ASTContext &C, MetaActions &Meta,
-                          EvalFn Evaluator, DiagFn Diagnoser,
-                          bool AllowInjection, QualType ResultTy,
-                          SourceRange Range, ArrayRef<Expr *> Args,
-                          Decl *ContainingDecl) {
+/// [meta.reflection.queries]/27: the linkage of the name of the variable,
+/// function, type, template or namespace that 'RV' represents, or
+/// std::nullopt if 'RV' represents nothing whose name has linkage
+/// ([basic.link]/4): a non-static data member, enumerator, structured
+/// binding, object, value, type alias, and so on.
+static std::optional<Linkage> linkageOf(ASTContext &C, APValue RV) {
+  RV = MaybeUnproxy(C, RV, /*Dealias=*/false);
+
+  switch (RV.getReflectionKind()) {
+  case ReflectionKind::Type: {
+    // A type alias is not a type with a name of its own; a class or
+    // enumeration has the linkage of its name (including a typedef name for
+    // linkage purposes), regardless of cv-qualification.
+    QualType QT = RV.getReflectedType();
+    if (isTypeAlias(QT))
+      return std::nullopt;
+    if (NamedDecl *D = findTypeDecl(QT))
+      return D->getFormalLinkage();
+    return std::nullopt;
+  }
+  case ReflectionKind::Declaration: {
+    Decl *D = RV.getReflectedDecl();
+    if (!isa<VarDecl, FunctionDecl>(D))
+      return std::nullopt;
+    return cast<NamedDecl>(D)->getFormalLinkage();
+  }
+  case ReflectionKind::Template:
+    return RV.getReflectedTemplate().getAsTemplateDecl()->getFormalLinkage();
+  case ReflectionKind::Namespace: {
+    // [basic.link]/4: an unnamed namespace, or a namespace declared within
+    // one, has internal linkage; all other namespaces (the global namespace
+    // included) have external linkage.
+    Decl *D = RV.getReflectedNamespace();
+    if (isa<TranslationUnitDecl>(D))
+      return Linkage::External;
+    if (auto *A = dyn_cast<NamespaceAliasDecl>(D))
+      D = A->getNamespace();
+    return cast<NamedDecl>(D)->getFormalLinkage();
+  }
+  case ReflectionKind::Null:
+  case ReflectionKind::Object:
+  case ReflectionKind::Value:
+  case ReflectionKind::Parameter:
+  case ReflectionKind::BaseSpecifier:
+  case ReflectionKind::DataMemberSpec:
+  case ReflectionKind::Annotation:
+  case ReflectionKind::Attribute:
+    return std::nullopt;
+  case ReflectionKind::EntityProxy:
+    llvm_unreachable("proxies should already have been unwrapped");
+  }
+  llvm_unreachable("unknown reflection kind");
+}
+
+/// 'Linkage::None' selects "any linkage" ([meta.reflection.queries]/27,
+/// has_linkage).
+template <Linkage L>
+static bool has_LINKAGE(APValue &Result, ASTContext &C, EvalFn Evaluator,
+                        ArrayRef<Expr *> Args) {
   assert(Args[0]->getType()->isReflectionType());
-  assert(ResultTy == C.BoolTy);
 
   APValue RV;
   if (!Evaluator(RV, Args[0], true))
     return true;
 
-  bool result = false;
-  if (RV.isReflectedType()) {
-    if (NamedDecl *typeDecl =
-            dyn_cast_or_null<NamedDecl>(findTypeDecl(RV.getReflectedType())))
-      result = (typeDecl->getFormalLinkage() == Linkage::Internal);
-  } else if (RV.isReflectedDecl()) {
-    if (const auto *ND = dyn_cast<NamedDecl>(RV.getReflectedDecl()))
-      result = (ND->getFormalLinkage() == Linkage::Internal);
-  } else if (RV.isReflectedObject()) {
-    if (APValue::LValueBase LVBase = RV.getReflectedObject().getLValueBase();
-        LVBase.is<const ValueDecl *>()) {
-      const ValueDecl *VD = LVBase.get<const ValueDecl *>();
-      result = (VD->getFormalLinkage() == Linkage::Internal);
-    }
-  }
+  std::optional<Linkage> Found = linkageOf(C, RV);
+  bool result = Found && (L == Linkage::None ? *Found != Linkage::None
+                                             : *Found == L);
   return SetAndSucceed(Result, makeBool(C, result));
+}
+
+bool has_internal_linkage(APValue &Result, ASTContext &C, MetaActions &Meta,
+                          EvalFn Evaluator, DiagFn Diagnoser,
+                          bool AllowInjection, QualType ResultTy,
+                          SourceRange Range, ArrayRef<Expr *> Args,
+                          Decl *ContainingDecl) {
+  assert(ResultTy == C.BoolTy);
+  return has_LINKAGE<Linkage::Internal>(Result, C, Evaluator, Args);
 }
 
 bool has_module_linkage(APValue &Result, ASTContext &C, MetaActions &Meta,
                         EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
                         QualType ResultTy, SourceRange Range,
                         ArrayRef<Expr *> Args, Decl *ContainingDecl) {
-  assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == C.BoolTy);
-
-  APValue RV;
-  if (!Evaluator(RV, Args[0], true))
-    return true;
-
-  bool result = false;
-  if (RV.isReflectedType()) {
-    if (NamedDecl *typeDecl =
-            dyn_cast_or_null<NamedDecl>(findTypeDecl(RV.getReflectedType())))
-      result = (typeDecl->getFormalLinkage() == Linkage::Module);
-  } else  if (RV.isReflectedDecl()) {
-    if (const auto *ND = dyn_cast<NamedDecl>(RV.getReflectedDecl()))
-      result = (ND->getFormalLinkage() == Linkage::Module);
-  } else if (RV.isReflectedObject()) {
-    if (APValue::LValueBase LVBase = RV.getReflectedObject().getLValueBase();
-        LVBase.is<const ValueDecl *>()) {
-      const ValueDecl *VD = LVBase.get<const ValueDecl *>();
-      result = (VD->getFormalLinkage() == Linkage::Module);
-    }
-  }
-  return SetAndSucceed(Result, makeBool(C, result));
+  return has_LINKAGE<Linkage::Module>(Result, C, Evaluator, Args);
 }
 
 bool has_external_linkage(APValue &Result, ASTContext &C, MetaActions &Meta,
@@ -4635,61 +4664,16 @@ bool has_external_linkage(APValue &Result, ASTContext &C, MetaActions &Meta,
                           bool AllowInjection, QualType ResultTy,
                           SourceRange Range, ArrayRef<Expr *> Args,
                           Decl *ContainingDecl) {
-  assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == C.BoolTy);
-
-  APValue RV;
-  if (!Evaluator(RV, Args[0], true))
-    return true;
-
-  bool result = false;
-  if (RV.isReflectedType()) {
-    if (NamedDecl *typeDecl =
-            dyn_cast_or_null<NamedDecl>(findTypeDecl(RV.getReflectedType())))
-      result = (typeDecl->getFormalLinkage() == Linkage::External ||
-                typeDecl->getFormalLinkage() == Linkage::UniqueExternal);
-  } else if (RV.isReflectedDecl()) {
-    if (const auto *ND = dyn_cast<NamedDecl>(RV.getReflectedDecl()))
-      result = (ND->getFormalLinkage() == Linkage::External ||
-                ND->getFormalLinkage() == Linkage::UniqueExternal);
-  } else if (RV.isReflectedObject()) {
-    if (APValue::LValueBase LVBase = RV.getReflectedObject().getLValueBase();
-        LVBase.is<const ValueDecl *>()) {
-      const ValueDecl *VD = LVBase.get<const ValueDecl *>();
-      result = (VD->getFormalLinkage() == Linkage::External ||
-                VD->getFormalLinkage() == Linkage::UniqueExternal);
-    }
-  }
-  return SetAndSucceed(Result, makeBool(C, result));
+  return has_LINKAGE<Linkage::External>(Result, C, Evaluator, Args);
 }
 
 bool has_linkage(APValue &Result, ASTContext &C, MetaActions &Meta,
                  EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
                  QualType ResultTy, SourceRange Range, ArrayRef<Expr *> Args,
                  Decl *ContainingDecl) {
-  assert(Args[0]->getType()->isReflectionType());
   assert(ResultTy == C.BoolTy);
-
-  APValue RV;
-  if (!Evaluator(RV, Args[0], true))
-    return true;
-
-  bool result = false;
-  if (RV.isReflectedType()) {
-    if (NamedDecl *typeDecl =
-            dyn_cast_or_null<NamedDecl>(findTypeDecl(RV.getReflectedType())))
-      result = typeDecl->hasLinkage();
-  } else if (RV.isReflectedDecl()) {
-    if (const auto *ND = dyn_cast<NamedDecl>(RV.getReflectedDecl()))
-      result = ND->hasLinkage();
-  } else if (RV.isReflectedObject()) {
-    if (APValue::LValueBase LVBase = RV.getReflectedObject().getLValueBase();
-        LVBase.is<const ValueDecl *>()) {
-      const ValueDecl *VD = LVBase.get<const ValueDecl *>();
-      result = (VD->hasLinkage());
-    }
-  }
-  return SetAndSucceed(Result, makeBool(C, result));
+  return has_LINKAGE<Linkage::None>(Result, C, Evaluator, Args);
 }
 
 bool is_class_member(APValue &Result, ASTContext &C, MetaActions &Meta,
