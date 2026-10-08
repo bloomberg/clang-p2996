@@ -1420,6 +1420,14 @@ TypeResult Parser::ParseBaseTypeSpecifier(SourceLocation &BaseLoc,
         << FixItHint::CreateRemoval(Tok.getLocation());
   }
 
+  // A base-specifier is a type-only context ([temp.res.general]/4), so a '<'
+  // after a splice-specifier starts a template argument list
+  // ([temp.names]/7.1.1): parse a splice-specialization-specifier before the
+  // nested-name-specifier parser gets to annotate the splice without it.
+  if (Tok.is(tok::l_splice) &&
+      ParseSpliceSpecifier(/*TryParseSpecialization=*/true))
+    return true;
+
   // Parse optional nested-name-specifier
   CXXScopeSpec SS;
   if (ParseOptionalCXXScopeSpecifier(SS, /*ObjectType=*/nullptr,
