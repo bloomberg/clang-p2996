@@ -1325,7 +1325,7 @@ static QualType desugarType(QualType QT, bool UnwrapAliases, bool DropCV,
     else if (auto *TST = dyn_cast<TemplateSpecializationType>(QT);
              TST && UnwrapAliases && TST->isTypeAlias())
       QT = TST->getAliasedType();
-    else if (auto *AT = dyn_cast<AutoType>(QT))
+    else if (auto *AT = dyn_cast<AutoType>(QT); AT && AT->isDeduced())
       QT = AT->desugar();
     else if (auto *RT = dyn_cast<ReferenceType>(QT); RT && DropRefs)
       QT = RT->getPointeeType();
@@ -3039,8 +3039,14 @@ bool type_of(APValue &Result, ASTContext &C, MetaActions &Meta,
       return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
           << 0 << DescriptionOf(RV) << Range;
 
-    if (auto *FD = dyn_cast<FunctionDecl>(VD))
+    if (auto *FD = dyn_cast<FunctionDecl>(VD)) {
+      // A function whose type contains an undeduced placeholder type has no
+      // type ([meta.reflection.queries]/1).
+      if (FD->getReturnType()->isUndeducedType())
+        return Diagnoser(Range.getBegin(), diag::metafn_undeduced_return_type)
+            << DescriptionOf(RV) << Range;
       Meta.EnsureInstantiationOfExceptionSpec(Range.getBegin(), FD);
+    }
 
     QualType QT = desugarType(VD->getType(),
                               /*UnwrapAliases=*/ true, /*DropCV=*/false,
@@ -6628,6 +6634,12 @@ bool return_type_of(APValue &Result, ASTContext &C, MetaActions &Meta,
   case ReflectionKind::Declaration:
     if (auto *FD = dyn_cast<FunctionDecl>(RV.getReflectedDecl());
         FD && !isa<CXXConstructorDecl>(FD) && !isa<CXXDestructorDecl>(FD)) {
+      // A function whose type contains an undeduced placeholder type has no
+      // type ([meta.reflection.queries]/1), and so no return type.
+      if (FD->getReturnType()->isUndeducedType())
+        return Diagnoser(Range.getBegin(), diag::metafn_undeduced_return_type)
+            << DescriptionOf(RV) << Range;
+
       QualType QT =
           desugarType(FD->getReturnType(), /*UnwrapAliases=*/ true,
                       /*DropCV=*/false, /*DropRefs=*/false);
