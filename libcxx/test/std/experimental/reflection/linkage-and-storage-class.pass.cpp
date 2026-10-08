@@ -256,6 +256,51 @@ static_assert(!has_external_linkage(^^int));
 static_assert(!has_external_linkage(^^TCls));
 static_assert(!has_external_linkage(^^TFn));
 static_assert(!has_external_linkage(^^TVar));
+
+                          // ======================
+                          // has_c_language_linkage
+                          // ======================
+
+extern "C" void cfn();
+extern "C" int cvar;
+extern "C" {
+  void cfn2();
+  int cvar2;
+  extern "C++" void cxxfn_in_c();
+}
+extern "C++" void cxxfn();
+extern "C" void cfn2_redecl();
+void cfn2_redecl();  // inherits C language linkage ([dcl.link]/6)
+struct cls {
+  static void sfn();
+  void memfn();
+  int mem;
+};
+enum c_enum { c_enumerator };
+
+static_assert(has_c_language_linkage(^^cfn));
+static_assert(has_c_language_linkage(^^cvar));
+static_assert(has_c_language_linkage(^^cfn2));
+static_assert(has_c_language_linkage(^^cvar2));
+static_assert(has_c_language_linkage(^^cfn2_redecl));
+static_assert(!has_c_language_linkage(^^cxxfn_in_c));
+static_assert(!has_c_language_linkage(^^cxxfn));
+static_assert(!has_c_language_linkage(^^global));
+static_assert(!has_c_language_linkage(^^s_global));
+static_assert(!has_c_language_linkage(^^fn));
+static_assert(!has_c_language_linkage(^^cls));
+static_assert(!has_c_language_linkage(^^cls::sfn));
+static_assert(!has_c_language_linkage(^^cls::memfn));
+static_assert(!has_c_language_linkage(^^cls::mem));
+static_assert(!has_c_language_linkage(^^c_enumerator));
+static_assert(!has_c_language_linkage(^^TFn));
+static_assert(!has_c_language_linkage(^^TFn<int>));
+static_assert(!has_c_language_linkage(^^int));
+static_assert(!has_c_language_linkage(^^void()));
+static_assert(!has_c_language_linkage(^^::));
+static_assert(!has_c_language_linkage(std::meta::info{}));
+static_assert(!has_c_language_linkage(std::meta::reflect_constant(3)));
+static_assert(!has_c_language_linkage(std::meta::reflect_object(cvar)));
 }  // namespace linkage
 
 export module test_module;

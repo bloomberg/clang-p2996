@@ -55,6 +55,7 @@ consteval auto source_location_of(info r) -> source_location;
 
 // type queries
 consteval auto type_of(info) -> info;
+consteval auto has_parent(info) -> bool;
 consteval auto parent_of(info) -> info;
 consteval auto dealias(info) -> info;
 
@@ -120,6 +121,7 @@ consteval auto has_internal_linkage(info) -> bool;
 consteval auto has_module_linkage(info) -> bool;
 consteval auto has_external_linkage(info) -> bool;
 consteval auto has_linkage(info) -> bool;
+consteval auto has_c_language_linkage(info) -> bool;
 consteval auto is_class_member(info) -> bool;
 consteval auto is_namespace_member(info) -> bool;
 consteval auto is_nonstatic_data_member(info) -> bool;
@@ -614,6 +616,10 @@ enum : unsigned {
 
   // P3867: define_encoded_static_string
   __metafn_define_encoded_static_string,
+
+  // [meta.reflection.queries] has_parent, has_c_language_linkage
+  __metafn_has_parent,
+  __metafn_has_c_language_linkage,
 };
 
 consteval auto __workaround_expand_compiler_builtins(info type) -> info;
@@ -951,6 +957,11 @@ consteval auto source_location_of(info r) -> source_location {
 // Returns the type of the provided reflection of an expression.
 consteval auto type_of(info r) -> info {
   return __metafunction(detail::__metafn_type_of, r);
+}
+
+// Returns whether 'parent_of(r)' would succeed ([meta.reflection.queries]).
+consteval auto has_parent(info r) -> bool {
+  return __metafunction(detail::__metafn_has_parent, r);
 }
 
 // Returns the containing class or namespace of a class or namespace member.
@@ -1352,6 +1363,11 @@ consteval auto has_external_linkage(info r) -> bool {
 // Returns whether the reflected entity has linkage.
 consteval auto has_linkage(info r) -> bool {
   return __metafunction(detail::__metafn_has_linkage, r);
+}
+
+// Returns whether the reflected variable or function has C language linkage.
+consteval auto has_c_language_linkage(info r) -> bool {
+  return __metafunction(detail::__metafn_has_c_language_linkage, r);
 }
 
 // Returns whether the reflected entity is a member of a namespace.

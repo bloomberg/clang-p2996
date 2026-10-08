@@ -138,6 +138,79 @@ static_assert(parent_of(^^TAlias<int>) == ^^find_parent_of);
 static_assert(parent_of(^^Concept) == ^^find_parent_of);
 }  // namespace find_parent_of
 
+                                // ==========
+                                // has_parent
+                                // ==========
+
+namespace has_parent_ {
+struct Base {};
+struct Cls : Base {
+  int mem;
+  void memfn();
+  using Alias = int;
+  template <typename> struct TInnerCls {};
+};
+int var;
+void fn();
+extern "C" void cfn();
+extern "C" int cvar;
+extern "C" { void cfn2(); }
+extern "C++" void cxxfn();
+namespace NestedNS {}
+enum Enum { A };
+using Alias = int;
+template <typename> struct TCls {};
+template <typename> void TFn();
+template <typename> concept Concept = requires { true; };
+
+// [meta.reflection.queries]/50.1: the global namespace has no parent.
+static_assert(!has_parent(^^::));
+
+// /50.2: entities with C language linkage have no parent.
+static_assert(!has_parent(^^cfn));
+static_assert(!has_parent(^^cfn2));
+static_assert(!has_parent(^^cvar));
+static_assert(has_parent(^^cxxfn));
+
+// /50.4: types that are neither class nor enumeration types have no parent.
+static_assert(!has_parent(^^int));
+static_assert(!has_parent(^^int *));
+static_assert(!has_parent(^^void()));
+static_assert(!has_parent(^^Cls *));
+static_assert(!has_parent(^^Cls[2]));
+static_assert(has_parent(^^Cls));
+static_assert(has_parent(^^const Cls));
+static_assert(has_parent(^^Enum));
+static_assert(has_parent(^^Cls::TInnerCls<int>));
+
+// /50.5: entities and direct base class relationships have a parent.
+static_assert(has_parent(^^has_parent_));
+static_assert(has_parent(^^NestedNS));
+static_assert(has_parent(^^var));
+static_assert(has_parent(^^fn));
+static_assert(has_parent(^^Alias));
+static_assert(has_parent(^^Cls::Alias));
+static_assert(has_parent(^^Cls::mem));
+static_assert(has_parent(^^Cls::memfn));
+static_assert(has_parent(^^A));
+static_assert(has_parent(^^TCls));
+static_assert(has_parent(^^TCls<int>));
+static_assert(has_parent(^^TFn));
+static_assert(has_parent(^^TFn<int>));
+static_assert(has_parent(^^Concept));
+static_assert(has_parent(bases_of(^^Cls, ctx)[0]));
+
+// /50.6: everything else has no parent.
+static_assert(!has_parent(std::meta::info{}));
+static_assert(!has_parent(std::meta::reflect_constant(3)));
+static_assert(!has_parent(std::meta::reflect_object(var)));
+static_assert(!has_parent(std::meta::data_member_spec(^^int, {.name="m"})));
+
+// 'has_parent' agrees with 'parent_of' wherever the latter succeeds.
+static_assert(parent_of(^^Cls::mem) == ^^Cls);
+static_assert(parent_of(^^cxxfn) == ^^has_parent_);
+}  // namespace has_parent_
+
                                  // ==========
                                  // dealiasing
                                  // ==========

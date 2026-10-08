@@ -633,6 +633,17 @@ static bool define_encoded_static_string(APValue &Result, ASTContext &C,
                                          ArrayRef<Expr *> Args,
                                          Decl *ContainingDecl);
 
+static bool has_parent(APValue &Result, ASTContext &C, MetaActions &Meta,
+                       EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
+                       QualType ResultTy, SourceRange Range,
+                       ArrayRef<Expr *> Args, Decl *ContainingDecl);
+
+static bool has_c_language_linkage(APValue &Result, ASTContext &C,
+                                   MetaActions &Meta, EvalFn Evaluator,
+                                   DiagFn Diagnoser, bool AllowInjection,
+                                   QualType ResultTy, SourceRange Range,
+                                   ArrayRef<Expr *> Args, Decl *ContainingDecl);
+
 static bool offset_of(APValue &Result, ASTContext &C, MetaActions &Meta,
                       EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
                       QualType ResultTy, SourceRange Range,
@@ -972,6 +983,10 @@ static constexpr Metafunction Metafunctions[] = {
 
   // P3867: define_encoded_static_string
   { Metafunction::MFRK_spliceFromArg, 3, 3, define_encoded_static_string },
+
+  // [meta.reflection.queries] has_parent, has_c_language_linkage
+  { Metafunction::MFRK_bool, 1, 1, has_parent },
+  { Metafunction::MFRK_bool, 1, 1, has_c_language_linkage },
 };
 constexpr const unsigned NumMetafunctions = sizeof(Metafunctions) /
                                             sizeof(Metafunction);
@@ -7544,6 +7559,61 @@ bool define_encoded_static_string(APValue &Result, ASTContext &C,
 
   APValue::LValuePathEntry Path[1] = {APValue::LValuePathEntry::ArrayIndex(0)};
   return SetAndSucceed(Result, APValue(StrLit, CharUnits::Zero(), Path, false));
+}
+
+// -----------------------------------------------------------------------------
+// [meta.reflection.queries] has_parent, has_c_language_linkage
+// -----------------------------------------------------------------------------
+
+// [meta.reflection.queries]/50: 'has_parent(r)' is true exactly when
+// 'parent_of(r)' would not throw ([meta.reflection.queries]/52), so reuse
+// 'parent_of' itself with a null diagnoser rather than duplicate its rules.
+bool has_parent(APValue &Result, ASTContext &C, MetaActions &Meta,
+                EvalFn Evaluator, DiagFn Diagnoser, bool AllowInjection,
+                QualType ResultTy, SourceRange Range, ArrayRef<Expr *> Args,
+                Decl *ContainingDecl) {
+  assert(Args[0]->getType()->isReflectionType());
+  assert(ResultTy == C.BoolTy);
+
+  // Evaluate the argument first so that a non-constant argument fails the
+  // call instead of being reported as "no parent".
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
+    return true;
+
+  APValue Scratch;
+  bool Failed = parent_of(Scratch, C, Meta, Evaluator, /*Diagnoser=*/nullptr,
+                          AllowInjection, C.MetaInfoTy, Range, Args,
+                          ContainingDecl);
+  return SetAndSucceed(Result, makeBool(C, !Failed));
+}
+
+// [meta.reflection.queries]/28: true if 'r' represents a variable, function,
+// or function type with C language linkage. Clang does not distinguish
+// function types by language linkage (an 'extern "C"' function type is the
+// same type as the C++ one), so a function type never reports C linkage.
+bool has_c_language_linkage(APValue &Result, ASTContext &C, MetaActions &Meta,
+                            EvalFn Evaluator, DiagFn Diagnoser,
+                            bool AllowInjection, QualType ResultTy,
+                            SourceRange Range, ArrayRef<Expr *> Args,
+                            Decl *ContainingDecl) {
+  assert(Args[0]->getType()->isReflectionType());
+  assert(ResultTy == C.BoolTy);
+
+  APValue RV;
+  if (!Evaluator(RV, Args[0], true))
+    return true;
+  RV = MaybeUnproxy(C, RV);
+
+  bool result = false;
+  if (RV.isReflectedDecl()) {
+    Decl *D = RV.getReflectedDecl();
+    if (auto *FD = dyn_cast<FunctionDecl>(D))
+      result = FD->isExternC();
+    else if (auto *VD = dyn_cast<VarDecl>(D))
+      result = VD->isExternC();
+  }
+  return SetAndSucceed(Result, makeBool(C, result));
 }
 
 }  // end namespace clang
