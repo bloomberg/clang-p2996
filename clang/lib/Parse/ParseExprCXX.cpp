@@ -27,6 +27,7 @@
 #include "clang/Sema/EnterExpressionEvaluationContext.h"
 #include "clang/Sema/ParsedTemplate.h"
 #include "clang/Sema/Scope.h"
+#include "clang/Sema/ScopeInfo.h"
 #include "clang/Sema/SemaCodeCompletion.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -1285,7 +1286,7 @@ static void DiagnoseStaticSpecifierRestrictions(Parser &P,
 
 ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
                      LambdaIntroducer &Intro, SourceLocation ConstevalLoc,
-                     TypeResult ReturnTy) {
+                     TypeResult ReturnTy, bool IsConstevalBlock) {
   SourceLocation LambdaBeginLoc = Intro.Range.getBegin();
   if (getLangOpts().HLSL)
     Diag(LambdaBeginLoc, diag::ext_hlsl_lambda) << /*HLSL*/ 1;
@@ -1309,6 +1310,12 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
 
   Actions.PushLambdaScope();
   Actions.ActOnLambdaExpressionAfterIntroducer(Intro, getCurScope());
+
+  // The function call operator of the closure type of a consteval block is
+  // transparent to the scope queries of reflection ([meta.reflection.scope]),
+  // also while its body is parsed.
+  if (IsConstevalBlock)
+    Actions.getCurLambda()->Lambda->setLambdaIsConstevalBlock(true);
 
   ParsedAttributes Attributes(AttrFactory);
   if (getLangOpts().CUDA) {

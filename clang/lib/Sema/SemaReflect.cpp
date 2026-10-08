@@ -15,6 +15,7 @@
 #include "TypeLocBuilder.h"
 #include "clang/AST/APValue.h"
 #include "clang/AST/ASTConsumer.h"
+#include "clang/AST/ASTLambda.h"
 #include "clang/AST/Attr.h"
 #include "clang/AST/DeclBase.h"
 #include "clang/AST/MetaActions.h"
@@ -28,6 +29,7 @@
 #include "clang/Sema/ParsedAttr.h"
 #include "clang/Sema/ParsedTemplate.h"
 #include "clang/Sema/ParsedAttr.h"
+#include "clang/Sema/Scope.h"
 #include "clang/Sema/Sema.h"
 #include "clang/Sema/Template.h"
 #include "clang/Sema/TemplateDeduction.h"
@@ -203,8 +205,52 @@ class MetaActionsImpl : public MetaActions {
 public:
   MetaActionsImpl(Sema &S) : MetaActions(), S(S) { }
 
+  // The scope of the current point as [meta.reflection.scope]/3 and /4
+  // determine it, while the parser or a constraint check has entered the
+  // context of a function whose declaration is still being processed.
   Decl *CurrentCtx() const override {
-    return cast<Decl>(S.CurContext);
+    DeclContext *DC = S.CurContext;
+
+    if (auto *FD = dyn_cast<FunctionDecl>(DC)) {
+      // [meta.reflection.scope]/3.4: a point in the trailing-return-type or
+      // the trailing requires-clause of a lambda-expression is evaluated at
+      // the point of the lambda-introducer. The parser is then in the
+      // function prototype scope of the lambda, and has not yet entered the
+      // scope of its body.
+      bool InPrototype = false;
+      for (Scope *Sc = S.getCurScope(); Sc; Sc = Sc->getParent()) {
+        if (Sc->isFunctionPrototypeScope()) {
+          InPrototype = true;
+          break;
+        }
+        if (Sc->getFlags() & (Scope::FnScope | Scope::ClassScope))
+          break;
+      }
+
+      // [meta.reflection.scope]/3.3: a point within the trailing
+      // requires-clause of a function declaration is evaluated in the scope
+      // enclosing the declaration. A constraint check enters the context of
+      // the function.
+      bool CheckingConstraints = llvm::any_of(
+          S.CodeSynthesisContexts, [&](const auto &Ctx) {
+            return (Ctx.Kind == Sema::CodeSynthesisContext::ConstraintsCheck ||
+                    Ctx.Kind ==
+                        Sema::CodeSynthesisContext::ConstraintSubstitution) &&
+                   (Ctx.Entity == FD ||
+                    Ctx.Entity == FD->getPrimaryTemplate() ||
+                    Ctx.Entity == FD->getDescribedFunctionTemplate());
+          });
+
+      if ((InPrototype && isLambdaCallOperator(FD)) || CheckingConstraints) {
+        DC = FD->getLexicalParent();
+        while (isLambdaCallOperator(DC) || DC->isTransparentContext())
+          DC = isLambdaCallOperator(DC) ? DC->getLexicalParent()->getLexicalParent()
+                                        : DC->getNonTransparentContext();
+        if (auto *RD = dyn_cast<CXXRecordDecl>(DC); RD && RD->isLambda())
+          DC = RD->getLexicalParent();
+      }
+    }
+    return cast<Decl>(DC);
   }
 
   bool IsAccessible(NamedDecl *Target, DeclContext *Ctx,

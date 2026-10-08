@@ -1131,9 +1131,8 @@ Decl *Parser::ParseConstevalBlockDeclaration(SourceLocation &DeclEnd) {
   FakeIntroducer.Range.setEnd(ConstevalLoc);
 
   TypeResult ReturnTy = ParsedType::make(Actions.Context.VoidTy);
-  ExprResult Lambda = ParseLambdaExpressionAfterIntroducer(FakeIntroducer,
-                                                           ConstevalLoc,
-                                                           ReturnTy);
+  ExprResult Lambda = ParseLambdaExpressionAfterIntroducer(
+      FakeIntroducer, ConstevalLoc, ReturnTy, /*IsConstevalBlock=*/true);
   if (Lambda.isInvalid())
     return nullptr;
 

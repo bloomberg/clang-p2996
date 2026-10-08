@@ -1631,10 +1631,20 @@ unsigned parentOf(APValue &Result, Decl *D) {
     return diag::metafn_parent_of_extern_c;
 
   auto *DC = D->getDeclContext();
-  while (DC && !isa<NamespaceDecl>(DC) && !isa<RecordDecl>(DC) &&
-               !isa<FunctionDecl>(DC) && !isa<TranslationUnitDecl>(DC) &&
-               !isa<EnumDecl>(DC))
+  while (DC) {
+    // [meta.reflection.queries]/51.4.1: the function call operator of the
+    // closure type of a consteval block is transparent; the parent is that of
+    // the closure type.
+    if (auto *MD = dyn_cast<CXXMethodDecl>(DC);
+        MD && MD->getParent()->isConstevalBlockLambda()) {
+      DC = MD->getParent()->getLexicalDeclContext();
+      continue;
+    }
+    if (isa<NamespaceDecl, RecordDecl, FunctionDecl, TranslationUnitDecl,
+            EnumDecl>(DC))
+      break;
     DC = DC->getParent();
+  }
 
   assert(DC);
   if (auto *RD = dyn_cast<TagDecl>(DC))
@@ -6868,6 +6878,17 @@ bool current_access_context(APValue &Result, ASTContext &C, MetaActions &Meta,
   if (auto *Ctor = dyn_cast<CXXConstructorDecl>(Ctx);
       Ctor && Ctor->isInheritingConstructor())
     Ctx = cast<Decl>(Ctor->getDeclContext());
+
+  // [meta.reflection.scope]/3.5: a point in a consteval block is evaluated at
+  // the point inhabited by the outermost enclosing consteval block, so the
+  // function call operator of the closure type of a consteval block is
+  // transparent.
+  while (auto *MD = dyn_cast<CXXMethodDecl>(Ctx)) {
+    if (!MD->getParent()->isConstevalBlockLambda())
+      break;
+    Ctx = cast<Decl>(
+        MD->getParent()->getLexicalDeclContext()->getNonTransparentContext());
+  }
 
   if (auto *RD = dyn_cast<CXXRecordDecl>(Ctx))
     return SetAndSucceed(Result,

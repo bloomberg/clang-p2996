@@ -16178,6 +16178,8 @@ TreeTransform<Derived>::TransformLambdaExpr(LambdaExpr *E) {
       E->getIntroducerRange(), /*Info=*/nullptr, DependencyKind,
       E->getCaptureDefault());
   getDerived().transformedLocalDecl(OldClass, {Class});
+  if (OldClass->isConstevalBlockLambda())
+    Class->setLambdaIsConstevalBlock(true);
 
   CXXMethodDecl *NewCallOperator =
       getSema().CreateLambdaCallOperator(E->getIntroducerRange(), Class);
