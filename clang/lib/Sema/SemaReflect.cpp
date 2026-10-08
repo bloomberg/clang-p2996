@@ -408,15 +408,29 @@ public:
                                           DefaultArgs, false, CompletedTArgs,
                                           true);
     };
-    bool Result;
-    if (SuppressDiagnostics) {
-      Sema::SuppressDiagnosticsRAII NoDiagnostics(S);
-      Result = check();
-    } else {
-      Result = check();
+
+    // [meta.reflection.substitute]/3: the template-id must be valid. Some
+    // ill-formed conversions of a constant template argument, such as a
+    // narrowing conversion ([temp.arg.nontype]/1, [expr.const]), are
+    // reported through diagnostics that are errors by default but do not make
+    // the check fail, so run it in a SFINAE trap first, where those
+    // diagnostics count as failures.
+    bool Checked, Valid;
+    {
+      Sema::SFINAETrap Trap(S, /*ForValidityCheck=*/true);
+      Checked = check();
+      Valid = Checked && !Trap.hasErrorOccurred();
+    }
+    if (!Checked && !SuppressDiagnostics) {
+      // Re-run to emit the diagnostics explaining the failure.
+      TemplateArgumentListInfo DiagTAListInfo;
+      populateTemplateArgumentListInfo(DiagTAListInfo, TArgs, InstantiateLoc);
+      Sema::CheckTemplateArgumentInfo DiagTArgs;
+      S.CheckTemplateArgumentList(TD, InstantiateLoc, DiagTAListInfo,
+                                  DefaultArgs, false, DiagTArgs, true);
     }
     TArgs = CompletedTArgs.CanonicalConverted;
-    return Result;
+    return Valid;
   }
 
   void EnsureDeclarationOfImplicitMembers(CXXRecordDecl *RD) override {

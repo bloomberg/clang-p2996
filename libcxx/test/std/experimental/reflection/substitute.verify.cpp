@@ -500,4 +500,54 @@ constexpr auto r2 = substitute(^^fn2, {^^int});
   // expected-note@-1 {{requested here}}
 }  // namespace wording_example
 
+                             // =====================
+                             // narrowing_conversions
+                             // =====================
+
+// [meta.reflection.substitute]/3, /8: Z<Args...> must be a valid template-id;
+// a narrowing conversion of a constant template argument makes it invalid
+// ([temp.arg.nontype]/1, [expr.const]).
+namespace narrowing_conversions {
+template <char N> struct TC {};
+template <unsigned N> struct TU {};
+template <bool V> struct TB {};
+template <int N> struct TI {};
+
+static_assert(!can_substitute(^^TC, {std::meta::reflect_constant(1000)}));
+static_assert(!can_substitute(^^TU, {std::meta::reflect_constant(-1)}));
+static_assert(!can_substitute(^^TB, {std::meta::reflect_constant(2)}));
+static_assert(!can_substitute(^^TI, {std::meta::reflect_constant(1.5)}));
+
+// Conversions that do not narrow remain valid ([expr.const]).
+template <double V> struct TD {};
+enum E { e0 };
+template <E V> struct TE {};
+static_assert(can_substitute(^^TC, {std::meta::reflect_constant(100)}));
+static_assert(can_substitute(^^TC, {std::meta::reflect_constant('a')}));
+static_assert(can_substitute(^^TU, {std::meta::reflect_constant(1)}));
+static_assert(can_substitute(^^TI, {std::meta::reflect_constant(short(3))}));
+// A floating-integral conversion is not allowed in a converted constant
+// expression at all ([expr.const]).
+static_assert(!can_substitute(^^TD, {std::meta::reflect_constant(1)}));
+static_assert(can_substitute(^^TD, {std::meta::reflect_constant(1.0)}));
+static_assert(can_substitute(^^TB, {std::meta::reflect_constant(true)}));
+static_assert(can_substitute(^^TE, {std::meta::reflect_constant(e0)}));
+static_assert(!can_substitute(^^TE, {std::meta::reflect_constant(0)}));
+static_assert(substitute(^^TC, {std::meta::reflect_constant(100)}) == ^^TC<100>);
+
+// The reason is reported where the template-id is formed, inside <meta>.
+static_assert(substitute(^^TC, {std::meta::reflect_constant(1000)}) == ^^int);
+  // expected-error@-1 {{not an integral constant expression}} \
+  // expected-note@-1 {{the template arguments do not form a valid template-id for 'TC'}} \
+  // expected-error@*:* {{non-type template argument evaluates to 1000, which cannot be narrowed to type 'char'}}
+static_assert(substitute(^^TU, {std::meta::reflect_constant(-1)}) == ^^int);
+  // expected-error@-1 {{not an integral constant expression}} \
+  // expected-note@-1 {{the template arguments do not form a valid template-id for 'TU'}} \
+  // expected-error@*:* {{non-type template argument evaluates to -1, which cannot be narrowed to type 'unsigned int'}}
+static_assert(substitute(^^TD, {std::meta::reflect_constant(1)}) == ^^int);
+  // expected-error@-1 {{not an integral constant expression}} \
+  // expected-note@-1 {{the template arguments do not form a valid template-id for 'TD'}} \
+  // expected-error@*:* {{conversion from 'int' to 'double' is not allowed in a converted constant expression}}
+}  // namespace narrowing_conversions
+
 int main() { }

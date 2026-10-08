@@ -3909,7 +3909,9 @@ bool substitute(APValue &Result, ASTContext &C, MetaActions &Meta,
 
   if (!Meta.CheckTemplateArgumentList(TDecl, ExpandedTArgs, NoDiagnose,
                                       Args[0]->getExprLoc()))
-    return NoDiagnose ? ElideDiagnosis() : true;
+    return NoDiagnose ? ElideDiagnosis() :
+           Diagnoser(Range.getBegin(), diag::metafn_invalid_template_id)
+             << TDecl << Range;
   for (const auto &TArg : ExpandedTArgs)
     if (TArg.getKind() == TemplateArgument::Expression &&
         TArg.getAsExpr()->containsErrors())
