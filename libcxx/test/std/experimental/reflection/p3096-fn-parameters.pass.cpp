@@ -295,6 +295,24 @@ static_assert(!is_vararg_function(^^int));
 static_assert(!is_vararg_function(^^::));
 static_assert(!is_vararg_function(std::meta::reflect_constant(3)));
 
+// A parameter-declaration-clause consisting only of an ellipsis
+// ([dcl.fct]/8), and specializations of templates.
+void only(...);
+void only_def(...) {}
+struct T { void monly(...); static void sonly(...); };
+template <class U> void tv(U, ...);
+template <class U> void tonly(...);
+static_assert(is_vararg_function(^^only));
+static_assert(is_vararg_function(^^only_def));
+static_assert(is_vararg_function(type_of(^^only)));
+static_assert(is_vararg_function(^^void(...)));
+static_assert(is_vararg_function(^^T::monly));
+static_assert(is_vararg_function(^^T::sonly));
+static_assert(is_vararg_function(^^tv<int>));
+static_assert(is_vararg_function(^^tonly<int>));
+static_assert(parameters_of(^^only).empty());
+static_assert(parameters_of(^^void(...)).empty());
+
 // The pre-P4156R0 name remains available as a deprecated alias.
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"

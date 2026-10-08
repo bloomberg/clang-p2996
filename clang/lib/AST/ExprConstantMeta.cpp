@@ -7110,7 +7110,13 @@ bool has_ellipsis_parameter(APValue &Result, ASTContext &C, MetaActions &Meta,
         << 2 << 2;
   case ReflectionKind::Declaration: {
     if (auto *FD = dyn_cast<FunctionDecl>(RV.getReflectedDecl())) {
-      bool HasEllipsis = FD->getEllipsisLoc().isValid();
+      // [meta.reflection.queries]/42, [dcl.fct]/8: a function whose
+      // parameter-declaration-clause ends with an ellipsis. The location of
+      // the ellipsis is not recorded for a parameter-declaration-clause that
+      // consists only of '...' (nor for an instantiated declaration), so ask
+      // the function type.
+      const auto *FPT = FD->getType()->getAs<FunctionProtoType>();
+      bool HasEllipsis = FPT && FPT->isVariadic();
       return SetAndSucceed(Result, makeBool(C, HasEllipsis));
     }
     return Diagnoser(Range.getBegin(), diag::metafn_cannot_query_property)
