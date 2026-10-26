@@ -124,6 +124,23 @@ void TextNodeDumper::Visit(const TemplateArgument &TA, SourceRange R,
   ConstTemplateArgumentVisitor<TextNodeDumper>::Visit(TA);
 }
 
+void TextNodeDumper::VisitSpliceSpecifier(const SpliceSpecifier  *Node) {
+  {
+    ColorScope Color(OS, ShowColors, StmtColor);
+    OS << "SpliceSpecifier";
+  }
+  dumpPointer(Node);
+  dumpSourceRange(Node->getSourceRange());
+
+  AddChild([=] { Visit(Node->getOperand()); });
+}
+
+
+void TextNodeDumper::VisitCXXSpliceExpr(const CXXSpliceExpr  *Node) {
+  AddChild([=] { VisitSpliceSpecifier(Node->getSplice()); });
+  AddChild([=] {Visit(Node->getModel()); });
+}
+
 void TextNodeDumper::Visit(const Stmt *Node) {
   if (!Node) {
     ColorScope Color(OS, ShowColors, NullColor);
@@ -232,6 +249,11 @@ void TextNodeDumper::Visit(const Type *T) {
     OS << " imported";
 
   TypeVisitor<TextNodeDumper>::Visit(T);
+}
+
+void TextNodeDumper::VisitReflectionSpliceType(const ReflectionSpliceType *Node)
+{
+  AddChild([=] { VisitSpliceSpecifier(Node->getSplice()); });
 }
 
 void TextNodeDumper::Visit(QualType T) {
