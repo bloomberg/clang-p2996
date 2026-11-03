@@ -1530,6 +1530,12 @@ static bool isReflectableDecl(MetaActions &Meta, ASTContext &C, Decl *D) {
   if (isa<NamespaceAliasDecl>(D))
     return true;
 
+  if (isa<CXXDeductionGuideDecl>(D))
+    return false;
+  if (auto *FTD = dyn_cast<FunctionTemplateDecl>(D);
+      FTD && isa<CXXDeductionGuideDecl>(FTD->getTemplatedDecl()))
+    return false;
+
   if (!isa<VarDecl, FunctionDecl, TypeDecl, FieldDecl, TemplateDecl,
            NamespaceDecl, NamespaceAliasDecl, TranslationUnitDecl,
            UsingShadowDecl>(D))

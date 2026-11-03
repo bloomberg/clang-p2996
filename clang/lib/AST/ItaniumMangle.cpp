@@ -34,8 +34,10 @@
 #include "clang/Basic/Module.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Basic/Thunk.h"
+#include "clang/Sema/ParsedAttr.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/SaveAndRestore.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/TargetParser/RISCVTargetParser.h"
 #include <optional>
@@ -79,6 +81,7 @@ class ItaniumMangleContextImpl : public ItaniumMangleContext {
   NamespaceDecl *StdNamespace = nullptr;
 
   bool NeedsUniqueInternalLinkageNames = false;
+  llvm::DenseMap<const CXX26AnnotationAttr *, unsigned> AnnotationIds;
 
 public:
   explicit ItaniumMangleContextImpl(
@@ -211,6 +214,10 @@ public:
   }
 
   bool isInternalLinkageDecl(const NamedDecl *ND);
+
+  unsigned getAnnotationId(const CXX26AnnotationAttr *A) {
+    return AnnotationIds.try_emplace(A, AnnotationIds.size()).first->second;
+  }
 
   /// @}
 };
@@ -603,6 +610,7 @@ private:
   void mangleRequirement(SourceLocation RequiresExprLoc,
                          const concepts::Requirement *Req);
   void mangleReflection(const APValue &R);
+  void mangleReflectedAttribute(const ParsedAttr *PA);
   void mangleExpression(const Expr *E, unsigned Arity = UnknownArity,
                         bool AsTemplateArg = false);
   void mangleCXXCtorType(CXXCtorType T, const CXXRecordDecl *InheritedFrom);
@@ -4954,121 +4962,272 @@ void CXXNameMangler::mangleRequirement(SourceLocation RequiresExprLoc,
   }
 }
 
+// <template-arg> ::= L Dm <reflection> E
 void CXXNameMangler::mangleReflection(const APValue &R) {
   assert(R.isReflection());
 
-  Out << 'M';
+  Out << "LDm";
+
+  // <compact number> ::= [<number>] _   # empty for 0, otherwise N-1
+  auto mangleCompactNumber = [&](unsigned N) {
+    if (N)
+      Out << (N - 1);
+    Out << '_';
+  };
+  auto functionGD = [](const FunctionDecl *FD) -> GlobalDecl {
+    if (const auto *CD = dyn_cast<CXXConstructorDecl>(FD))
+      return GlobalDecl(CD, Ctor_Unified);
+    if (const auto *DD = dyn_cast<CXXDestructorDecl>(FD))
+      return GlobalDecl(DD, Dtor_Unified);
+    return GlobalDecl(FD);
+  };
+  auto mangleReflectedFunction = [&](const FunctionDecl *FD) {
+    GlobalDecl GD = functionGD(FD);
+    llvm::SaveAndRestore SaveStructor(Structor, Structor);
+    llvm::SaveAndRestore SaveStructorType(StructorType, StructorType);
+    if (isa<CXXConstructorDecl>(FD)) {
+      Structor = getStructor(FD);
+      StructorType = GD.getCtorType();
+    } else if (isa<CXXDestructorDecl>(FD)) {
+      Structor = getStructor(FD);
+      StructorType = GD.getDtorType();
+    }
+    mangleFunctionEncoding(GD);
+  };
+  auto nameDecl = [&](const NamedDecl *ND) -> GlobalDecl {
+    if (const auto *TD = dyn_cast<TemplateDecl>(ND);
+        TD && TD->getTemplatedDecl())
+      ND = TD->getTemplatedDecl();
+    if (const auto *FD = dyn_cast<FunctionDecl>(ND))
+      return functionGD(FD);
+    return GlobalDecl(ND);
+  };
+  auto namedContext = [](const DeclContext *DC) {
+    while (isa<RecordDecl>(DC) &&
+           cast<RecordDecl>(DC)->isAnonymousStructOrUnion())
+      DC = DC->getParent();
+    return DC;
+  };
 
   switch (R.getReflectionKind()) {
+  // <reflection> ::= nu
   case ReflectionKind::Null:
-    Out << '0';
+    Out << "nu";
     break;
+  // <reflection> ::= ta <prefix> <source-name> _ <type>   # type alias
+  //              ::= ty <type>
   case ReflectionKind::Type: {
-    Out << 't';
     QualType QT = R.getReflectedType();
-
-    if (const TypedefType *TDT = dyn_cast<TypedefType>(QT)) {
-      mangleQualifiers(QT.getQualifiers());
-      mangleNameWithAbiTags(TDT->getDecl(), nullptr);
+    if (const auto *TDT = dyn_cast<TypedefType>(QT)) {
+      const TypedefNameDecl *TD = TDT->getDecl();
+      Out << "ta";
+      manglePrefix(TD->getDeclContext());
+      mangleSourceName(TD->getIdentifier());
+      Out << '_';
+      mangleType(TD->getUnderlyingType());
       break;
     }
-    Context.mangleCanonicalTypeName(QT, Out, false);
+    Out << "ty";
+    mangleType(QT.getCanonicalType());
     break;
   }
+  // <reflection> ::= ob <expression>
   case ReflectionKind::Object: {
-    Out << 'o';
-
+    Out << "ob";
     QualType QT = R.getTypeOfReflectedResult(getASTContext());
     if (!QT->isReferenceType())
       QT = getASTContext().getLValueReferenceType(QT);
     mangleValueInTemplateArg(QT, R.getReflectedObject(), false, true);
     break;
   }
+  // <reflection> ::= vl <expression>
   case ReflectionKind::Value:
-    Out << "v";
+    Out << "vl";
     mangleValueInTemplateArg(R.getTypeOfReflectedResult(getASTContext()),
                              R.getReflectedValue(), false, true);
     break;
+  // <reflection> ::= fn <encoding>                 # constructors as C4/D4
+  //              ::= sb <name>                     # structured binding
+  //              ::= en <prefix> <source-name>     # enumerator
+  //              ::= dm <prefix> <source-name>     # data member, prefix skips
+  //                                                # anonymous structs/unions
+  //              ::= un <prefix> <compact number>  # unnamed bit-field
+  //              ::= da <prefix> <compact number>  # anonymous struct/union
+  //              ::= vr <name>                     # variable
   case ReflectionKind::Declaration: {
-    Out << 'd';
-
-    Decl *D = R.getReflectedDecl();
-    if (auto *ED = dyn_cast<EnumConstantDecl>(D)) {
-      mangleIntegerLiteral(ED->getType(), ED->getInitVal());
-    } else if (auto *CD = dyn_cast<CXXConstructorDecl>(D)) {
-      GlobalDecl GD(CD, Ctor_Complete);
-      mangle(GD);
-    } else if (auto *DD = dyn_cast<CXXDestructorDecl>(D)) {
-      GlobalDecl GD(DD, Dtor_Complete);
-      mangle(GD);
+    const ValueDecl *D = R.getReflectedDecl();
+    if (const auto *FD = dyn_cast<FunctionDecl>(D)) {
+      Out << "fn";
+      mangleReflectedFunction(FD);
+    } else if (const auto *BD = dyn_cast<BindingDecl>(D)) {
+      Out << "sb";
+      mangleName(BD);
+    } else if (const auto *ED = dyn_cast<EnumConstantDecl>(D)) {
+      Out << "en";
+      manglePrefix(ED->getDeclContext());
+      mangleSourceName(ED->getIdentifier());
+    } else if (const auto *IFD = dyn_cast<IndirectFieldDecl>(D)) {
+      Out << "dm";
+      manglePrefix(namedContext(IFD->getDeclContext()));
+      mangleSourceName(IFD->getIdentifier());
+    } else if (const auto *Field = dyn_cast<FieldDecl>(D)) {
+      const RecordDecl *Parent = Field->getParent();
+      if (Field->getIdentifier()) {
+        Out << "dm";
+        manglePrefix(namedContext(Parent));
+        mangleSourceName(Field->getIdentifier());
+      } else {
+        bool BitField = Field->isUnnamedBitField();
+        unsigned Index = 0;
+        for (const FieldDecl *F : Parent->fields()) {
+          if (F == Field)
+            break;
+          if (BitField ? F->isUnnamedBitField()
+                       : !F->getIdentifier() && !F->isBitField())
+            ++Index;
+        }
+        Out << (BitField ? "un" : "da");
+        manglePrefix(Parent);
+        mangleCompactNumber(Index);
+      }
     } else {
-      mangle(cast<NamedDecl>(D));
+      Out << "vr";
+      mangleName(cast<NamedDecl>(D));
     }
     break;
   }
+  // <reflection> ::= pa <compact number> <encoding>
   case ReflectionKind::Parameter: {
-    auto *PVD = R.getReflectedParameter();
-    if (const FunctionDecl *Func
-        = dyn_cast<FunctionDecl>(PVD->getDeclContext())) {
-      Out << 'p';
-      unsigned Num = Func->getNumParams() - PVD->getFunctionScopeIndex();
-      if (Num > 1)
-        mangleNumber(Num - 2);
-      Out << '_';
+    const ParmVarDecl *PVD = R.getReflectedParameter();
+    Out << "pa";
+    mangleCompactNumber(PVD->getFunctionScopeIndex());
+    mangleReflectedFunction(cast<FunctionDecl>(PVD->getDeclContext()));
+    break;
+  }
+  // <reflection> ::= ct <prefix> <unqualified-name>   # class template
+  //              ::= ft <prefix> <unqualified-name>   # function template
+  //              ::= vt <prefix> <unqualified-name>   # variable template
+  //              ::= at <prefix> <unqualified-name>   # alias template
+  //              ::= co <prefix> <unqualified-name>   # concept
+  case ReflectionKind::Template: {
+    const TemplateDecl *TD = R.getReflectedTemplate().getAsTemplateDecl();
+    if (isa<FunctionTemplateDecl>(TD))
+      Out << "ft";
+    else if (isa<VarTemplateDecl>(TD))
+      Out << "vt";
+    else if (isa<TypeAliasTemplateDecl>(TD))
+      Out << "at";
+    else if (isa<ConceptDecl>(TD))
+      Out << "co";
+    else
+      Out << "ct";
+    const DeclContext *DC = Context.getEffectiveDeclContext(TD);
+    manglePrefix(DC);
+    mangleUnqualifiedName(nameDecl(TD), DC, nullptr);
+    break;
+  }
+  // <reflection> ::= gs                                 # global namespace
+  //              ::= ns <prefix> <unqualified-name>
+  //              ::= na <prefix> <unqualified-name>     # namespace alias
+  case ReflectionKind::Namespace: {
+    const Decl *NS = R.getReflectedNamespace();
+    if (isa<TranslationUnitDecl>(NS)) {
+      Out << "gs";
+      break;
+    }
+    const auto *ND = cast<NamedDecl>(NS);
+    Out << (isa<NamespaceAliasDecl>(ND) ? "na" : "ns");
+    manglePrefix(ND->getDeclContext());
+    mangleUnqualifiedName(ND, ND->getDeclContext(), nullptr);
+    break;
+  }
+  // <reflection> ::= ep <prefix> <unqualified-name>   # not in GCC
+  case ReflectionKind::EntityProxy: {
+    const UsingShadowDecl *USD = R.getReflectedEntityProxy();
+    Out << "ep";
+    manglePrefix(USD->getDeclContext());
+    mangleUnqualifiedName(nameDecl(USD->getTargetDecl()), USD->getDeclContext(),
+                          nullptr);
+    break;
+  }
+  // <reflection> ::= ba <compact number> <type>   # index among the derived
+  //                                                # class's bases, derived
+  //                                                class
+  case ReflectionKind::BaseSpecifier: {
+    const CXXBaseSpecifier *B = R.getReflectedBaseSpecifier();
+    const CXXRecordDecl *Derived = B->getDerived();
+    unsigned Index = 0;
+    for (const CXXBaseSpecifier &Base : Derived->bases()) {
+      if (&Base == B)
+        break;
+      ++Index;
+    }
+    Out << "ba";
+    mangleCompactNumber(Index);
+    mangleType(getASTContext().getRecordType(Derived));
+    break;
+  }
+  // <reflection> ::= ds <type> _ [<source-name>] _ [<alignment>] _
+  //                  [<bit-width>] _ [n] <template-arg>*   # attributes
+  case ReflectionKind::DataMemberSpec: {
+    const TagDataMemberSpec *TDMS = R.getReflectedDataMemberSpec();
+    Out << "ds";
+    mangleType(TDMS->Ty);
+    Out << '_';
+    if (TDMS->Name)
+      Out << TDMS->Name->size() << *TDMS->Name;
+    Out << '_';
+    if (TDMS->Alignment)
+      Out << *TDMS->Alignment;
+    Out << '_';
+    if (TDMS->BitWidth)
+      Out << *TDMS->BitWidth;
+    Out << '_';
+    if (TDMS->NoUniqueAddress)
+      Out << 'n';
+    for (const ParsedAttr *PA : TDMS->Attributes) {
+      Out << "LDmar";
+      mangleReflectedAttribute(PA);
+      Out << 'E';
     }
     break;
   }
-  case ReflectionKind::Template: {
-    Out << 't';
-
-    ArrayRef<TemplateArgument> Args;
-    mangleTemplateName(R.getReflectedTemplate().getAsTemplateDecl(), Args);
+  // <reflection> ::= an <compact number>   # per-TU index
+  case ReflectionKind::Annotation:
+    Out << "an";
+    mangleCompactNumber(Context.getAnnotationId(R.getReflectedAnnotation()));
+    break;
+  // <reflection> ::= es <source-name> [v <number>] <template-arg>*   # not in
+  // GCC
+  case ReflectionKind::EnumeratorSpec: {
+    const EnumeratorSpec *ES = R.getReflectedEnumeratorSpec();
+    Out << "es" << ES->name.size() << ES->name;
+    if (ES->hasValue) {
+      Out << 'v';
+      mangleNumber(ES->val);
+    }
+    for (const APValue *A : ES->annotations)
+      mangleReflection(*A);
+    for (const APValue *A : ES->attributes)
+      mangleReflection(*A);
     break;
   }
-  case ReflectionKind::Namespace: {
-    Out << 'n';
-    if (auto *ND = dyn_cast<NamedDecl>(R.getReflectedNamespace()))
-      mangleNameWithAbiTags(ND, nullptr);
-    // Otherwise, this is the global namespace.
-    Out << '$';
+  // <reflection> ::= ar <attribute>   # not in GCC; arguments not mangled
+  case ReflectionKind::Attribute:
+    Out << "ar";
+    mangleReflectedAttribute(R.getReflectedAttribute());
     break;
-  }
-  case ReflectionKind::EntityProxy: {
-    Out << 'a';
-    mangleNameWithAbiTags(R.getReflectedEntityProxy(), nullptr);
-    Out << '$';
-    break;
-  }
-  case ReflectionKind::BaseSpecifier: {
-    Out << 'b';
-    Context.mangleCanonicalTypeName(R.getReflectedBaseSpecifier()->getType(),
-                                    Out, false);
-    break;
-  }
-  case ReflectionKind::DataMemberSpec: {
-    Out << "sdm";
-
-    TagDataMemberSpec *TDMS = R.getReflectedDataMemberSpec();
-    Context.mangleCanonicalTypeName(TDMS->Ty, Out, false);
-    if (TDMS->Name)
-      Out << "N$" << (*TDMS->Name) << '$';
-    if (TDMS->Alignment)
-      Out << 'A' << (*TDMS->Alignment);
-    if (TDMS->BitWidth)
-      Out << 'B' << (*TDMS->BitWidth);
-    break;
-  }
-  case ReflectionKind::Annotation: {
-    Out << 'a';
-
-    // TODO(P2996): This is insufficient. Some representation of the annotated
-    // entity will probably have to be mangled alongside the annotation. Or
-    // perhaps just mangle some 'entity$index'-schema, idk.
-    mangleExpression(R.getReflectedAnnotation()->getArg());
-    break;
-  }
   }
   Out << 'E';
+}
+
+// <attribute> ::= [S <source-name>] <source-name>   # [scope] name
+void CXXNameMangler::mangleReflectedAttribute(const ParsedAttr *PA) {
+  if (const IdentifierInfo *Scope = PA->getScopeName()) {
+    Out << 'S';
+    mangleSourceName(Scope);
+  }
+  mangleSourceName(PA->getAttrName());
 }
 
 void CXXNameMangler::mangleExpression(const Expr *E, unsigned Arity,
@@ -6249,6 +6408,8 @@ void CXXNameMangler::mangleCXXCtorType(CXXCtorType T,
   //                  ::= C2  # base object constructor
   //                  ::= CI1 <type> # complete inheriting constructor
   //                  ::= CI2 <type> # base inheriting constructor
+  //                  ::= C4  # unified constructor (GCC extension), names
+  //                  reflected constructors
   //
   // In addition, C5 is a comdat name with C1 and C2 in it.
   Out << 'C';
@@ -6264,6 +6425,9 @@ void CXXNameMangler::mangleCXXCtorType(CXXCtorType T,
   case Ctor_Comdat:
     Out << '5';
     break;
+  case Ctor_Unified:
+    Out << '4';
+    break;
   case Ctor_DefaultClosure:
   case Ctor_CopyingClosure:
     llvm_unreachable("closure constructors don't exist for the Itanium ABI!");
@@ -6276,6 +6440,8 @@ void CXXNameMangler::mangleCXXDtorType(CXXDtorType T) {
   // <ctor-dtor-name> ::= D0  # deleting destructor
   //                  ::= D1  # complete object destructor
   //                  ::= D2  # base object destructor
+  //                  ::= D4  # unified destructor (GCC extension), names
+  //                  reflected destructors
   //
   // In addition, D5 is a comdat name with D1, D2 and, if virtual, D0 in it.
   switch (T) {
@@ -6290,6 +6456,9 @@ void CXXNameMangler::mangleCXXDtorType(CXXDtorType T) {
     break;
   case Dtor_Comdat:
     Out << "D5";
+    break;
+  case Dtor_Unified:
+    Out << "D4";
     break;
   }
 }

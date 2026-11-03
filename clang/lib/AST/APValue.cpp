@@ -1601,7 +1601,6 @@ LinkageInfo LinkageComputer::getLVForValue(const APValue &V,
   case APValue::ComplexInt:
   case APValue::ComplexFloat:
   case APValue::Vector:
-  case APValue::Reflection:
     break;
 
   case APValue::AddrLabelDiff:
@@ -1672,6 +1671,102 @@ LinkageInfo LinkageComputer::getLVForValue(const APValue &V,
     // a derived class with less linkage/visibility. That's covered by the
     // linkage and visibility of the value's type.
     break;
+
+  case APValue::Reflection: {
+    // [basic.link]/16.4: a reflection is TU-local if it represents a TU-local
+    // entity, value or object, an annotation, a base relationship with a
+    // TU-local class, or a data member description with a TU-local type; a
+    // specialization with a TU-local template argument is TU-local (/15.4).
+    auto MergeScopeLV = [&](const NamedDecl *D) {
+      if (D->isInAnonymousNamespace() || D->getParentFunctionOrMethod())
+        return MergeLV(LinkageInfo::internal());
+      if (const auto *RD = dyn_cast<CXXRecordDecl>(D->getDeclContext()))
+        return MergeLV(getLVForDecl(RD, computation));
+      return false;
+    };
+    switch (V.getReflectionKind()) {
+    case ReflectionKind::Null:
+    case ReflectionKind::Attribute:
+      break;
+    case ReflectionKind::Type:
+      MergeLV(getLVForType(*V.getReflectedType(), computation));
+      break;
+    case ReflectionKind::Object:
+      Merge(V.getReflectedObject());
+      break;
+    case ReflectionKind::Value:
+      Merge(V.getReflectedValue());
+      break;
+    case ReflectionKind::Declaration: {
+      const ValueDecl *D = V.getReflectedDecl();
+      // A structured binding has no linkage of its own; its variable does.
+      if (const auto *BD = dyn_cast<BindingDecl>(D))
+        if (const ValueDecl *Decomposed = BD->getDecomposedDecl())
+          D = Decomposed;
+      // Neither does an automatic local variable or parameter, but it is the
+      // same entity in every TU with its (e.g. inline) function, and its
+      // mangled name includes that function: use the function's linkage.
+      if (const auto *VD = dyn_cast<VarDecl>(D);
+          VD && VD->isLocalVarDeclOrParm() && !VD->isStaticLocal())
+        if (const auto *FD =
+                dyn_cast_or_null<FunctionDecl>(VD->getParentFunctionOrMethod()))
+          D = FD;
+      MergeLV(getLVForDecl(D, computation));
+      break;
+    }
+    case ReflectionKind::Parameter:
+      MergeLV(getLVForDecl(
+          cast<FunctionDecl>(V.getReflectedParameter()->getDeclContext()),
+          computation));
+      break;
+    case ReflectionKind::Template: {
+      const TemplateDecl *TD = V.getReflectedTemplate().getAsTemplateDecl();
+      if (TD->getTemplatedDecl())
+        MergeLV(getLVForDecl(TD, computation));
+      else if (TD->isInAnonymousNamespace())
+        return LinkageInfo::internal();
+      break;
+    }
+    case ReflectionKind::Namespace: {
+      const Decl *NS = V.getReflectedNamespace();
+      if (const auto *ND = dyn_cast<NamespaceDecl>(NS);
+          ND && ND->isAnonymousNamespace())
+        return LinkageInfo::internal();
+      if (const auto *NAD = dyn_cast<NamespaceAliasDecl>(NS))
+        MergeScopeLV(NAD);
+      else if (const auto *ND = dyn_cast<NamedDecl>(NS))
+        MergeLV(getLVForDecl(ND, computation));
+      break;
+    }
+    case ReflectionKind::EntityProxy: {
+      MergeScopeLV(V.getReflectedEntityProxy());
+      break;
+    }
+    case ReflectionKind::BaseSpecifier: {
+      const CXXBaseSpecifier *B = V.getReflectedBaseSpecifier();
+      if (MergeLV(getLVForDecl(B->getDerived(), computation)))
+        break;
+      MergeLV(getLVForType(*B->getType(), computation));
+      break;
+    }
+    case ReflectionKind::DataMemberSpec:
+      MergeLV(getLVForType(*V.getReflectedDataMemberSpec()->Ty, computation));
+      break;
+    case ReflectionKind::Annotation:
+      return LinkageInfo::internal();
+    case ReflectionKind::EnumeratorSpec: {
+      const auto *ES = V.getReflectedEnumeratorSpec();
+      for (const APValue *A : ES->annotations)
+        if (Merge(*A))
+          break;
+      for (const APValue *A : ES->attributes)
+        if (Merge(*A))
+          break;
+      break;
+    }
+    }
+    break;
+  }
   }
 
   return LV;
