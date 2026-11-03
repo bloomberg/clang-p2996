@@ -87,10 +87,11 @@ consteval bool testAttributeNamespaceOf() {
 
 enum class TMD;
 enum class [[nodiscard("Error discarded")]] TMD;
+enum class [[nodiscard("Error discarded")]] TMD;
 enum class [[nodiscard]] TMD {};
 consteval bool testMultipleDecl() {
-  // Either of [[nodiscard("Error discarded")]] or [[nodiscard]]
-  static_assert(attributes_of(^^TMD).size() == 1);
+  // Both (dedup) [[nodiscard("Error discarded")]] or [[nodiscard]]
+  static_assert(attributes_of(^^TMD).size() == 2);
   return true;
 }
 

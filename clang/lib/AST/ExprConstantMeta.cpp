@@ -1869,6 +1869,67 @@ bool DiagnoseReflectionKind(DiagFn Diagnoser, SourceRange Range,
   return true;
 }
 
+// Synthesize back a ParsedAttr from an Attr, the best I can...
+// Return a nullptr if the process met an error
+static const ParsedAttr* toSyntacticForm(const Attr* val, ASTContext * C) {
+  // Owned by the ASTContext: the pool's allocator is not thread-safe, and the
+  // ParsedAttrs built below point back into this context.
+  AttributeScratchpad &scratchpad = C->getAttributeScratchpad();
+  ParsedAttr * recoveredAttr = nullptr;
+  auto onArgs = [&](
+      IdentifierInfo * attrName,
+      SmallVector<llvm::PointerUnion<Expr *, IdentifierLoc *>, 2> argExprs,
+      SmallVector<void *, 2> typeArgs,
+      AttributeCommonInfo::Form /* Do we need this fed back to us at all ?...*/
+    ) {
+      AttributeScopeInfo scope;
+      if (val->hasScope())
+        scope = AttributeScopeInfo(val->getScopeName(), val->getLoc());
+      if (!typeArgs.empty() && argExprs.size() == 1 && argExprs[0].isNull()) {
+        ParsedType pt = ParsedType::getFromOpaquePtr(typeArgs[0]);
+        recoveredAttr = scratchpad.pool.createTypeAttribute(
+          attrName, val->getRange(), scope, pt, val->getForm(),
+          SourceLocation());
+      } else {
+        recoveredAttr = scratchpad.pool.create(
+          attrName, val->getRange(), scope,
+          argExprs.data(), argExprs.size(), val->getForm());
+      }
+      return recoveredAttr != nullptr;
+    };
+    // FIXME why is this not just returning the vector of args...
+    // Did I worry about lifetime... ?
+    if (!extractSyntacticArguments(val, *C, onArgs, val->getLocation())) {
+      recoveredAttr = nullptr;
+    }
+    return recoveredAttr;
+}
+
+llvm::SmallVector<const Attr*, 8> static collectCxx11Attrs(const Decl *D, ASTContext *C) {
+  llvm::SmallVector<const Attr*, 8> Result;
+  llvm::SmallSet<unsigned, 8> SeenKinds;
+  for (const Decl *RD : D->redecls()) {
+    if (!RD->hasAttrs()) {
+      continue;
+    }
+    for (const Attr *A : RD->getAttrs()) {
+      if (!isAttributeWithReflectableVariant(A->getParsedKind())) {
+        continue;
+      }
+      // Transform to syntactic form, to APValue, in order to profile
+      // We dedup based on the profiled value
+      const ParsedAttr* syntactic = toSyntacticForm(A, C);
+      llvm::FoldingSetNodeID profile;
+      syntactic->profile(profile, true, true);
+      if (SeenKinds.insert(profile.ComputeHash()).second) {
+        Result.push_back(A);
+      }
+    }
+  }
+
+  return Result;
+}
+
 llvm::SmallVector<const Attr*, 8> static collectUniqueCxx11Attrs(const Decl *D) {
   llvm::SmallVector<const Attr*, 8> Result;
   llvm::SmallSet<std::string, 8> SeenKinds;
@@ -1890,6 +1951,7 @@ llvm::SmallVector<const Attr*, 8> static collectUniqueCxx11Attrs(const Decl *D) 
 
   return Result;
 }
+
 
 // -----------------------------------------------------------------------------
 // Metafunction implementations
@@ -2054,42 +2116,6 @@ bool is_msvc_attribute(APValue &Result, ASTContext &C,
   return SetAndSucceed(Result, makeBool(C, isGnu));
 }
 
-// Synthesize back a ParsedAttr from an Attr, the best I can...
-// Return a nullptr if the process met an error
-static const ParsedAttr* toSyntacticForm(const Attr* val, ASTContext * C) {
-  // Owned by the ASTContext: the pool's allocator is not thread-safe, and the
-  // ParsedAttrs built below point back into this context.
-  AttributeScratchpad &scratchpad = C->getAttributeScratchpad();
-  ParsedAttr * recoveredAttr = nullptr;
-  auto onArgs = [&](
-      IdentifierInfo * attrName,
-      SmallVector<llvm::PointerUnion<Expr *, IdentifierLoc *>, 2> argExprs,
-      SmallVector<void *, 2> typeArgs,
-      AttributeCommonInfo::Form /* Do we need this fed back to us at all ?...*/
-    ) {
-      AttributeScopeInfo scope;
-      if (val->hasScope())
-        scope = AttributeScopeInfo(val->getScopeName(), val->getLoc());
-      if (!typeArgs.empty() && argExprs.size() == 1 && argExprs[0].isNull()) {
-        ParsedType pt = ParsedType::getFromOpaquePtr(typeArgs[0]);
-        recoveredAttr = scratchpad.pool.createTypeAttribute(
-          attrName, val->getRange(), scope, pt, val->getForm(),
-          SourceLocation());
-      } else {
-        recoveredAttr = scratchpad.pool.create(
-          attrName, val->getRange(), scope,
-          argExprs.data(), argExprs.size(), val->getForm());
-      }
-      return recoveredAttr != nullptr;
-    };
-    // FIXME why is this not just returning the vector of args...
-    // Did I worry about lifetime... ?
-    if (!extractSyntacticArguments(val, *C, onArgs, val->getLocation())) {
-      recoveredAttr = nullptr;
-    }
-    return recoveredAttr;
-}
-
 enum class AttributeComparison : int64_t {
   /* 0 = include all */
   IgnoreNamespace = 1 << 1, // Namespace is ignored during the comparison
@@ -2134,7 +2160,7 @@ bool has_attribute(APValue &Result, ASTContext &C,
     llvm::FoldingSetNodeID providedAttrID;
     testAttr->profile(providedAttrID, isContributingNamespace, isContributingArgument);
 
-    auto cxx11Attrs = collectUniqueCxx11Attrs(decl);
+    auto cxx11Attrs = collectCxx11Attrs(decl, &C);
     if (cxx11Attrs.empty()) {
       return false;
     }
@@ -2212,7 +2238,7 @@ bool get_ith_attribute_of(APValue &Result, ASTContext &C,
   size_t idx = Idx.getInt().getExtValue();
 
   auto buildIthParsedAttrFromDecl = [&](size_t i, Decl* decl, const ParsedAttr* &result) -> bool {
-    auto cxx11Attrs = collectUniqueCxx11Attrs(decl);
+    auto cxx11Attrs = collectCxx11Attrs(decl, &C);
     if (i + 1 > cxx11Attrs.size()) {
       result = nullptr;
       return true;
