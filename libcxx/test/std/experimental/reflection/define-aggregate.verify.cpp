@@ -239,5 +239,76 @@ consteval { // expected-error {{consteval block must be a constant expression}}
 
 }  // namespace repeat_calls
 
+                            // ====================
+                            // invalid_descriptions
+                            // ====================
+
+// [meta.reflection.define.aggregate]/5: data_member_spec throws for a type
+// that is not an object or reference type, a name that is not an identifier,
+// a description with neither name nor bit width, annotations on an unnamed
+// bit-field, and a cv-qualified unnamed bit-field.
+namespace invalid_descriptions {
+constexpr auto d1 = data_member_spec(^^void(), {.name="f"});
+  // expected-error@-1 {{must be initialized by a constant expression}} \
+  // expected-note@-1 {{the type of a data member must be an object or reference type}}
+constexpr auto d2 = data_member_spec(^^void, {.name="v"});
+  // expected-error@-1 {{must be initialized by a constant expression}} \
+  // expected-note@-1 {{the type of a data member must be an object or reference type}}
+constexpr auto d3 = data_member_spec(^^int, {.name="int"});
+  // expected-error@-1 {{must be initialized by a constant expression}} \
+  // expected-note@-1 {{provided name 'int' is not a valid identifier}}
+constexpr auto d4 = data_member_spec(^^int, {.name="1x"});
+  // expected-error@-1 {{must be initialized by a constant expression}} \
+  // expected-note@-1 {{provided name '1x' is not a valid identifier}}
+constexpr auto d5 = data_member_spec(^^int, {.name=""});
+  // expected-error@-1 {{must be initialized by a constant expression}} \
+  // expected-note@-1 {{provided name '' is not a valid identifier}}
+constexpr auto d6 = data_member_spec(^^int, {});
+  // expected-error@-1 {{must be initialized by a constant expression}}
+constexpr auto d7 = data_member_spec(^^int, {.bit_width=3,
+                                             .annotations={std::meta::reflect_constant(1)}});
+  // expected-error@-2 {{must be initialized by a constant expression}}
+constexpr auto d8 = data_member_spec(^^const int, {.bit_width=3});
+  // expected-error@-1 {{must be initialized by a constant expression}} \
+  // expected-note@-1 {{an unnamed bit-field cannot have a cv-qualified type}}
+constexpr auto d9 = data_member_spec(^^int, {.name="a", .annotations={^^int}});
+  // expected-error@-1 {{must be initialized by a constant expression}}
+int arr[2];
+constexpr auto d10 = data_member_spec(^^int, {.name="a",
+                                              .annotations={std::meta::reflect_object(arr)}});
+  // expected-error@-2 {{must be initialized by a constant expression}}
+
+// A reference type and an incomplete object type are allowed in a
+// description (/5.1); define_aggregate rejects the latter (/8.4).
+struct Incomplete;
+constexpr auto ok1 = data_member_spec(^^int &, {.name="r"});
+constexpr auto ok2 = data_member_spec(^^Incomplete, {.name="i"});
+constexpr auto ok3 = data_member_spec(^^int[], {.name="a"});
+}  // namespace invalid_descriptions
+
+                            // ====================
+                            // invalid_definitions
+                            // ====================
+
+// [meta.reflection.define.aggregate]/8.1, /8.4, /8.5: the class type must be
+// cv-unqualified, every member type complete, and names other than "_" unique.
+namespace invalid_definitions {
+struct S1; struct S2; struct S3; struct S4;
+consteval { define_aggregate(^^const S1, {}); }
+  // expected-error@-1 {{must be a constant expression}} \
+  // expected-note@-1 {{cannot define 'const invalid_definitions::S1'; the class type must be cv-unqualified}}
+consteval { define_aggregate(^^S2, {data_member_spec(^^int[], {.name="a"})}); }
+  // expected-error@-1 {{must be a constant expression}} \
+  // expected-note@-1 {{cannot define a class with a data member of incomplete type 'int[]'}}
+struct Incomplete;
+consteval { define_aggregate(^^S3, {data_member_spec(^^Incomplete, {.name="a"})}); }
+  // expected-error@-1 {{must be a constant expression}} \
+  // expected-note@-1 {{cannot define a class with a data member of incomplete type 'invalid_definitions::Incomplete'}}
+constexpr auto dup = data_member_spec(^^int, {.name="a"});
+consteval { define_aggregate(^^S4, {dup, dup}); }
+  // expected-error@-1 {{must be a constant expression}} \
+  // expected-note@-1 {{cannot produce a class definition with multiple members named 'a'}}
+}  // namespace invalid_definitions
+
 
 int main() { }

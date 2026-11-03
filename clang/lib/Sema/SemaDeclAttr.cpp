@@ -8230,6 +8230,20 @@ void Sema::ProcessPragmaWeak(Scope *S, Decl *D) {
 /// ProcessDeclAttributes - Given a declarator (PD) with attributes indicated in
 /// it, apply them to D.  This is a bit tricky because PD can have attributes
 /// specified in many different places, and we need to find and apply them all.
+void Sema::CheckAnnotationHostScope(NamedDecl *D, const Declarator &PD) {
+  // [dcl.attr.annotation]/1.1: an annotation shall not be applied to a
+  // declaration whose host scope differs from its target scope.
+  if (!PD.getCXXScopeSpec().isNotEmpty() || !D->hasAttr<CXX26AnnotationAttr>())
+    return;
+  DeclContext *Host = D->getLexicalDeclContext()->getRedeclContext();
+  DeclContext *Target = D->getDeclContext()->getRedeclContext();
+  if (Host->Equals(Target))
+    return;
+  auto *Annot = D->getAttr<CXX26AnnotationAttr>();
+  Diag(Annot->getLocation(), diag::err_annotation_outside_target_scope)
+      << D << Annot->getRange();
+}
+
 void Sema::ProcessDeclAttributes(Scope *S, Decl *D, const Declarator &PD) {
   // Ordering of attributes can be important, so we take care to process
   // attributes in the order in which they appeared in the source code.

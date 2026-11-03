@@ -28,7 +28,7 @@ namespace consteval_block_tuple {
 template<typename... Ts> struct Tuple {
   struct storage;
   consteval {
-    define_aggregate(^^storage, {data_member_spec(^^Ts)...});
+    define_aggregate(^^storage, {data_member_spec(^^Ts, {.name="_"})...});
   }
   storage data;
 };

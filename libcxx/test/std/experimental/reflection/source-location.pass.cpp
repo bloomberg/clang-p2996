@@ -61,7 +61,7 @@ void foo([[maybe_unused]] int param) {
 
     // Check that it doesn't fail for nonsense queries.
     constexpr std::source_location a =
-          source_location_of(data_member_spec(^^int, {}));
+          source_location_of(data_member_spec(^^int, {.name="m"}));
     constexpr std::source_location b {};
     static_assert(a.line() == b.line() && a.column() == b.column());
 }

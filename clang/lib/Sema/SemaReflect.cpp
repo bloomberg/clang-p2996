@@ -15,6 +15,7 @@
 #include "TypeLocBuilder.h"
 #include "clang/AST/APValue.h"
 #include "clang/AST/ASTConsumer.h"
+#include "clang/AST/ASTLambda.h"
 #include "clang/AST/Attr.h"
 #include "clang/AST/DeclBase.h"
 #include "clang/AST/MetaActions.h"
@@ -28,6 +29,7 @@
 #include "clang/Sema/ParsedAttr.h"
 #include "clang/Sema/ParsedTemplate.h"
 #include "clang/Sema/ParsedAttr.h"
+#include "clang/Sema/Scope.h"
 #include "clang/Sema/Sema.h"
 #include "clang/Sema/Template.h"
 #include "clang/Sema/TemplateDeduction.h"
@@ -203,8 +205,52 @@ class MetaActionsImpl : public MetaActions {
 public:
   MetaActionsImpl(Sema &S) : MetaActions(), S(S) { }
 
+  // The scope of the current point as [meta.reflection.scope]/3 and /4
+  // determine it, while the parser or a constraint check has entered the
+  // context of a function whose declaration is still being processed.
   Decl *CurrentCtx() const override {
-    return cast<Decl>(S.CurContext);
+    DeclContext *DC = S.CurContext;
+
+    if (auto *FD = dyn_cast<FunctionDecl>(DC)) {
+      // [meta.reflection.scope]/3.4: a point in the trailing-return-type or
+      // the trailing requires-clause of a lambda-expression is evaluated at
+      // the point of the lambda-introducer. The parser is then in the
+      // function prototype scope of the lambda, and has not yet entered the
+      // scope of its body.
+      bool InPrototype = false;
+      for (Scope *Sc = S.getCurScope(); Sc; Sc = Sc->getParent()) {
+        if (Sc->isFunctionPrototypeScope()) {
+          InPrototype = true;
+          break;
+        }
+        if (Sc->getFlags() & (Scope::FnScope | Scope::ClassScope))
+          break;
+      }
+
+      // [meta.reflection.scope]/3.3: a point within the trailing
+      // requires-clause of a function declaration is evaluated in the scope
+      // enclosing the declaration. A constraint check enters the context of
+      // the function.
+      bool CheckingConstraints = llvm::any_of(
+          S.CodeSynthesisContexts, [&](const auto &Ctx) {
+            return (Ctx.Kind == Sema::CodeSynthesisContext::ConstraintsCheck ||
+                    Ctx.Kind ==
+                        Sema::CodeSynthesisContext::ConstraintSubstitution) &&
+                   (Ctx.Entity == FD ||
+                    Ctx.Entity == FD->getPrimaryTemplate() ||
+                    Ctx.Entity == FD->getDescribedFunctionTemplate());
+          });
+
+      if ((InPrototype && isLambdaCallOperator(FD)) || CheckingConstraints) {
+        DC = FD->getLexicalParent();
+        while (isLambdaCallOperator(DC) || DC->isTransparentContext())
+          DC = isLambdaCallOperator(DC) ? DC->getLexicalParent()->getLexicalParent()
+                                        : DC->getNonTransparentContext();
+        if (auto *RD = dyn_cast<CXXRecordDecl>(DC); RD && RD->isLambda())
+          DC = RD->getLexicalParent();
+      }
+    }
+    return cast<Decl>(DC);
   }
 
   bool IsAccessible(NamedDecl *Target, DeclContext *Ctx,
@@ -362,15 +408,29 @@ public:
                                           DefaultArgs, false, CompletedTArgs,
                                           true);
     };
-    bool Result;
-    if (SuppressDiagnostics) {
-      Sema::SuppressDiagnosticsRAII NoDiagnostics(S);
-      Result = check();
-    } else {
-      Result = check();
+
+    // [meta.reflection.substitute]/3: the template-id must be valid. Some
+    // ill-formed conversions of a constant template argument, such as a
+    // narrowing conversion ([temp.arg.nontype]/1, [expr.const]), are
+    // reported through diagnostics that are errors by default but do not make
+    // the check fail, so run it in a SFINAE trap first, where those
+    // diagnostics count as failures.
+    bool Checked, Valid;
+    {
+      Sema::SFINAETrap Trap(S, /*ForValidityCheck=*/true);
+      Checked = check();
+      Valid = Checked && !Trap.hasErrorOccurred();
+    }
+    if (!Checked && !SuppressDiagnostics) {
+      // Re-run to emit the diagnostics explaining the failure.
+      TemplateArgumentListInfo DiagTAListInfo;
+      populateTemplateArgumentListInfo(DiagTAListInfo, TArgs, InstantiateLoc);
+      Sema::CheckTemplateArgumentInfo DiagTArgs;
+      S.CheckTemplateArgumentList(TD, InstantiateLoc, DiagTAListInfo,
+                                  DefaultArgs, false, DiagTArgs, true);
     }
     TArgs = CompletedTArgs.CanonicalConverted;
-    return Result;
+    return Valid;
   }
 
   void EnsureDeclarationOfImplicitMembers(CXXRecordDecl *RD) override {
@@ -788,7 +848,7 @@ public:
         ParsedAttr::Form Form(tok::kw_alignas);
 
         SourceRange Range(DefinitionLoc, DefinitionLoc);
-        MemberAttrs.addAtEnd(AttrPool.create(&II, Range, {}, nullptr, 0, Form));
+        MemberAttrs.addAtEnd(AttrPool.create(&II, Range, {}, &Args, 1, Form));
       }
       if (MemberSpec->NoUniqueAddress) {
         IdentifierInfo &II = S.Context.Idents.get("no_unique_address");
@@ -823,8 +883,15 @@ public:
       }
 
       VirtSpecifiers VS;
-      S.ActOnCXXMemberDeclarator(&ClsScope, MemberAS, MemberDeclarator, MTP,
-                                 BitWidthCE, VS, ICIS_NoInit);
+      NamedDecl *Member = S.ActOnCXXMemberDeclarator(
+          &ClsScope, MemberAS, MemberDeclarator, MTP, BitWidthCE, VS,
+          ICIS_NoInit);
+
+      // [meta.reflection.define.aggregate]/9.5.6: the member has an annotation
+      // for every constant in its description.
+      if (Member)
+        for (const APValue &Annot : MemberSpec->Annotations)
+          Member->addAttr(BuildAnnotation(Annot, DefinitionLoc));
     }
 
     // Finish the member-specification and the class definition.
@@ -900,30 +967,35 @@ public:
       }
     }
 
-    CXX26AnnotationAttr *Annot;
-    {
-      Expr *OVE = new (S.Context) OpaqueValueExpr(
-            DefinitionLoc,
-            Value.getTypeOfReflectedResult(S.Context),
-            VK_PRValue);
-      Expr *CE = ConstantExpr::Create(S.Context, OVE,
-                                      Value.getReflectedValue());
-
-      AttributeFactory AttrFactory;
-      ParsedAttributes ParsedAttrs(AttrFactory);
-
-      SourceRange Range(DefinitionLoc, DefinitionLoc);
-      IdentifierInfo &II = S.Context.Idents.get("__annotation_placeholder");
-      AttributeCommonInfo *ACI = ParsedAttrs.addNew(
-            &II, Range, {}, nullptr, 0,
-            ParsedAttr::Form::Annotation(), DefinitionLoc);
-
-      Annot = CXX26AnnotationAttr::Create(S.Context, CE, *ACI);
-      Annot->setValue(Value.getReflectedValue());
-      Annot->setEqLoc(DefinitionLoc);
-    }
-
+    CXX26AnnotationAttr *Annot = BuildAnnotation(Value, DefinitionLoc);
     TargetDecl->addAttr(Annot);
+    return Annot;
+  }
+
+  // Builds an annotation attribute whose underlying constant is the value
+  // represented by 'Value'.
+  CXX26AnnotationAttr *BuildAnnotation(const APValue &Value,
+                                       SourceLocation DefinitionLoc) {
+    Expr *OVE = new (S.Context) OpaqueValueExpr(
+          DefinitionLoc,
+          Value.getTypeOfReflectedResult(S.Context),
+          VK_PRValue);
+    Expr *CE = ConstantExpr::Create(S.Context, OVE,
+                                    Value.getReflectedValue());
+
+    AttributeFactory AttrFactory;
+    ParsedAttributes ParsedAttrs(AttrFactory);
+
+    SourceRange Range(DefinitionLoc, DefinitionLoc);
+    IdentifierInfo &II = S.Context.Idents.get("__annotation_placeholder");
+    AttributeCommonInfo *ACI = ParsedAttrs.addNew(
+          &II, Range, {}, nullptr, 0,
+          ParsedAttr::Form::Annotation(), DefinitionLoc);
+
+    CXX26AnnotationAttr *Annot = CXX26AnnotationAttr::Create(S.Context, CE,
+                                                             *ACI);
+    Annot->setValue(Value.getReflectedValue());
+    Annot->setEqLoc(DefinitionLoc);
     return Annot;
   }
 
@@ -1044,12 +1116,28 @@ ExprResult Sema::ActOnCXXReflectExpr(SourceLocation OpLoc,
     return ExprError();
   }
 
+  // A reflection-name whose lookup finds an overload set represents the
+  // function template F if the set contains only declarations of F
+  // ([expr.reflect]/5.5.2); otherwise it is an id-expression, for which
+  // '&id-expression' must select a unique function ([expr.reflect]/7.2).
+  auto IsUniqueFunctionTemplate = [&] {
+    FunctionTemplateDecl *FTD = nullptr;
+    for (NamedDecl *D : Found) {
+      auto *Cand = dyn_cast<FunctionTemplateDecl>(D->getUnderlyingDecl());
+      if (!Cand || (FTD && !declaresSameEntity(FTD, Cand)))
+        return false;
+      FTD = Cand;
+    }
+    return FTD != nullptr;
+  };
+
   // Make sure the lookup was neither ambiguous nor resulting in an overload set
   // having more than one candidate.
   if (Found.isAmbiguous()) {
     return ExprError();
   } else if (Found.isOverloadedResult() &&
-             !isReflectionNameForm(NameInfo.getName(), TArgs)) {
+             (!isReflectionNameForm(NameInfo.getName(), TArgs) ||
+              !IsUniqueFunctionTemplate())) {
     Expr *Result = UnresolvedLookupExpr::Create(
           Context, nullptr, SS.getWithLocInContext(Context),
           SourceLocation(), NameInfo, false, TArgs, Found.begin(),
@@ -1059,6 +1147,23 @@ ExprResult Sema::ActOnCXXReflectExpr(SourceLocation OpLoc,
   }
 
   NamedDecl *ND = Found.getRepresentativeDecl();
+  // [class.qual]/2: in a lookup in which function names are not ignored, the
+  // name specified after a nested-name-specifier that nominates a class C, if
+  // it is the injected-class-name of C, names the constructor of C. The
+  // constructors form an overload set for which '&C::C' is ill-formed
+  // ([expr.reflect]/7.2).
+  if (auto *RD = dyn_cast<CXXRecordDecl>(ND);
+      RD && RD->isInjectedClassName() && SS.isNotEmpty()) {
+    // The injected-class-name is a declaration of its own that shares the
+    // type of the class, so compare the types.
+    const Type *T = SS.getScopeRep()->getAsType();
+    if (T && Context.hasSameUnqualifiedType(QualType(T, 0),
+                                            Context.getTypeDeclType(RD))) {
+      Diag(NameInfo.getBeginLoc(), diag::err_reflect_constructor)
+          << QualType(T, 0) << Id.getSourceRange();
+      return ExprError();
+    }
+  }
 
   if (auto *USD = dyn_cast<UsingShadowDecl>(ND)) {
     if (getLangOpts().EntityProxyReflection)
@@ -1338,6 +1443,14 @@ ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
 // TODO(P2996): Capture whole SourceRange of declaration naming.
 ExprResult Sema::BuildCXXReflectExpr(SourceLocation OperatorLoc,
                                      SourceLocation OperandLoc, Decl *D) {
+  // A reflection of an invalid declaration (e.g., a structured binding whose
+  // decomposition declaration was ill-formed and has no type) cannot be
+  // formed, as for a reference to it by an id-expression.
+  if (D->isInvalidDecl())
+    return ExprError();
+  if (auto *VD = dyn_cast<ValueDecl>(D); VD && VD->getType().isNull())
+    return ExprError();
+
   if (auto *UPD = dyn_cast<UsingPackDecl>(D)) {
     if (!getLangOpts().EntityProxyReflection &&
         isReflectionNameForm(UPD->getDeclName(),
@@ -1703,6 +1816,12 @@ QualType Sema::BuildReflectionSpliceType(SourceLocation TypenameKWLoc,
       Diag(Splice->getBeginLoc(),
            diag::err_unexpected_reflection_kind_in_splice) << 0;
     return QualType();
+  } else if (Splice->isSpecialization()) {
+    // [basic.splice]/2: the splice-specifier of a
+    // splice-specialization-specifier shall designate a template.
+    Diag(Splice->getBeginLoc(), diag::err_splice_specialization_not_template)
+        << Splice->getSourceRange();
+    return QualType();
   } else {
     ReflectedTy = Refl.getReflectedType();
   }
@@ -1838,7 +1957,20 @@ ExprResult Sema::BuildReflectionSpliceExpr(SourceLocation TemplateKWLoc,
       if (auto *VD = dyn_cast<VarDecl>(TheDecl);
           VD && CheckSpliceVar(*this, VD, Splice->getSourceRange()))
         return ExprError();
+
+      // [expr.prim.splice]/2.2: a splice of a function denotes an overload
+      // set containing all declarations of the function that precede the
+      // expression, so refer to the most recent one, which carries the
+      // default arguments of all of them.
+      if (auto *FD = dyn_cast<FunctionDecl>(TheDecl))
+        TheDecl = FD->getMostRecentDecl();
       auto * VD = normalizeSplicedMemberDecl(cast<ValueDecl>(TheDecl));
+
+      // A splice-expression refers to the designated entity like an
+      // id-expression does, so a deleted function ([dcl.fct.def.delete]) or an
+      // unavailable entity cannot be used through it.
+      if (DiagnoseUseOfDecl(VD, Splice->getBeginLoc()))
+        return ExprError();
 
       // Create a new DeclRefExpr, since the operand of the reflect expression
       // was parsed in an unevaluated context (but a splice expression is not
@@ -1950,10 +2082,21 @@ ExprResult Sema::BuildReflectionSpliceExpr(SourceLocation TemplateKWLoc,
                                      Splice, Result, AllowMemberReference);
       break;
     }
+    case ReflectionKind::BaseSpecifier:
+      // [expr.prim.splice]/2.4: an lvalue designating the direct base class
+      // relationship, of the type of the base class; it is only usable as the
+      // right operand of a class member access ([expr.ref]/6, /8.6), which
+      // builds the conversion of the object expression.
+      if (AllowMemberReference) {
+        Result = CXXSpliceExpr::Create(
+            Context, Refl.getReflectedBaseSpecifier()->getType(), VK_LValue,
+            TemplateKWLoc, Splice, AllowMemberReference);
+        break;
+      }
+      [[fallthrough]];
     case ReflectionKind::Null:
     case ReflectionKind::Type:
     case ReflectionKind::Namespace:
-    case ReflectionKind::BaseSpecifier:
     case ReflectionKind::Parameter:
     case ReflectionKind::DataMemberSpec:
     case ReflectionKind::Annotation:
@@ -2016,8 +2159,12 @@ Decl *Sema::BuildConstevalBlockDeclaration(SourceLocation ConstevalLoc,
     Expr::EvalResult ER;
     ER.Diag = &Diags;
 
+    // The expression must be a constant expression ([dcl.pre]); like an
+    // immediate invocation, an evaluation that produces notes (e.g., for a
+    // leaked allocation or undefined behavior) is not one.
     ConstantExprKind Kind = ConstantExprKind::PlainlyConstantEvaluated;
-    if (!EvaluatingExpr->EvaluateAsConstantExpr(ER, Context, Kind, Result)) {
+    if (!EvaluatingExpr->EvaluateAsConstantExpr(ER, Context, Kind, Result) ||
+        !Diags.empty()) {
       Diag(ConstevalLoc, diag::err_consteval_block_not_constexpr);
       for (PartialDiagnosticAt PD : Diags)
         Diag(PD.first, PD.second);
@@ -2044,6 +2191,12 @@ DeclContext *Sema::TryFindDeclContextOf(SpliceSpecifier *Splice) {
 
   switch (Refl.getReflectionKind()) {
   case ReflectionKind::Type: {
+    if (Splice->isSpecialization()) {
+      Diag(Splice->getBeginLoc(), diag::err_splice_specialization_not_template)
+          << Splice->getSourceRange();
+      return nullptr;
+    }
+
     QualType QT = Refl.getReflectedType();
     if (auto *RD = QT->getAsTagDecl())
       return RD;

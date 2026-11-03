@@ -2030,6 +2030,7 @@ void ASTDeclReader::ReadCXXDefinitionData(
     BitsUnpacker LambdaBits(Record.readInt());
     Lambda.DependencyKind = LambdaBits.getNextBits(/*Width=*/2);
     Lambda.IsGenericLambda = LambdaBits.getNextBit();
+    Lambda.IsConstevalBlock = LambdaBits.getNextBit();
     Lambda.CaptureDefault = LambdaBits.getNextBits(/*Width=*/2);
     Lambda.NumCaptures = LambdaBits.getNextBits(/*Width=*/15);
     Lambda.HasKnownInternalLinkage = LambdaBits.getNextBit();

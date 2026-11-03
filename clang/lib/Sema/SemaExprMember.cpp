@@ -1216,13 +1216,21 @@ Sema::BuildMemberReferenceExpr(Scope *S, Expr *Base, SourceLocation OpLoc,
     return BuildDependentMemberSpliceExpr(Base, OpLoc, IsArrow, RHS);
   }
 
+  if (!RHS->getModel())
+    return BuildBaseRelationshipMemberExpr(Base, OpLoc, IsArrow, RHS);
+
   CXXScopeSpec SS;
   NamedDecl *ND = nullptr;
   TemplateArgumentListInfo TemplateArgs(RHS->getBeginLoc(), RHS->getEndLoc());
   if (auto *DRE = dyn_cast<DeclRefExpr>(RHS->getModel())) {
     ValueDecl *D = DRE->getDecl();
+    // [expr.ref]/6: the splice shall designate a member of the class of the
+    // object expression; that includes a member enumerator ([expr.ref]/8.5),
+    // for which the object expression is a discarded-value expression.
     if (isa<FieldDecl>(D) || isa<IndirectFieldDecl>(D) || isa<CXXMethodDecl>(D)
-     || (isa<VarDecl>(D) && DRE->getQualifierLoc())) {
+     || (isa<VarDecl>(D) && DRE->getQualifierLoc())
+     || (isa<EnumConstantDecl>(D) &&
+         isa<CXXRecordDecl>(D->getDeclContext()->getParent()))) {
       ND = D;
       // NOTE(P2996): Uncomment the following line for static dispatch.
       // SS.Adopt(DRE->getQualifierLoc());
@@ -1243,11 +1251,17 @@ Sema::BuildMemberReferenceExpr(Scope *S, Expr *Base, SourceLocation OpLoc,
   DeclarationNameInfo NameInfo(cast<NamedDecl>(ND)->getDeclName(),
                                ND->getLocation());
   {
-    CXXRecordDecl *DerivedRecord = [](QualType QT) {
-      if (QualType PT = QT->getPointeeType(); !PT.isNull())
-        QT = PT;
-      return QT->getAsCXXRecordDecl()->getCanonicalDecl();
-    }(Base->getType());
+    // A member designated by a splice is accessible from any point
+    // ([class.access.base]/5.3), but the class member access is still
+    // ill-formed if the object expression, considered as a pointer, cannot be
+    // implicitly converted to a pointer to the designating class
+    // ([expr.prim.splice]/4): the designating class must be an unambiguous
+    // and accessible base of the class of the object expression.
+    QualType DerivedType = Base->getType();
+    if (QualType PT = DerivedType->getPointeeType(); !PT.isNull())
+      DerivedType = PT;
+    CXXRecordDecl *DerivedRecord =
+        DerivedType->getAsCXXRecordDecl()->getCanonicalDecl();
     CXXRecordDecl *BaseRecord = [](NamedDecl *ND) {
       DeclContext *DC = ND->getDeclContext();
       while (!isa<CXXRecordDecl>(DC)) {
@@ -1256,12 +1270,17 @@ Sema::BuildMemberReferenceExpr(Scope *S, Expr *Base, SourceLocation OpLoc,
       }
       return cast<CXXRecordDecl>(DC)->getCanonicalDecl();
     }(ND);
-    if (BaseRecord != DerivedRecord &&
-        !IsDerivedFrom(Base->getExprLoc(), DerivedRecord, BaseRecord)) {
-      Diag(Base->getExprLoc(), diag::err_class_not_derived_from_base)
-          << DerivedRecord << BaseRecord << SourceRange(Base->getBeginLoc(),
-                                                        RHS->getEndLoc());
-      return ExprError();
+    if (BaseRecord != DerivedRecord) {
+      SourceRange Range(Base->getBeginLoc(), RHS->getEndLoc());
+      if (!IsDerivedFrom(Base->getExprLoc(), DerivedRecord, BaseRecord)) {
+        Diag(Base->getExprLoc(), diag::err_class_not_derived_from_base)
+            << DerivedRecord << BaseRecord << Range;
+        return ExprError();
+      }
+      if (CheckDerivedToBaseConversion(DerivedType.getUnqualifiedType(),
+                                       Context.getTypeDeclType(BaseRecord),
+                                       Base->getExprLoc(), Range))
+        return ExprError();
     }
   }
 
@@ -1296,6 +1315,68 @@ Sema::BuildMemberReferenceExpr(Scope *S, Expr *Base, SourceLocation OpLoc,
     CheckMemberAccessOfNoDeref(cast<MemberExpr>(Res.get()));
 
   return Res;
+}
+
+/// Builds a class member access whose right operand is a splice designating a
+/// direct base class relationship (D, B) ([expr.ref]/8.6): the object
+/// expression, whose class must be D or derived from D, is converted to
+/// cv D, and the result designates the direct base class subobject of type B.
+ExprResult Sema::BuildBaseRelationshipMemberExpr(Expr *Base,
+                                                 SourceLocation OpLoc,
+                                                 bool IsArrow,
+                                                 CXXSpliceExpr *RHS) {
+  SmallVector<PartialDiagnosticAt, 4> Diags;
+  Expr::EvalResult ER;
+  ER.Diag = &Diags;
+  SpliceSpecifier *Splice = RHS->getSplice();
+  if (!Splice->getOperand()->EvaluateAsConstantExpr(ER, Context) ||
+      !ER.Val.isReflectedBaseSpecifier()) {
+    Diag(RHS->getExprLoc(), diag::err_member_access_splice_not_class_member);
+    return ExprError();
+  }
+  CXXBaseSpecifier *BS = ER.Val.getReflectedBaseSpecifier();
+  CXXRecordDecl *Derived = BS->getDerived();
+  SourceRange Range(Base->getBeginLoc(), RHS->getEndLoc());
+
+  // The object expression: '*p' for an arrow, a materialized temporary for a
+  // prvalue, so that the result is an lvalue or an xvalue ([expr.ref]/8.6).
+  if (IsArrow) {
+    ExprResult Deref = CreateBuiltinUnaryOp(OpLoc, UO_Deref, Base);
+    if (Deref.isInvalid())
+      return ExprError();
+    Base = Deref.get();
+  } else if (Base->isPRValue()) {
+    ExprResult MTE = TemporaryMaterializationConversion(Base);
+    if (MTE.isInvalid())
+      return ExprError();
+    Base = MTE.get();
+  }
+  ExprValueKind VK = Base->isLValue() ? VK_LValue : VK_XValue;
+  Qualifiers Quals = Base->getType().getQualifiers();
+
+  QualType DerivedTy = Context.getTypeDeclType(Derived);
+  if (!Context.hasSameUnqualifiedType(Base->getType(), DerivedTy)) {
+    if (!IsDerivedFrom(Base->getExprLoc(), Base->getType(), DerivedTy)) {
+      Diag(Base->getExprLoc(), diag::err_class_not_derived_from_base)
+          << Base->getType()->getAsCXXRecordDecl() << Derived << Range;
+      return ExprError();
+    }
+    CXXCastPath Path;
+    if (CheckDerivedToBaseConversion(Base->getType().getUnqualifiedType(),
+                                     DerivedTy, Base->getExprLoc(), Range,
+                                     &Path))
+      return ExprError();
+    Base = ImpCastExprToType(Base, Context.getQualifiedType(DerivedTy, Quals),
+                             CK_DerivedToBase, VK, &Path).get();
+  }
+
+  // The direct base class subobject is designated whatever the access of the
+  // base, as the relationship is designated by a splice
+  // ([class.access.base]/5.3).
+  CXXCastPath Path;
+  Path.push_back(BS);
+  QualType BaseTy = Context.getQualifiedType(BS->getType(), Quals);
+  return ImpCastExprToType(Base, BaseTy, CK_UncheckedDerivedToBase, VK, &Path);
 }
 
 ExprResult

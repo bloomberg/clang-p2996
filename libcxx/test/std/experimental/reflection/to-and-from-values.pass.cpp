@@ -177,10 +177,44 @@ namespace extract_ref_semantics {
   const int constGlobal = 2;
 
   static_assert(&extract<int &>(^^nonConstGlobal) == &nonConstGlobal);
-  static_assert(extract<int &>(^^constGlobal) == 2);
+  // [meta.reflection.extract]/5.2: only a qualification conversion from the
+  // variable's type to T is allowed, so 'const int' cannot be extracted as
+  // 'int &' (see to-and-from-values.verify.cpp), but it can as 'const int &',
+  // and 'int' as 'const int &'.
+  static_assert(extract<const int &>(^^constGlobal) == 2);
+  static_assert(&extract<const int &>(^^nonConstGlobal) == &nonConstGlobal);
 
   const int &constGlobalRef = constGlobal;
   static_assert(&extract<const int &>(^^constGlobalRef) == &constGlobal);
+
+  // [meta.reflection.extract]: T may also be an rvalue reference type, in
+  // which case the result is an xvalue designating the same object that the
+  // lvalue reference form designates.
+  consteval const void *addr(auto &&r) { return &r; }
+  static_assert(addr(extract<int &&>(^^nonConstGlobal)) == &nonConstGlobal);
+  static_assert(addr(extract<int &&>(std::meta::reflect_object(nonConstGlobal)))
+                == &nonConstGlobal);
+  static_assert(addr(extract<const int &&>(^^constGlobal)) == &constGlobal);
+  static_assert(addr(extract<const int &&>(^^constGlobalRef)) == &constGlobal);
+  static_assert(extract<const int &&>(^^constGlobalRef) == 2);
+  static_assert(std::is_same_v<decltype(extract<int &&>(^^nonConstGlobal)),
+                               int &&>);
+  static_assert(std::is_same_v<decltype(extract<const int &&>(^^constGlobal)),
+                               const int &&>);
+
+  struct Obj { int m; };
+  constexpr Obj obj{7};
+  static_assert(extract<const Obj &&>(^^obj).m == 7);
+  static_assert(extract<const Obj &&>(std::meta::reflect_object(obj)).m == 7);
+  static_assert(addr(extract<const Obj &&>(^^obj)) == &obj);
+
+  consteval int rvalueRefToLocal() {
+    int val = 3;
+    int &&ref = extract<int &&>(^^val);
+    ref = 4;
+    return val;
+  }
+  static_assert(rvalueRefToLocal() == 4);
 
   // TODO(P2996): Need to decide whether 'extract' should be legal on locals
   // within an immediate function context. It isn't legal as spec'd by P2996R3,
@@ -252,6 +286,153 @@ consteval std::meta::info fn() {
 static_assert([:fn():] == 3);
 }  // namespace constant_of_types
 
+                          // ==========================
+                          // constant_of_arrays_and_fns
+                          // ==========================
+
+// [meta.reflection.queries]/8: constant_of of an array is
+// reflect_constant_array([:R:]); of a function, reflect_function([:R:]).
+namespace constant_of_arrays_and_fns {
+constexpr int ca[3] = {1, 2, 3};
+constexpr int cb[] = {1, 2, 3};
+constexpr const int cc[3] = {1, 2, 3};
+constexpr int cd[2] = {1, 2};
+constexpr char cs[] = "ab";
+struct S { int v; bool operator==(const S &) const = default; };
+constexpr S sa[2] = {S{1}, S{2}};
+struct WithStatic { static constexpr int arr[2] = {1, 2}; };
+constexpr const int (&ra)[3] = ca;
+
+static_assert(constant_of(^^ca) == std::meta::reflect_constant_array(ca));
+static_assert(constant_of(^^ca) == constant_of(^^cb));
+static_assert(constant_of(^^ca) == constant_of(^^cc));
+static_assert(constant_of(^^ca) != constant_of(^^cd));
+static_assert(constant_of(^^ca) == constant_of(^^ra));
+static_assert(constant_of(^^ca) == constant_of(std::meta::reflect_object(ca)));
+static_assert(constant_of(constant_of(^^ca)) == constant_of(^^ca));
+static_assert(constant_of(^^cs) == std::meta::reflect_constant_string("ab"));
+static_assert(constant_of(^^sa) == std::meta::reflect_constant_array(sa));
+static_assert(constant_of(^^WithStatic::arr) ==
+              std::meta::reflect_constant_array(WithStatic::arr));
+static_assert(type_of(constant_of(^^ca)) == ^^const int[3]);
+static_assert(type_of(constant_of(^^cs)) == ^^const char[3]);
+static_assert(!is_object(constant_of(^^ca)) && !is_value(constant_of(^^ca)));
+static_assert(is_variable(constant_of(^^ca)));
+static_assert(extract<const int *>(constant_of(^^ca))[2] == 3);
+static_assert([:constant_of(^^ca):][1] == 2);
+static_assert(extract<const int *>(constant_of(^^ca)) != ca);
+static_assert(extract<const S *>(constant_of(^^sa))[1] == S{2});
+static_assert(constant_of(std::meta::reflect_constant_array(
+                  std::vector<int>{1, 2, 3})) == constant_of(^^ca));
+
+void fn(int) {}
+template <typename T> void tfn(T);
+struct WithFns { static void sfn(); void mfn(); };
+void (&fnref)(int) = fn;
+constexpr void (*fnptr)(int) = fn;
+
+static_assert(constant_of(^^fn) == std::meta::reflect_function(fn));
+static_assert(constant_of(^^fn) == ^^fn);
+static_assert(is_function(constant_of(^^fn)));
+static_assert(constant_of(^^tfn<int>) == std::meta::reflect_function(tfn<int>));
+static_assert(constant_of(^^WithFns::sfn) == ^^WithFns::sfn);
+static_assert(constant_of(constant_of(^^fn)) == ^^fn);
+
+// A reference to a function has reference type, not function type, so /8
+// reaches reflect_constant([:R:]), which deduces a pointer to the function.
+static_assert(constant_of(^^fnref) == std::meta::reflect_constant(&fn));
+static_assert(constant_of(^^fnref) == constant_of(^^fnptr));
+static_assert(is_value(constant_of(^^fnref)));
+static_assert(type_of(constant_of(^^fnref)) == ^^void (*)(int));
+}  // namespace constant_of_arrays_and_fns
+
+                           // =====================
+                           // extract_conformance
+                           // =====================
+
+namespace extract_conformance {
+struct S {
+  int m;
+  const int cm;
+  void xo(this S &);
+  void xo_noexcept(this S &) noexcept;
+  void mf();
+  void mf_noexcept() noexcept;
+  static void sf();
+  static void sf_noexcept() noexcept;
+};
+void fn(int);
+void fn_noexcept(int) noexcept;
+constexpr int carr[2] = {1, 2};
+constexpr S sarr[1] = {S{1, 2}};
+constexpr const int *cip = &carr[0];
+constexpr const int (&carr_ref)[2] = carr;
+
+// [meta.reflection.extract]/7.1: T and 'X C::*' similar, 'X C::*' convertible
+// to T.
+static_assert(extract<int S::*>(^^S::m) == &S::m);
+static_assert(extract<const int S::*>(^^S::m) == &S::m);
+static_assert(extract<const int S::*>(^^S::cm) == &S::cm);
+static_assert(extract<const volatile int S::*>(^^S::m) == &S::m);
+
+// /7.2: an implicit object member function of type F or F noexcept, T is
+// 'F C::*'.
+static_assert(extract<void (S::*)()>(^^S::mf) == &S::mf);
+static_assert(extract<void (S::*)()>(^^S::mf_noexcept) == &S::mf_noexcept);
+static_assert(extract<void (S::*)() noexcept>(^^S::mf_noexcept) ==
+              &S::mf_noexcept);
+
+// /7.3: a non-member, static member or explicit object member function of
+// type F or F noexcept, T is F*.
+static_assert(extract<void (*)(int)>(^^fn) == &fn);
+static_assert(extract<void (*)(int)>(^^fn_noexcept) == &fn_noexcept);
+static_assert(extract<void (*)(int) noexcept>(^^fn_noexcept) == &fn_noexcept);
+static_assert(extract<void (*)()>(^^S::sf) == &S::sf);
+static_assert(extract<void (*)()>(^^S::sf_noexcept) == &S::sf_noexcept);
+static_assert(extract<void (*)(S &)>(^^S::xo) == &S::xo);
+static_assert(extract<void (*)(S &)>(^^S::xo_noexcept) == &S::xo_noexcept);
+static_assert(extract<void (*)(S &) noexcept>(^^S::xo_noexcept) ==
+              &S::xo_noexcept);
+
+// /5: a reference to the variable or object itself, through a qualification
+// conversion only (/5.2).
+static_assert(&extract<const int (&)[2]>(^^carr) == &carr);
+static_assert(&extract<const int (&)[2]>(^^carr_ref) == &carr);
+static_assert(&extract<const int (&)[2]>(std::meta::reflect_object(carr)) ==
+              &carr);
+static_assert(extract<const int (&)[2]>(
+                  std::meta::reflect_constant_array(std::vector{1, 2}))[1] == 2);
+static_assert(&extract<const S (&)[1]>(^^sarr) == &sarr);
+
+// /12, /10.3: a non-reference extraction of an array goes through constant_of,
+// i.e. reflect_constant_array, so the pointer designates the promoted copy.
+static_assert(extract<const int *>(^^carr) != carr);
+static_assert(extract<const int *>(^^carr)[1] == 2);
+static_assert(extract<const int *>(^^carr) ==
+              extract<const int *>(std::meta::reflect_constant_array(carr)));
+static_assert(extract<const int *>(^^carr) ==
+              extract<const int *>(constant_of(^^carr)));
+static_assert(extract<const int *>(std::meta::reflect_object(carr)) ==
+              extract<const int *>(^^carr));
+static_assert(extract<const int *>(^^carr_ref) ==
+              extract<const int *>(^^carr));
+static_assert(extract<const S *>(^^sarr)[0].cm == 2);
+static_assert(extract<const S *>(^^sarr) != sarr);
+
+// /10.1: a pointer value through a qualification conversion or a function
+// pointer conversion.
+static_assert(extract<const int *>(std::meta::reflect_constant(cip)) == cip);
+static_assert(extract<const int *const>(std::meta::reflect_constant(cip)) == cip);
+static_assert(extract<const int *>(std::meta::reflect_constant(
+                  static_cast<int *>(nullptr))) == nullptr);
+static_assert(extract<const int *const *>(std::meta::reflect_constant(&cip)) ==
+              &cip);
+static_assert(extract<void (*)(int)>(std::meta::reflect_constant(&fn_noexcept))
+              == &fn_noexcept);
+static_assert(extract<void (*)(int) noexcept>(
+                  std::meta::reflect_constant(&fn_noexcept)) == &fn_noexcept);
+}  // namespace extract_conformance
+
                            // ======================
                            // objects_from_variables
                            // ======================
@@ -278,6 +459,32 @@ static_assert(std::meta::reflect_object(static_cast<A&>(arr[1])) ==
               object_of(^^r));
 static_assert(type_of(^^r) == ^^const A&);
 static_assert(type_of(object_of(^^r)) == ^^A);
+
+// [meta.reflection.queries]/5: a variable with static storage duration, or a
+// reference to an object with static storage duration, whatever the storage
+// duration of the reference itself.
+struct WithStatic { static int sm; };
+static int internal;
+thread_local int &tl_ref = internal;
+const int &extended = 42;
+void fn() {
+  static int local_static;
+  static_assert(object_of(^^local_static) ==
+                std::meta::reflect_object(local_static));
+  [[maybe_unused]] int &local_ref = internal;
+  static_assert(object_of(^^local_ref) ==
+                std::meta::reflect_object(internal));
+}
+static_assert(object_of(^^WithStatic::sm) ==
+              std::meta::reflect_object(WithStatic::sm));
+static_assert(object_of(^^internal) == std::meta::reflect_object(internal));
+static_assert(object_of(^^tl_ref) == std::meta::reflect_object(internal));
+static_assert(is_object(object_of(^^extended)));
+static_assert(object_of(^^extended) != object_of(^^internal));
+static_assert(type_of(object_of(^^extended)) == ^^const int);
+static_assert(constant_of(object_of(^^extended)) ==
+              std::meta::reflect_constant(42));
+static_assert(object_of(object_of(^^internal)) == object_of(^^internal));
 
 }  // namespace objects_from_variables
 

@@ -16178,6 +16178,8 @@ TreeTransform<Derived>::TransformLambdaExpr(LambdaExpr *E) {
       E->getIntroducerRange(), /*Info=*/nullptr, DependencyKind,
       E->getCaptureDefault());
   getDerived().transformedLocalDecl(OldClass, {Class});
+  if (OldClass->isConstevalBlockLambda())
+    Class->setLambdaIsConstevalBlock(true);
 
   CXXMethodDecl *NewCallOperator =
       getSema().CreateLambdaCallOperator(E->getIntroducerRange(), Class);
@@ -16388,13 +16390,11 @@ TreeTransform<Derived>::TransformLambdaExpr(LambdaExpr *E) {
 
   // FIXME: Sema's lambda-building mechanism expects us to push an expression
   // evaluation context even if we're not transforming the function body.
-  getSema().PushExpressionEvaluationContext(
-      E->getCallOperator()->isConsteval() ?
-      Sema::ExpressionEvaluationContext::ImmediateFunctionContext :
-      Sema::ExpressionEvaluationContext::PotentiallyEvaluated);
-  getSema().currentEvaluationContext().InImmediateEscalatingFunctionContext =
-      getSema().getLangOpts().CPlusPlus20 &&
-      E->getCallOperator()->isImmediateEscalating();
+  // Push it the way the parser does, so that the body is not considered to be
+  // in an immediate function context merely because the lambda appears in the
+  // initializer of a constexpr variable.
+  getSema().PushExpressionEvaluationContextForFunction(
+      Sema::ExpressionEvaluationContext::PotentiallyEvaluated, NewCallOperator);
 
   Sema::CodeSynthesisContext C;
   C.Kind = clang::Sema::CodeSynthesisContext::LambdaExpressionSubstitution;

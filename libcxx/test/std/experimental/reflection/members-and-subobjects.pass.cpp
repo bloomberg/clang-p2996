@@ -362,6 +362,75 @@ static_assert(is_public(bases_of(^^D2<B1, B3>,
                                  access_context::unchecked())[1]));
 }  // namespace bases
 
+                               // ==============
+                               // subobjects_of
+                               // ==============
+
+namespace subobjects {
+struct B1 { int b; };
+struct B2 {};
+struct D : B1, private B2 {
+  int x;
+private:
+  [[maybe_unused]] int y;
+public:
+  static constexpr auto r_y = ^^y;
+};
+using Alias = D;
+struct Empty {};
+
+// [meta.reflection.member.queries]: bases first, then non-static data
+// members, each filtered by accessibility from the given context.
+static_assert(subobjects_of(^^D, access_context::unchecked()) ==
+              std::vector{bases_of(^^D, access_context::unchecked())[0],
+                          bases_of(^^D, access_context::unchecked())[1],
+                          ^^D::x, D::r_y});
+static_assert(subobjects_of(^^D, access_context::unprivileged()) ==
+              std::vector{bases_of(^^D, access_context::unchecked())[0],
+                          ^^D::x});
+static_assert(subobjects_of(^^Alias, access_context::unchecked()) ==
+              subobjects_of(^^D, access_context::unchecked()));
+static_assert(subobjects_of(^^B1, access_context::unchecked()) ==
+              std::vector{^^B1::b});
+static_assert(subobjects_of(^^Empty, access_context::unchecked()).empty());
+
+// [meta.reflection.access.queries]: has_inaccessible_subobjects is true if
+// either a base or a non-static data member is inaccessible.
+static_assert(!has_inaccessible_bases(^^D, access_context::unchecked()));
+static_assert(!has_inaccessible_nonstatic_data_members(
+    ^^D, access_context::unchecked()));
+static_assert(!has_inaccessible_subobjects(^^D, access_context::unchecked()));
+
+static_assert(has_inaccessible_bases(^^D, access_context::unprivileged()));
+static_assert(has_inaccessible_nonstatic_data_members(
+    ^^D, access_context::unprivileged()));
+static_assert(has_inaccessible_subobjects(^^D,
+                                          access_context::unprivileged()));
+static_assert(has_inaccessible_subobjects(^^Alias,
+                                          access_context::unprivileged()));
+
+struct OnlyPrivateBase : private B2 { int x; };
+static_assert(has_inaccessible_bases(^^OnlyPrivateBase,
+                                     access_context::unprivileged()));
+static_assert(!has_inaccessible_nonstatic_data_members(
+    ^^OnlyPrivateBase, access_context::unprivileged()));
+static_assert(has_inaccessible_subobjects(^^OnlyPrivateBase,
+                                          access_context::unprivileged()));
+
+class OnlyPrivateMember : public B2 { [[maybe_unused]] int x; };
+static_assert(!has_inaccessible_bases(^^OnlyPrivateMember,
+                                      access_context::unprivileged()));
+static_assert(has_inaccessible_nonstatic_data_members(
+    ^^OnlyPrivateMember, access_context::unprivileged()));
+static_assert(has_inaccessible_subobjects(^^OnlyPrivateMember,
+                                          access_context::unprivileged()));
+
+static_assert(!has_inaccessible_subobjects(^^B1,
+                                           access_context::unprivileged()));
+static_assert(!has_inaccessible_subobjects(^^Empty,
+                                           access_context::unprivileged()));
+}  // namespace subobjects
+
                                  // ===========
                                  // enumerators
                                  // ===========
@@ -384,6 +453,24 @@ struct Cls { enum Enum { A, B, C }; };
 static_assert(!is_enumerable_type(^^::));
 static_assert(is_enumerable_type(^^Cls::Enum));
 static_assert(enumerators_of(^^Cls::Enum) ==
+              std::vector{^^Cls::A, ^^Cls::B, ^^Cls::C});
+
+// Both queries apply dealias to their argument.
+using EnumAlias = EnumCls;
+using EnumAliasAlias = EnumAlias;
+using ClsAlias = Cls;
+using NestedAlias = Cls::Enum;
+struct Incomplete;
+using IncompleteAlias = Incomplete;
+static_assert(is_enumerable_type(^^EnumAlias));
+static_assert(is_enumerable_type(^^EnumAliasAlias));
+static_assert(is_enumerable_type(^^ClsAlias));
+static_assert(is_enumerable_type(^^NestedAlias));
+static_assert(!is_enumerable_type(^^IncompleteAlias));
+static_assert(enumerators_of(^^EnumAlias) ==
+              std::vector{^^EnumCls::A, ^^EnumCls::B, ^^EnumCls::C});
+static_assert(enumerators_of(^^EnumAliasAlias) == enumerators_of(^^EnumCls));
+static_assert(enumerators_of(^^NestedAlias) ==
               std::vector{^^Cls::A, ^^Cls::B, ^^Cls::C});
 
 }  // namespace enumerators

@@ -5778,6 +5778,15 @@ public:
                                SpliceSpecifier *Splice, Expr *Model,
                                bool AllowMemberReference);
 
+  /// Creates a splice-expression without a model expression, of the given
+  /// type; used for a splice designating a direct base class relationship,
+  /// which is only meaningful as the right operand of a class member access.
+  static CXXSpliceExpr *Create(ASTContext &C, QualType ResultTy,
+                               ExprValueKind ValueKind,
+                               SourceLocation TemplateKWLoc,
+                               SpliceSpecifier *Splice,
+                               bool AllowMemberReference);
+
   static CXXSpliceExpr *CreateEmpty(ASTContext &C);
 
   SpliceSpecifier *getSplice() const { return Splice; }

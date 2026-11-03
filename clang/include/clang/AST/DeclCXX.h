@@ -402,6 +402,12 @@ private:
     LLVM_PREFERRED_TYPE(bool)
     unsigned IsGenericLambda : 1;
 
+    /// Whether this is the closure type of a consteval block ([dcl.pre]),
+    /// whose function call operator is transparent to the scope queries of
+    /// reflection ([meta.reflection.scope], [meta.reflection.queries]).
+    LLVM_PREFERRED_TYPE(bool)
+    unsigned IsConstevalBlock : 1;
+
     /// The Default Capture.
     LLVM_PREFERRED_TYPE(LambdaCaptureDefault)
     unsigned CaptureDefault : 2;
@@ -442,7 +448,8 @@ private:
     LambdaDefinitionData(CXXRecordDecl *D, TypeSourceInfo *Info, unsigned DK,
                          bool IsGeneric, LambdaCaptureDefault CaptureDefault)
         : DefinitionData(D), DependencyKind(DK), IsGenericLambda(IsGeneric),
-          CaptureDefault(CaptureDefault), NumCaptures(0),
+          IsConstevalBlock(false), CaptureDefault(CaptureDefault),
+          NumCaptures(0),
           NumExplicitCaptures(0), HasKnownInternalLinkage(0), ManglingNumber(0),
           IndexInContext(0), MethodTyInfo(Info) {
       IsLambda = true;
@@ -1040,6 +1047,9 @@ public:
   /// lambda function object (i.e. function call operator is
   /// a template).
   bool isGenericLambda() const;
+
+  /// Determine whether this is the closure type of a consteval block.
+  bool isConstevalBlockLambda() const;
 
   /// Determine whether this lambda should have an implicit default constructor
   /// and copy and move assignment operators.
@@ -1895,6 +1905,13 @@ public:
            "setting lambda property of non-lambda class");
     auto &DL = static_cast<LambdaDefinitionData &>(*DefinitionData);
     DL.IsGenericLambda = IsGeneric;
+  }
+
+  void setLambdaIsConstevalBlock(bool IsConstevalBlock) {
+    assert(DefinitionData && DefinitionData->IsLambda &&
+           "setting lambda property of non-lambda class");
+    auto &DL = static_cast<LambdaDefinitionData &>(*DefinitionData);
+    DL.IsConstevalBlock = IsConstevalBlock;
   }
 
   // Determine whether this type is an Interface Like type for

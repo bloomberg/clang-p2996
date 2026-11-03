@@ -137,15 +137,20 @@ public:
 
 struct Derived : Access {
   static constexpr auto ctx = access_context::current();
-  static constexpr auto obj_ctx = access_context::current().via(^^Derived);
 
   static_assert(is_accessible(^^Access::PublicBase::mem, ctx));
   static_assert(is_accessible(^^Access::ProtectedBase::mem, ctx));
   static_assert(is_accessible(^^::PrivateBase::mem, ctx));
-  static_assert(!is_accessible(^^::PrivateBase::mem, obj_ctx));
   static_assert(!is_accessible(Access::r_prot, ctx));
-  static_assert(is_accessible(Access::r_prot, obj_ctx));
 };
+
+// 'via' requires a complete class type ([meta.reflection.access.context]/11),
+// so the designating class can only be set once 'Derived' is complete; the
+// scope of the resulting context is still 'Derived'.
+static constexpr auto derived_obj_ctx = Derived::ctx.via(^^Derived);
+static_assert(derived_obj_ctx.scope() == ^^Derived);
+static_assert(!is_accessible(^^::PrivateBase::mem, derived_obj_ctx));
+static_assert(is_accessible(Access::r_prot, derived_obj_ctx));
 
 static constexpr auto gctx = access_context::current();
 static_assert(is_accessible(^^Access::pub, gctx));

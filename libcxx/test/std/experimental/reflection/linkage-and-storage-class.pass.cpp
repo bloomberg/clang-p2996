@@ -206,56 +206,168 @@ static_assert(!has_internal_linkage(^^fn));
 static_assert(!has_module_linkage(^^fn));
 static_assert(has_external_linkage(^^fn));
 
-static_assert(has_linkage(std::meta::reflect_object(p1.first)));
+// [meta.reflection.queries]/27 applies to variables, functions, types,
+// templates and namespaces; an object is none of those.
+static_assert(has_linkage(^^p1));
+static_assert(has_external_linkage(^^p1));
+static_assert(has_internal_linkage(^^p2));
+static_assert(!has_linkage(std::meta::reflect_object(p1)));
+static_assert(!has_linkage(std::meta::reflect_object(p1.first)));
 static_assert(!has_internal_linkage(std::meta::reflect_object(p1.first)));
 static_assert(!has_module_linkage(std::meta::reflect_object(p1.first)));
-static_assert(has_external_linkage(std::meta::reflect_object(p1.first)));
-
-static_assert(has_linkage(std::meta::reflect_object(p1.first)));
-static_assert(has_internal_linkage(std::meta::reflect_object(p2.first)));
+static_assert(!has_external_linkage(std::meta::reflect_object(p1.first)));
+static_assert(!has_linkage(std::meta::reflect_object(p2.first)));
+static_assert(!has_internal_linkage(std::meta::reflect_object(p2.first)));
 static_assert(!has_module_linkage(std::meta::reflect_object(p2.first)));
 static_assert(!has_external_linkage(std::meta::reflect_object(p2.first)));
 
 void fn() {
   struct S { static void fn(); };
+  static_assert(!has_linkage(^^S));
   static_assert(!has_linkage(^^S::fn));
   static_assert(!has_internal_linkage(^^S::fn));
   static_assert(!has_module_linkage(^^S::fn));
   static_assert(!has_external_linkage(^^S::fn));
+
+  [[maybe_unused]] int local;
+  [[maybe_unused]] static int static_local;
+  static_assert(!has_linkage(^^local));
+  static_assert(!has_linkage(^^static_local));
+  static_assert(!has_internal_linkage(^^static_local));
 }
 
 template <typename T> struct TCls;
 template <typename T> void TFn();
 template <typename T> int TVar;
+template <typename T> using TAlias = T;
+template <typename T> concept Concept = true;
+namespace { template <typename T> struct AnonTCls; }
 
-static_assert(!has_linkage(^^::));
-static_assert(!has_linkage(^^::linkage));
+// [basic.link]/4: the name of a template has linkage.
+static_assert(has_linkage(^^TCls));
+static_assert(has_external_linkage(^^TCls));
+static_assert(!has_internal_linkage(^^TCls));
+static_assert(!has_module_linkage(^^TCls));
+static_assert(has_linkage(^^TFn));
+static_assert(has_external_linkage(^^TFn));
+static_assert(has_linkage(^^TVar));
+static_assert(has_external_linkage(^^TVar));
+static_assert(has_linkage(^^TAlias));
+static_assert(has_external_linkage(^^TAlias));
+static_assert(has_linkage(^^Concept));
+static_assert(has_external_linkage(^^Concept));
+static_assert(has_internal_linkage(^^AnonTCls));
+static_assert(!has_external_linkage(^^AnonTCls));
+static_assert(has_external_linkage(^^TFn<int>));
+static_assert(has_external_linkage(^^TCls<int>));
+static_assert(has_external_linkage(^^TVar<int>));
+
+// [basic.link]/4: all namespaces but unnamed ones (and those declared within
+// them) have external linkage, the global namespace included.
+namespace { namespace in_anonymous {} }
+namespace alias_of_linkage = linkage;
+static_assert(has_linkage(^^::));
+static_assert(has_external_linkage(^^::));
+static_assert(!has_internal_linkage(^^::));
+static_assert(!has_module_linkage(^^::));
+static_assert(has_linkage(^^::linkage));
+static_assert(has_external_linkage(^^::linkage));
+static_assert(!has_internal_linkage(^^::linkage));
+static_assert(!has_module_linkage(^^::linkage));
+static_assert(has_internal_linkage(^^in_anonymous));
+static_assert(!has_external_linkage(^^in_anonymous));
+static_assert(has_external_linkage(^^alias_of_linkage));
+
+// A non-static data member or enumerator is none of the entities listed in
+// [meta.reflection.queries]/27, so it has no linkage.
+struct WithMembers {
+  int nsdm;
+  static int sdm;
+  void memfn();
+  enum Nested { nested_enumerator };
+};
+enum Unscoped { unscoped_enumerator };
+enum class Scoped { scoped_enumerator };
+static_assert(!has_linkage(^^WithMembers::nsdm));
+static_assert(!has_external_linkage(^^WithMembers::nsdm));
+static_assert(has_linkage(^^WithMembers::sdm));
+static_assert(has_external_linkage(^^WithMembers::sdm));
+static_assert(has_external_linkage(^^WithMembers::memfn));
+static_assert(has_external_linkage(^^WithMembers::Nested));
+static_assert(!has_linkage(^^WithMembers::nested_enumerator));
+static_assert(!has_linkage(^^unscoped_enumerator));
+static_assert(!has_external_linkage(^^unscoped_enumerator));
+static_assert(!has_linkage(^^Scoped::scoped_enumerator));
+static_assert(!has_external_linkage(^^Scoped::scoped_enumerator));
+static_assert(has_external_linkage(^^Unscoped));
+static_assert(has_external_linkage(^^Scoped));
+
+// A class or enumeration declared with a typedef name for linkage purposes
+// has the linkage of that name; a cv-qualified type has the linkage of the
+// unqualified one.
+typedef struct { int z; } TL;
+static_assert(has_external_linkage(dealias(^^TL)));
+static_assert(has_external_linkage(^^const external_linkage_type));
+
+std::pair<int, int> cp{1, 2};
+auto [b1, b2] = cp;
+static_assert(!has_linkage(^^b1));
+static_assert(!has_external_linkage(^^b1));
+
 static_assert(!has_linkage(std::meta::reflect_constant(3)));
 static_assert(!has_linkage(^^int));
-static_assert(!has_linkage(^^TCls));
-static_assert(!has_linkage(^^TFn));
-static_assert(!has_linkage(^^TVar));
-static_assert(!has_internal_linkage(^^::));
-static_assert(!has_internal_linkage(^^::linkage));
+static_assert(!has_linkage(std::meta::info{}));
 static_assert(!has_internal_linkage(std::meta::reflect_constant(3)));
 static_assert(!has_internal_linkage(^^int));
-static_assert(!has_internal_linkage(^^TCls));
-static_assert(!has_internal_linkage(^^TFn));
-static_assert(!has_internal_linkage(^^TVar));
-static_assert(!has_module_linkage(^^::));
-static_assert(!has_module_linkage(^^::linkage));
 static_assert(!has_module_linkage(std::meta::reflect_constant(3)));
 static_assert(!has_module_linkage(^^int));
-static_assert(!has_module_linkage(^^TCls));
-static_assert(!has_module_linkage(^^TFn));
-static_assert(!has_module_linkage(^^TVar));
-static_assert(!has_external_linkage(^^::));
-static_assert(!has_external_linkage(^^::linkage));
 static_assert(!has_external_linkage(std::meta::reflect_constant(3)));
 static_assert(!has_external_linkage(^^int));
-static_assert(!has_external_linkage(^^TCls));
-static_assert(!has_external_linkage(^^TFn));
-static_assert(!has_external_linkage(^^TVar));
+
+                          // ======================
+                          // has_c_language_linkage
+                          // ======================
+
+extern "C" void cfn();
+extern "C" int cvar;
+extern "C" {
+  void cfn2();
+  int cvar2;
+  extern "C++" void cxxfn_in_c();
+}
+extern "C++" void cxxfn();
+extern "C" void cfn2_redecl();
+void cfn2_redecl();  // inherits C language linkage ([dcl.link]/6)
+struct cls {
+  static void sfn();
+  void memfn();
+  int mem;
+};
+enum c_enum { c_enumerator };
+
+static_assert(has_c_language_linkage(^^cfn));
+static_assert(has_c_language_linkage(^^cvar));
+static_assert(has_c_language_linkage(^^cfn2));
+static_assert(has_c_language_linkage(^^cvar2));
+static_assert(has_c_language_linkage(^^cfn2_redecl));
+static_assert(!has_c_language_linkage(^^cxxfn_in_c));
+static_assert(!has_c_language_linkage(^^cxxfn));
+static_assert(!has_c_language_linkage(^^global));
+static_assert(!has_c_language_linkage(^^s_global));
+static_assert(!has_c_language_linkage(^^fn));
+static_assert(!has_c_language_linkage(^^cls));
+static_assert(!has_c_language_linkage(^^cls::sfn));
+static_assert(!has_c_language_linkage(^^cls::memfn));
+static_assert(!has_c_language_linkage(^^cls::mem));
+static_assert(!has_c_language_linkage(^^c_enumerator));
+static_assert(!has_c_language_linkage(^^TFn));
+static_assert(!has_c_language_linkage(^^TFn<int>));
+static_assert(!has_c_language_linkage(^^int));
+static_assert(!has_c_language_linkage(^^void()));
+static_assert(!has_c_language_linkage(^^::));
+static_assert(!has_c_language_linkage(std::meta::info{}));
+static_assert(!has_c_language_linkage(std::meta::reflect_constant(3)));
+static_assert(!has_c_language_linkage(std::meta::reflect_object(cvar)));
 }  // namespace linkage
 
 export module test_module;

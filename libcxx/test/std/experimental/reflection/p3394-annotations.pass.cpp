@@ -94,20 +94,62 @@ static_assert(is_annotation(annotations_of(^^TFn<int>)[0]));
 static_assert(type_of(annotations_of(^^fn)[0]) == ^^int);
 static_assert(type_of(annotations_of(^^fn)[3]) == ^^float);
 
-static_assert(annotations_of(^^fn, ^^int).size() == 3);
-static_assert(annotations_of(^^fn, ^^float).size() == 1);
+static_assert(annotations_of_with_type(^^fn, ^^int).size() == 3);
+static_assert(annotations_of_with_type(^^fn, ^^float).size() == 1);
+static_assert(annotations_of_with_type(^^fn, ^^char *).size() == 0);
+static_assert(annotations_of_with_type(^^fn, ^^int) ==
+              std::vector{annotations_of(^^fn)[0], annotations_of(^^fn)[1],
+                          annotations_of(^^fn)[2]});
 static_assert(annotation_of_type<float>(^^fn) == 1.0f);
 static_assert(annotation_of_type<char *>(^^fn) == std::nullopt);
+
+// Top-level const of either side is ignored, and aliases are looked through.
+using IntAlias = int;
+static_assert(annotations_of_with_type(^^fn, ^^const int).size() == 3);
+static_assert(annotations_of_with_type(^^fn, ^^IntAlias).size() == 3);
+
+// The pre-P3394R4 two-argument annotations_of remains as a deprecated alias.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+static_assert(annotations_of(^^fn, ^^int).size() == 3);
+static_assert(annotations_of(^^fn, ^^float).size() == 1);
+#pragma clang diagnostic pop
 
 static_assert(source_location_of(annotations_of(^^S)[0]).line() ==
               source_location_of(^^S).line());
 
 constexpr struct S {} s;
 
+// [meta.reflection.queries]/2.3: the type of an annotation is
+// type_of(constant_of(r)); for a class type that is the const-qualified type
+// of the corresponding template parameter object.
 [[=s]] void fnWithS();
-static_assert(type_of(annotations_of(^^fnWithS)[0]) == ^^S);
+static_assert(type_of(annotations_of(^^fnWithS)[0]) == ^^const S);
 static_assert(type_of(constant_of(annotations_of(^^fnWithS)[0])) ==
               ^^const S);
+static_assert(annotations_of_with_type(^^fnWithS, ^^S).size() == 1);
+static_assert(annotations_of_with_type(^^fnWithS, ^^const S).size() == 1);
+
+struct Opt { int v; };
+enum Enum { e0 };
+using OptAlias = Opt;
+constexpr const int ci = 3;
+constexpr OptAlias coa{2};
+[[=Opt{3}, =ci, =e0, =coa, =nullptr]] int annotated_var;
+static_assert(type_of(annotations_of(^^annotated_var)[0]) == ^^const Opt);
+static_assert(type_of(annotations_of(^^annotated_var)[1]) == ^^int);
+static_assert(type_of(annotations_of(^^annotated_var)[2]) == ^^Enum);
+static_assert(type_of(annotations_of(^^annotated_var)[3]) == ^^const Opt);
+static_assert(type_of(annotations_of(^^annotated_var)[4]) ==
+              ^^decltype(nullptr));
+template <auto> consteval bool agrees_with_constant_of(std::meta::info a) {
+  return type_of(a) == type_of(constant_of(a));
+}
+static_assert(agrees_with_constant_of<0>(annotations_of(^^annotated_var)[0]));
+static_assert(agrees_with_constant_of<0>(annotations_of(^^annotated_var)[1]));
+static_assert(agrees_with_constant_of<0>(annotations_of(^^annotated_var)[2]));
+static_assert(agrees_with_constant_of<0>(annotations_of(^^annotated_var)[3]));
+static_assert(agrees_with_constant_of<0>(annotations_of(^^annotated_var)[4]));
 }  // namespace non_dependent
 
                                   // =========
@@ -285,7 +327,7 @@ constexpr auto func_first = std::meta::constant_of(std::meta::annotations_of(^^f
 constexpr auto func2_first = std::meta::constant_of(std::meta::annotations_of(^^func2)[0]);
 
 static_assert(std::meta::constant_of(^^test) == std::meta::reflect_constant(test));
-static_assert(std::same_as<decltype([:func_first:]), const test_struct &>);
+static_assert(std::same_as<decltype([:func_first:]), const test_struct>);
 static_assert(func2_first == std::meta::reflect_constant(1));
 static_assert(func_first == std::meta::reflect_constant(test));
 }  // namespace bb_clang_p2996_issue_143_regression_test

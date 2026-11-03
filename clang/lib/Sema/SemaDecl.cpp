@@ -8017,6 +8017,7 @@ NamedDecl *Sema::ActOnVariableDeclarator(
 
   // Handle attributes prior to checking for duplicates in MergeVarDecl
   ProcessDeclAttributes(S, NewVD, D);
+  CheckAnnotationHostScope(NewVD, D);
 
   if (getLangOpts().HLSL)
     HLSL().ActOnVariableDeclarator(NewVD);
@@ -10501,6 +10502,7 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
 
   // Handle attributes.
   ProcessDeclAttributes(S, NewFD, D);
+  CheckAnnotationHostScope(NewFD, D);
   const auto *NewTVA = NewFD->getAttr<TargetVersionAttr>();
   if (Context.getTargetInfo().getTriple().isAArch64() && NewTVA &&
       !NewTVA->isDefaultVersion() &&

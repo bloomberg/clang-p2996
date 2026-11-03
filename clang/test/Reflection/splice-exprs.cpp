@@ -189,9 +189,41 @@ consteval int getMem(const S *s, int S::* mem) {
 constexpr info rJ = ^^S::j;
 static_assert(getMem(&instance, &[:rJ:]) == 1);
 
-// Member access through a splice of a private member.
-class WithPrivateBase : S {} d;
+// Member access through a splice of a private member of a base class.
+struct WithPublicBase : S {} d;
 int dK = d.[:^^S::k:];
+
+// Member access through a splice does not check the access of the member
+// ([class.access.base]/5.3), but the designating class must be an accessible
+// base of the class of the object expression.
+class WithProtectedMember {
+protected:
+  int prot = 1;
+  constexpr int getProt() const { return 2; }
+public:
+  static constexpr info rProt = ^^prot;
+  static constexpr info rGetProt = ^^WithProtectedMember::getProt;
+};
+struct DerivedFromProtected : WithProtectedMember {};
+class HasPrivateBase : WithProtectedMember {
+  friend consteval int fnPrivateBase();
+};
+consteval int fnPrivateBase() {
+  HasPrivateBase h;
+  return h.[:WithProtectedMember::rProt:] +
+         (&h)->[:WithProtectedMember::rGetProt:]();
+}
+static_assert(fnPrivateBase() == 3);
+consteval int fnProtectedMember() {
+  DerivedFromProtected p;
+  return p.[:WithProtectedMember::rProt:] +
+         (&p)->[:WithProtectedMember::rGetProt:]();
+}
+static_assert(fnProtectedMember() == 3);
+template <typename T, info R>
+consteval int fnDependent(T t) { return t.[:R:] + (&t)->[:R:]; }
+static_assert(fnDependent<DerivedFromProtected,
+                         WithProtectedMember::rProt>({}) == 2);
 
 }  // namespace with_member_access
 
@@ -296,7 +328,80 @@ constexpr info rB = ^^B, rClsB = ^^EnumCls::B;
 static_assert(rB != rClsB);
 static_assert(int([:rB:]) == int([:rClsB:]));
 static_assert(static_cast<Enum>([:rClsB:]) == B);
+
+// A splice of a member enumerator in a class member access ([expr.ref]/8.5):
+// the object expression is a discarded-value expression.
+struct S {
+  enum { E = 2 };
+  enum class Scoped { F = 3 };
+};
+struct D : S {};
+constexpr S s{};
+static_assert(s.[:^^S::E:] == 2);
+static_assert((&s)->[:^^S::E:] == 2);
+static_assert(D{}.[:^^S::Scoped::F:] == S::Scoped::F);
+template <info R> consteval int dependent(const S &obj) { return obj.[:R:]; }
+static_assert(dependent<^^S::E>(s) == 2);
 }  // namespace with_enums
+
+                              // ==================
+                              // decltype_of_splice
+                              // ==================
+
+namespace decltype_of_splice {
+// decltype of an unparenthesized splice-expression is the type of the
+// designated entity ([dcl.type.decltype]/1.4).
+int g;
+const int cg = 1;
+int &rg = g;
+int &&rrg = 1;
+struct S { int m; static int sm; };
+constexpr S cs{1};
+template <auto V> constexpr int vt = V;
+enum E { A };
+void fn();
+
+static_assert(__is_same(decltype([:^^g:]), int));
+static_assert(__is_same(decltype([:^^cg:]), const int));
+static_assert(__is_same(decltype([:^^rg:]), int &));
+static_assert(__is_same(decltype([:^^rrg:]), int &&));
+static_assert(__is_same(decltype([:^^S::sm:]), int));
+static_assert(__is_same(decltype(cs.[:^^S::m:]), int));
+static_assert(__is_same(decltype([:^^A:]), E));
+static_assert(__is_same(decltype([:^^fn:]), void ()));
+static_assert(__is_same(decltype(template [:^^vt:]<1>), const int));
+
+// A parenthesized splice-expression follows the rules for other expressions.
+static_assert(__is_same(decltype(([:^^g:])), int &));
+static_assert(__is_same(decltype(([:^^rrg:])), int &));
+static_assert(__is_same(decltype(([:^^A:])), E));
+
+template <info R> using type_of_splice = decltype([:R:]);
+static_assert(__is_same(type_of_splice<^^g>, int));
+static_assert(__is_same(type_of_splice<^^rrg>, int &&));
+}  // namespace decltype_of_splice
+
+                       // ==============================
+                       // default_arguments_through_splice
+                       // ==============================
+
+namespace default_arguments_through_splice {
+// A splice of a function denotes an overload set containing all declarations
+// of the function that precede the expression ([expr.prim.splice]/2.2), so a
+// default argument added by a later redeclaration is used.
+constexpr int fn(int, int);
+constexpr info r = ^^fn;
+constexpr int fn(int a, int b = 3) { return a + b; }
+static_assert([:r:](1) == 4);
+static_assert([:^^fn:](1, 1) == 2);
+
+struct S {
+  constexpr int m(int) const;
+  static constexpr info rm = ^^S::m;
+};
+constexpr int S::m(int a = 7) const { return a; }
+static_assert(S{}.[:S::rm:]() == 7);
+}  // namespace default_arguments_through_splice
 
                             // ====================
                             // address_of_bit_field
@@ -414,3 +519,22 @@ template <info M>
 consteval int splice_member(const S *p) { return p->[:M:]; }
 static_assert(splice_member<^^S::k>(&s) == 3);
 }  // namespace bb_clang_p2996_issue_350_regression_test
+
+                     // ===================================
+                     // dependent_splice_as_template_argument
+                     // ===================================
+
+namespace dependent_splice_as_template_argument {
+// A dependent splice-expression has no model expression yet; classifying it
+// (e.g. to deduce an 'auto' template parameter in a requires-expression)
+// must use its value kind rather than crash.
+template <auto> struct probe;
+template <info Mem> consteval bool usable() {
+  if constexpr (requires { typename probe<([:Mem:])>; })
+    return true;
+  return false;
+}
+struct S { static const int K = 7; static int runtime; };
+static_assert(usable<^^S::K>());
+static_assert(!usable<^^S::runtime>());
+}  // namespace dependent_splice_as_template_argument
