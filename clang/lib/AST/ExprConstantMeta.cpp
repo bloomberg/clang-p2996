@@ -1114,6 +1114,11 @@ static TemplateName findTemplateOfType(QualType QT) {
   if (const ElaboratedType *ET = dyn_cast<ElaboratedType>(QT))
     QT = ET->getNamedType();
 
+  // A type alias that is not a specialization of an alias template has no
+  // template, even if its underlying entity is a template specialization.
+  if (isa<TypedefType>(QT) || isa<UsingType>(QT))
+    return TemplateName();
+
   if (auto *TST = dyn_cast<TemplateSpecializationType>(QT)) {
     TemplateName TName = TST->getTemplateName();
     if (TName.getKind() == TemplateName::QualifiedTemplate)
