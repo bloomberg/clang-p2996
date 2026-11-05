@@ -258,6 +258,100 @@ static_assert(!has_external_linkage(^^TFn));
 static_assert(!has_external_linkage(^^TVar));
 }  // namespace linkage
 
+                              // ====================
+                              // c_language_linkage
+                              // ====================
+
+namespace c_language_linkage {
+
+int cxx_var;
+void cxx_fn(int);
+struct S { void mem_fn(unsigned); };
+using cxx_fn_type = void(int);
+struct S2 {
+    int var;
+    void fun();   
+} vs2;
+S2& vs2_ref = vs2;
+static_assert(!has_c_language_linkage(^^cxx_var));
+static_assert(!has_c_language_linkage(^^cxx_fn));
+static_assert(!has_c_language_linkage(^^S));
+static_assert(!has_c_language_linkage(^^S::mem_fn));
+static_assert(!has_c_language_linkage(^^cxx_fn_type));
+static_assert(!has_c_language_linkage(^^S2));
+static_assert(!has_c_language_linkage(^^S2::var));
+static_assert(!has_c_language_linkage(^^S2::fun));
+static_assert(!has_c_language_linkage(^^vs2));
+static_assert(!has_c_language_linkage(^^vs2_ref));
+
+template <typename T> struct TCls;
+template <typename T> void TFn();
+template <typename T> int TVar;
+
+static_assert(!has_c_language_linkage(^^TCls));
+static_assert(!has_c_language_linkage(^^TFn));
+static_assert(!has_c_language_linkage(^^TVar));
+
+extern "C" {
+void c_fun(int);
+int c_var;
+typedef void tdef_fun(void*);
+using alias_fun = void*(int);
+typedef char *pchr;
+using pdbl = double*;
+}
+
+static_assert(has_c_language_linkage(^^c_fun));
+static_assert(has_c_language_linkage(^^c_var));
+static_assert(has_c_language_linkage(^^tdef_fun));
+static_assert(has_c_language_linkage(^^alias_fun));
+static_assert(!has_c_language_linkage(^^pchr));
+static_assert(!has_c_language_linkage(^^pdbl));
+
+extern "C" void other_c_fun(int);
+
+static_assert(has_c_language_linkage(^^other_c_fun));
+
+extern "C" {
+static void fs() {}
+}
+
+static_assert(!has_c_language_linkage(^^fs));
+static_assert(!has_c_language_linkage(type_of(^^fs)));
+static_assert(has_internal_linkage(^^fs));
+
+extern "C" {
+namespace { void inner_c_fun() {} }
+}
+
+static_assert(has_c_language_linkage(^^inner_c_fun));
+
+extern "C" {
+extern "C++" {
+void cxx_fun_extern(int);
+}
+}
+
+static_assert(!has_c_language_linkage(^^cxx_fun_extern));
+
+namespace inner_ns { 
+void inner_fun();
+int inner_var;
+}
+namespace inner_ns_alias = inner_ns;
+
+static_assert(!has_c_language_linkage(^^inner_ns));
+static_assert(!has_c_language_linkage(^^inner_ns::inner_fun));
+static_assert(!has_c_language_linkage(^^inner_ns::inner_var));
+static_assert(!has_c_language_linkage(^^inner_ns_alias));
+
+extern "C" {
+struct CCls { void mem_fn(int); };
+}
+
+static_assert(!has_c_language_linkage(^^CCls::mem_fn));
+}  // namespace c_language_linkage
+
 export module test_module;
 namespace linkage {
 int module_global;
