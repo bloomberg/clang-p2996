@@ -286,6 +286,8 @@ public:
   /// statement reading.
   void readOpenACCClauseList(MutableArrayRef<const OpenACCClause *> Clauses);
 
+  void readCXX26AnnotationAttr(CXX26AnnotationAttr *A);
+
   void readOpenACCRoutineDeclAttr(OpenACCRoutineDeclAttr *A);
 
   /// Read a source location, advancing Idx.

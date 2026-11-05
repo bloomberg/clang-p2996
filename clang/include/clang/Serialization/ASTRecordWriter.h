@@ -353,6 +353,8 @@ public:
   /// Writes out a list of OpenACC clauses.
   void writeOpenACCClauseList(ArrayRef<const OpenACCClause *> Clauses);
 
+  void AddCXX26AnnotationAttr(const CXX26AnnotationAttr *A);
+
   void AddOpenACCRoutineDeclAttr(const OpenACCRoutineDeclAttr *A);
 
   /// Emit a string.

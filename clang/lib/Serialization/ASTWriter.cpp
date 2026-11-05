@@ -8964,6 +8964,12 @@ void ASTRecordWriter::writeOpenACCClauseList(
   for (const OpenACCClause *Clause : Clauses)
     writeOpenACCClause(Clause);
 }
+
+void ASTRecordWriter::AddCXX26AnnotationAttr(const CXX26AnnotationAttr *A) {
+  AddAPValue(A->getValue());
+  AddSourceLocation(A->getEqLoc());
+}
+
 void ASTRecordWriter::AddOpenACCRoutineDeclAttr(
     const OpenACCRoutineDeclAttr *A) {
   // We have to write the size so that the reader can do a resize. Unlike the
